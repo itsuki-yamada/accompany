@@ -67,10 +67,14 @@ test("出力に含まれる URL をクリックすると、新しいタブで開
     route.fulfill({ contentType: "text/html", body: "<title>example</title>" }),
   );
 
-  const link = page.locator(".xterm-rows > div").filter({ hasText: /https:\/\/example\.com\/accompany/ });
+  // 行の中の文字が入った要素から、URL の文字の位置を求める（等幅なので、文字数と幅から 1 文字の幅がわかる）
+  const link = page
+    .locator(".xterm-rows > div")
+    .filter({ hasText: /https:\/\/example\.com\/accompany/ })
+    .locator("span")
+    .first();
   const box = (await link.boundingBox())!;
   const text = (await link.textContent()) ?? "";
-  // URL の文字の上にマウスを置いてクリックする（等幅なので、文字の位置から座標を求める）
   const charWidth = box.width / text.length;
   const x = box.x + charWidth * (text.indexOf("https://") + 5);
   const [popup] = await Promise.all([
