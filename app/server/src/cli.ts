@@ -15,7 +15,9 @@ const command = positionals.length > 0 ? positionals : [process.env.SHELL ?? "/b
 const session = new TerminalSession(command);
 const app = createApp(session);
 
+// 認証がないため、同じネットワークの他のマシンからは操作できないよう loopback だけで待ち受ける
 const server = Bun.serve({
+  hostname: "127.0.0.1",
   port: Number(values.port),
   development: false,
   routes: { "/": index },
