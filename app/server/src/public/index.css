@@ -71,10 +71,6 @@ body {
   background: #1a1a1a;
 }
 
-.pane-bar span {
-  flex: 1;
-}
-
 .pane-bar button {
   border: none;
   background: none;
@@ -93,4 +89,37 @@ body {
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
+}
+
+/* フォーカスしている参加者の表示。自分がフォーカスしているターミナルは、枠を自分の色で強調する */
+.pane {
+  box-sizing: border-box;
+  border: 2px solid transparent;
+}
+
+.pane[data-focused="true"] {
+  border-color: var(--focus-color);
+}
+
+.pane[data-focused="true"] .pane-bar {
+  color: #fff;
+}
+
+.pane-title {
+  flex: 0 0 auto;
+}
+
+.pane-viewers {
+  flex: 1;
+  display: flex;
+  gap: 4px;
+}
+
+.viewer {
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 16px;
+  color: #000;
+  background: var(--viewer-color);
 }

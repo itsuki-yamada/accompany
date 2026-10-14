@@ -1,4 +1,4 @@
-import { Pane } from "./pane";
+import { Pane, type Viewer } from "./pane";
 
 type Layout =
   | { type: "terminal"; id: string }
@@ -6,6 +6,11 @@ type Layout =
 
 const root = document.getElementById("workspace")!;
 const panes = new Map<string, Pane>();
+
+// 参加者とそのフォーカス先。自分が誰かはサーバーが最初に教えてくれる
+type Member = { id: number; name: string; color: string; terminal?: string };
+let you: number | undefined;
+let members: Member[] = [];
 
 const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 const socket = new WebSocket(`${protocol}//${location.host}/ws/workspace`);
@@ -17,9 +22,15 @@ let dragging = false;
 let deferredLayout: Layout | undefined;
 socket.onmessage = (event) => {
   const message = JSON.parse(event.data);
-  if (message.type !== "layout") return;
-  if (dragging) deferredLayout = message.layout;
-  else render(message.layout);
+  if (message.type === "welcome") {
+    you = message.you;
+  } else if (message.type === "presence") {
+    members = message.members;
+    showViewers();
+  } else if (message.type === "layout") {
+    if (dragging) deferredLayout = message.layout;
+    else render(message.layout);
+  }
 };
 
 function render(layout: Layout) {
@@ -36,6 +47,7 @@ function render(layout: Layout) {
   element.style.flex = "1 1 0";
   root.replaceChildren(element);
   panes.forEach((pane) => pane.setClosable(ids.size > 1));
+  showViewers();
   if (isFirstRender) panes.values().next().value?.focus();
 }
 
@@ -57,6 +69,7 @@ function paneFor(id: string) {
     pane = new Pane(id, {
       split: (direction) => send({ type: "split", terminal: id, direction }),
       close: () => send({ type: "close", terminal: id }),
+      focused: () => send({ type: "focus", terminal: id }),
     });
     panes.set(id, pane);
   }
@@ -95,6 +108,15 @@ function divider(split: HTMLElement, node: Extract<Layout, { type: "split" }>, f
     element.addEventListener("pointerup", up);
   });
   return element;
+}
+
+function showViewers() {
+  for (const [id, pane] of panes) {
+    const viewers: Viewer[] = members
+      .filter((m) => m.terminal === id)
+      .map((m) => ({ name: m.name, color: m.color, self: m.id === you }));
+    pane.setViewers(viewers);
+  }
 }
 
 function terminalIds(node: Layout): string[] {

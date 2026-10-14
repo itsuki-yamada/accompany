@@ -5,12 +5,23 @@ export type Layout =
   | { type: "terminal"; id: string }
   | { type: "split"; id: string; direction: "row" | "column"; ratio: number; children: [Layout, Layout] };
 
-type Listener = (layout: Layout) => void;
+// 参加者。認証がまだないので、接続順に「参加者 N」と呼び、色を割り当てる
+export type Member = { id: number; name: string; color: string; terminal?: string };
+
+// 参加者に配るもの
+export type WorkspaceEvent =
+  | { type: "welcome"; you: number }
+  | { type: "layout"; layout: Layout }
+  | { type: "presence"; members: Member[] };
+type Listener = (event: WorkspaceEvent) => void;
+
+const colors = ["#4fc3f7", "#ffb74d", "#81c784", "#f06292", "#ba68c8", "#fff176"];
 
 // 参加者全員で共有する、分割の配置とターミナルの一覧
 export class Workspace {
   private terminals = new Map<string, TerminalSession>();
-  private listeners = new Set<Listener>();
+  private members = new Map<Listener, Member>();
+  private nextMemberId = 1;
   // ターミナルの番号は画面に出るので、分割の節とは別に数えて 1, 2, 3 と続ける
   private nextId = 1;
   private nextSplitId = 1;
@@ -28,10 +39,24 @@ export class Workspace {
     return this.terminals.get(id);
   }
 
-  subscribe(listener: Listener): () => void {
-    this.listeners.add(listener);
-    listener(this.layout);
-    return () => this.listeners.delete(listener);
+  // 参加者として加わる。返り値でフォーカス先を伝えたり、抜けたりする
+  join(listener: Listener) {
+    const id = this.nextMemberId++;
+    const member: Member = { id, name: `参加者 ${id}`, color: colors[(id - 1) % colors.length]! };
+    this.members.set(listener, member);
+    listener({ type: "welcome", you: id });
+    listener({ type: "layout", layout: this.layout });
+    this.notifyPresence();
+    return {
+      focus: (terminalId: string) => {
+        member.terminal = terminalId;
+        this.notifyPresence();
+      },
+      leave: () => {
+        this.members.delete(listener);
+        this.notifyPresence();
+      },
+    };
   }
 
   split(terminalId: string, direction: "row" | "column") {
@@ -87,7 +112,12 @@ export class Workspace {
   }
 
   private notify() {
-    this.listeners.forEach((l) => l(this.layout));
+    this.members.forEach((_, l) => l({ type: "layout", layout: this.layout }));
+  }
+
+  private notifyPresence() {
+    const members = [...this.members.values()];
+    this.members.forEach((_, l) => l({ type: "presence", members }));
   }
 }
 
