@@ -47,6 +47,16 @@ test("下に分割すると、新しいターミナルが下に並ぶ", async ({
   expect(Math.abs(bottom.x - top.x)).toBeLessThan(2);
 });
 
+test("分割を重ねると、ターミナルの番号が 1, 2, 3 と続く", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+
+  await pane(page, 1).getByRole("button", { name: "右に分割" }).click();
+  await pane(page, 2).getByRole("button", { name: "下に分割" }).click();
+
+  await expectPaneToShow(page, 3, "Fake Shell ready");
+});
+
 test("ターミナルを閉じると、残りのターミナルがその場所を埋める", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
