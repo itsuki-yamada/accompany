@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import { websocket } from "hono/bun";
 import { createApp } from "./app";
 import index from "./public/index.html";
+import { Uploads } from "./uploads";
 import { Workspace } from "./workspace";
 
 // accompany [--port <port>] [-- <command...>]
@@ -13,7 +14,8 @@ const { values, positionals } = parseArgs({
 
 const shell = [process.env.SHELL ?? "/bin/sh"];
 const workspace = new Workspace(positionals.length > 0 ? positionals : shell, shell);
-const app = createApp(workspace);
+const uploads = new Uploads();
+const app = createApp(workspace, uploads);
 
 // 認証がないため、同じネットワークの他のマシンからは操作できないよう loopback だけで待ち受ける
 const server = Bun.serve({
@@ -27,10 +29,12 @@ const server = Bun.serve({
   websocket,
 });
 
-// PTY のコマンドは別セッションで動くため、Accompany を止めるときに明示的に止める
+// PTY のコマンドは別セッションで動くため、Accompany を止めるときに明示的に止める。
+// ドロップされたファイルも、Accompany を止めたら要らなくなるので消す
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
   process.on(signal, () => {
     workspace.killAll();
+    uploads.remove();
     process.exit(0);
   });
 }

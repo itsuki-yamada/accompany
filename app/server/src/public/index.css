@@ -239,3 +239,28 @@ body {
   background: #444;
   color: #fff;
 }
+
+/* ファイルをドラッグしている間、ドロップを受け付けることがわかるよう、ターミナルの上に重ねて表示する（検索バーより手前） */
+.drop-indicator {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed #4fc3f7;
+  background: rgb(79 195 247 / 15%);
+  color: #fff;
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.pane[data-drop-target="true"] .drop-indicator,
+.pane[data-drop-error="true"] .drop-indicator {
+  display: flex;
+}
+
+.pane[data-drop-error="true"] .drop-indicator {
+  border-color: #f06292;
+  background: rgb(240 98 146 / 15%);
+}
