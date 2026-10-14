@@ -379,3 +379,19 @@ body {
   font-weight: normal;
   border-bottom: 1px solid #444;
 }
+
+/* エージェントの状態（作業中・入力待ち） */
+.pane-status {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 16px;
+  color: #aaa;
+  border: 1px solid #444;
+}
+
+.pane-status[data-status="working"] {
+  color: #ffd54f;
+  border-color: #ffd54f;
+}

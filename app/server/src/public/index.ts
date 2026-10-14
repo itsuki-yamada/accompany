@@ -1,4 +1,5 @@
-import { Pane, type Viewer } from "./pane";
+import { notifyDone, requestPermissionOnFirstInteraction } from "./notify";
+import { Pane, type AgentStatus, type Viewer } from "./pane";
 import { shortcutList, withKeys, type Direction, type Shortcut } from "./shortcuts";
 
 type Layout =
@@ -11,7 +12,7 @@ type Tabs = { tabs: Tab[]; active: string };
 const root = document.getElementById("workspace")!;
 const tabBar = document.getElementById("tabs")!;
 const panes = new Map<string, Pane>();
-// 最後に届いたタブの並びと表示中のタブ。次／前のタブへの切り替えに使う
+// 最後に届いたタブの並びと表示中のタブ。次／前のタブへの切り替えや、通知をクリックしたときにそのターミナルのタブを探すのに使う
 let current: Tabs | undefined;
 
 // ショートカットの一覧。タブバーのボタンで開く
@@ -24,6 +25,10 @@ let you: number | undefined;
 let members: Member[] = [];
 // ターミナルごとの、コマンドが設定したタイトル
 let titles: Record<string, string> = {};
+// ターミナルごとのエージェントの状態。サーバーが判定して全員に配る
+let statuses: Record<string, AgentStatus> = {};
+
+requestPermissionOnFirstInteraction();
 
 const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 const socket = new WebSocket(`${protocol}//${location.host}/ws/workspace`);
@@ -33,6 +38,8 @@ const send = (message: object) => socket.send(JSON.stringify(message));
 // ただし境界をドラッグしている間は、組み直すとドラッグ中の境界がなくなるので、手を離すまで待つ
 let dragging = false;
 let deferredTabs: Tabs | undefined;
+// タブを切り替えたあと、組み立て直したらフォーカスするターミナル
+let pendingFocus: string | undefined;
 socket.onmessage = (event) => {
   const message = JSON.parse(event.data);
   if (message.type === "welcome") {
@@ -43,6 +50,10 @@ socket.onmessage = (event) => {
   } else if (message.type === "titles") {
     titles = message.titles;
     showTitles();
+  } else if (message.type === "status") {
+    notifyFinished(statuses, message.statuses);
+    statuses = message.statuses;
+    showStatuses();
   } else if (message.type === "tabs") {
     if (dragging) deferredTabs = message;
     else renderTabs(message);
@@ -113,7 +124,11 @@ function render(layout: Layout) {
   panes.forEach((pane) => pane.setClosable(ids.size > 1));
   showViewers();
   showTitles();
-  if (isFirstRender) panes.values().next().value?.focus();
+  showStatuses();
+  if (pendingFocus && panes.has(pendingFocus)) {
+    panes.get(pendingFocus)!.focus();
+    pendingFocus = undefined;
+  } else if (isFirstRender) panes.values().next().value?.focus();
   else if (lostFocus) nearestPane(lostFocus)?.focus();
   else if (active instanceof HTMLElement && active !== document.activeElement && root.contains(active)) active.focus();
 }
@@ -250,6 +265,31 @@ function showViewers() {
 
 function showTitles() {
   panes.forEach((pane, id) => pane.setTitle(titles[id] ?? ""));
+}
+
+function showStatuses() {
+  for (const [id, pane] of panes) pane.setStatus(statuses[id] ?? "idle");
+}
+
+// 作業中から入力待ちに変わったターミナルを、見ていなければ通知する。
+// 見ている = ページが見えていて、そのターミナルが表示中のタブにあり、自分がそのターミナルにフォーカスしている
+function notifyFinished(previous: Record<string, AgentStatus>, next: Record<string, AgentStatus>) {
+  const focused = members.find((m) => m.id === you)?.terminal;
+  for (const [id, status] of Object.entries(next)) {
+    if (previous[id] !== "working" || status !== "idle") continue;
+    if (!document.hidden && panes.has(id) && focused === id) continue;
+    notifyDone(`ターミナル ${id}: 入力待ち`, () => focusTerminal(id));
+  }
+}
+
+// ほかのタブのターミナルなら、そのタブに切り替えてからフォーカスする
+function focusTerminal(id: string) {
+  const pane = panes.get(id);
+  if (pane) return pane.focus();
+  const tab = current?.tabs.find((t) => terminalIds(t.layout).includes(id));
+  if (!tab) return;
+  pendingFocus = id;
+  send({ type: "select-tab", tab: tab.id });
 }
 
 function terminalIds(node: Layout): string[] {

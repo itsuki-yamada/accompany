@@ -1,3 +1,4 @@
+import type { AgentStatus } from "./activity";
 import { TerminalSession } from "./terminal";
 
 // 画面の配置。分割の節は向き（row: 左右、column: 上下）と、1 つ目の子が占める割合を持つ
@@ -17,7 +18,9 @@ export type WorkspaceEvent =
   | { type: "tabs"; tabs: Tab[]; active: string }
   | { type: "presence"; members: Member[] }
   // ターミナルごとの、コマンドが設定したタイトル（ターミナルの ID → タイトル。空のものは含めない）
-  | { type: "titles"; titles: Record<string, string> };
+  | { type: "titles"; titles: Record<string, string> }
+  // ターミナルごとのエージェントの状態
+  | { type: "status"; statuses: Record<string, AgentStatus> };
 type Listener = (event: WorkspaceEvent) => void;
 
 const colors = ["#4fc3f7", "#ffb74d", "#81c784", "#f06292", "#ba68c8", "#fff176"];
@@ -55,6 +58,7 @@ export class Workspace {
     listener({ type: "welcome", you: id });
     listener(this.tabsEvent());
     listener(this.titlesEvent());
+    listener({ type: "status", statuses: this.statuses() });
     this.notifyPresence();
     return {
       focus: (terminalId: string) => {
@@ -147,6 +151,7 @@ export class Workspace {
         command,
         () => this.close(id),
         () => this.notifyTitles(),
+        () => this.notifyStatus(),
       ),
     );
     return { type: "terminal", id };
@@ -194,6 +199,15 @@ export class Workspace {
       const event = this.titlesEvent();
       this.members.forEach((_, l) => l(event));
     });
+  }
+
+  private statuses() {
+    return Object.fromEntries([...this.terminals].map(([id, t]) => [id, t.status]));
+  }
+
+  private notifyStatus() {
+    const statuses = this.statuses();
+    this.members.forEach((_, l) => l({ type: "status", statuses }));
   }
 
   private notifyPresence() {
