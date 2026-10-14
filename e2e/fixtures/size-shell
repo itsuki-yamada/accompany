@@ -1,0 +1,3 @@
+#!/bin/sh
+# E2E で $SHELL の代わりに起動し、端末のサイズを表示し続ける
+exec bun e2e/fixtures/size-reporter.ts
