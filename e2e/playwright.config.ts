@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests",
-  // テストは既定のポートで Accompany を起動するため、並行に実行しない
+  // テストどうしが同じポートで Accompany を起動するため、並行に実行しない
   workers: 1,
   // HTML レポートは CI で成果物としてアップロードする
   reporter: [["list"], ["html", { open: "never" }]],
