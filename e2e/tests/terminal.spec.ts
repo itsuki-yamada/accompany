@@ -6,7 +6,9 @@ const fakeAgent = ["--", "bun", "e2e/fixtures/fake-agent.ts"];
 
 let accompany: Accompany | undefined;
 
-test.afterEach(() => accompany?.stop());
+test.afterEach(async () => {
+  await accompany?.stop();
+});
 
 test("起動時に指定したコマンドの出力が、ブラウザの端末に表示される", async ({ page }) => {
   accompany = await startAccompany(fakeAgent);
@@ -40,4 +42,14 @@ test("--port で指定したポートで起動する", async ({ page }) => {
   expect(new URL(accompany.url).port).toBe("4789");
   await page.goto(accompany.url);
   await expectTerminalToShow(page, "Fake Agent ready");
+});
+
+test("同じポートで Accompany が動いているときは、起動に失敗する", async () => {
+  accompany = await startAccompany(["--port", "4790", ...fakeAgent]);
+
+  // 二重に待ち受けると、ブラウザの接続がどちらのコマンドにつながるか分からなくなる
+  const second = await startAccompany(["--port", "4790", ...fakeAgent]).catch((e: Error) => e);
+  if (!(second instanceof Error)) await second.stop();
+
+  expect(second).toBeInstanceOf(Error);
 });

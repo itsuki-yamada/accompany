@@ -6,7 +6,9 @@ const fakeAgent = ["--", "bun", "e2e/fixtures/fake-agent.ts"];
 
 let accompany: Accompany | undefined;
 
-test.afterEach(() => accompany?.stop());
+test.afterEach(async () => {
+  await accompany?.stop();
+});
 
 // ブラウザによっては外部サイトから localhost への接続を止めるが、それに頼らずサーバー側で拒否することを確かめるため、
 // ヘッダーを指定して端末の WebSocket に直接接続し、応答のステータスを返す
