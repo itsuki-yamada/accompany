@@ -78,3 +78,64 @@ for (const [name, path] of [
     expect(status).toBe(403);
   });
 }
+
+// ファイルをアップロードし、応答のステータスを返す。ブラウザを通さずに、Host と Origin を指定して直接送る
+function upload(port: string, headers: { Host: string; Origin: string }) {
+  const boundary = "accompany-e2e-boundary";
+  const body = [
+    `--${boundary}`,
+    'Content-Disposition: form-data; name="files"; filename="note.txt"',
+    "Content-Type: text/plain",
+    "",
+    "hello",
+    `--${boundary}--`,
+    "",
+  ].join("\r\n");
+  return new Promise<number | undefined>((resolve, reject) => {
+    const req = request({
+      host: "127.0.0.1",
+      port,
+      method: "POST",
+      path: "/api/uploads",
+      headers: {
+        ...headers,
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "Content-Length": Buffer.byteLength(body),
+      },
+    });
+    req.on("response", (res) => {
+      res.resume();
+      resolve(res.statusCode);
+    });
+    req.on("error", reject);
+    req.end(body);
+  });
+}
+
+// アップロードしたファイルはサーバー上に保存され、パスがターミナルに貼り付けられるので、WebSocket と同じく守る
+test("Accompany の画面からは、ファイルをアップロードできる", async () => {
+  accompany = await startAccompany(fakeAgent);
+  const { port } = new URL(accompany.url);
+
+  const status = await upload(port, { Host: `localhost:${port}`, Origin: `http://localhost:${port}` });
+
+  expect(status).toBe(200);
+});
+
+test("別のサイトのページからは、ファイルをアップロードできない", async () => {
+  accompany = await startAccompany(fakeAgent);
+  const { port } = new URL(accompany.url);
+
+  const status = await upload(port, { Host: `localhost:${port}`, Origin: "http://evil.test" });
+
+  expect(status).toBe(403);
+});
+
+test("localhost 以外のホスト名で届いたアップロードは受け付けない（DNS rebinding 対策）", async () => {
+  accompany = await startAccompany(fakeAgent);
+  const { port } = new URL(accompany.url);
+
+  const status = await upload(port, { Host: `evil.test:${port}`, Origin: `http://evil.test:${port}` });
+
+  expect(status).toBe(403);
+});
