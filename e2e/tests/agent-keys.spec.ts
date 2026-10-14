@@ -22,7 +22,9 @@ test("Shift+Enter を押すと、改行として ESC + CR がコマンドに届�
 
   await page.locator(".xterm-helper-textarea").focus();
   await page.keyboard.press("Shift+Enter");
-  // 余分な CR が届くと送信されてしまうので、確認用のキーを続けて押し、届いたものがちょうどこれだけかを確かめる
+  // 余分な CR が届くと送信されてしまうので、確認用のキーを続けて押し、届いたものがちょうどこれだけかを確かめる。
+  // 2 つがまとめて読み取られて 1 行にならないよう、ESC + CR が届いてから押す
+  await expect(terminalScreen(page)).toContainText("keys: 1b 0d");
   await page.keyboard.press("a");
 
   await expect(terminalScreen(page)).toContainText("keys: 61");
