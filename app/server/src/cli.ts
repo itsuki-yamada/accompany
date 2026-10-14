@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 import { websocket } from "hono/bun";
 import { createApp } from "./app";
 import index from "./public/index.html";
-import { TerminalSession } from "./terminal";
+import { Workspace } from "./workspace";
 
 // accompany [--port <port>] [-- <command...>]
 const { values, positionals } = parseArgs({
@@ -11,9 +11,9 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
 });
 
-const command = positionals.length > 0 ? positionals : [process.env.SHELL ?? "/bin/sh"];
-const session = new TerminalSession(command);
-const app = createApp(session);
+const shell = [process.env.SHELL ?? "/bin/sh"];
+const workspace = new Workspace(positionals.length > 0 ? positionals : shell, shell);
+const app = createApp(workspace);
 
 // 認証がないため、同じネットワークの他のマシンからは操作できないよう loopback だけで待ち受ける
 const server = Bun.serve({
@@ -30,7 +30,7 @@ const server = Bun.serve({
 // PTY のコマンドは別セッションで動くため、Accompany を止めるときに明示的に止める
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
   process.on(signal, () => {
-    session.kill();
+    workspace.killAll();
     process.exit(0);
   });
 }

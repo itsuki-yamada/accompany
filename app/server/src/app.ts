@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/bun";
 import { createMiddleware } from "hono/factory";
-import type { Participant, Size, TerminalSession } from "./terminal";
+import type { Participant, Size } from "./terminal";
+import type { Workspace } from "./workspace";
 
 const loopbackHostnames = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
@@ -25,16 +26,53 @@ function parseSize(message: { cols?: unknown; rows?: unknown }): Size | undefine
   return valid(cols) && valid(rows) ? { cols, rows } : undefined;
 }
 
-export function createApp(session: TerminalSession) {
+function parseJson(data: unknown) {
+  try {
+    return JSON.parse(String(data));
+  } catch {
+    return undefined; // 制御メッセージとして読めないものは無視する
+  }
+}
+
+export function createApp(workspace: Workspace) {
   const app = new Hono();
 
+  app.use("/ws/*", sameOriginOnly);
+
+  // 分割の配置を全員に配り、分割・閉じる・割合の変更を受け付ける
   app.get(
-    "/ws",
-    sameOriginOnly,
+    "/ws/workspace",
     upgradeWebSocket(() => {
+      let unsubscribe: (() => void) | undefined;
+      return {
+        onOpen: (_event, ws) => {
+          unsubscribe = workspace.subscribe((layout) =>
+            ws.send(JSON.stringify({ type: "layout", layout })),
+          );
+        },
+        onMessage: (event) => {
+          const message = parseJson(event.data);
+          if (message?.type === "split" && (message.direction === "row" || message.direction === "column")) {
+            workspace.split(String(message.terminal), message.direction);
+          } else if (message?.type === "close") {
+            workspace.close(String(message.terminal));
+          } else if (message?.type === "resize-split" && typeof message.ratio === "number") {
+            workspace.resizeSplit(String(message.split), message.ratio);
+          }
+        },
+        onClose: () => unsubscribe?.(),
+      };
+    }),
+  );
+
+  // ターミナルごとの入出力。出力はバイナリで、端末の大きさの変更は JSON で送る
+  app.get(
+    "/ws/terminals/:id",
+    async (c, next) => (workspace.terminal(c.req.param("id")) ? next() : c.text("Not Found", 404)),
+    upgradeWebSocket((c) => {
+      const session = workspace.terminal(c.req.param("id"))!;
       let participant: Participant | undefined;
       return {
-        // 出力はバイナリで、端末の大きさの変更は JSON で送る
         onOpen: (_event, ws) => {
           participant = session.attach((message) =>
             message.type === "output"
@@ -43,15 +81,10 @@ export function createApp(session: TerminalSession) {
           );
         },
         onMessage: (event) => {
-          let message;
-          try {
-            message = JSON.parse(String(event.data));
-          } catch {
-            return; // 制御メッセージとして読めないものは無視する
-          }
-          if (message.type === "input" && typeof message.data === "string") {
+          const message = parseJson(event.data);
+          if (message?.type === "input" && typeof message.data === "string") {
             session.write(message.data);
-          } else if (message.type === "resize") {
+          } else if (message?.type === "resize") {
             const size = parseSize(message);
             if (size) participant?.resize(size);
           }

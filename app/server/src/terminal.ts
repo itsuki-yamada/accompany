@@ -29,7 +29,11 @@ export class TerminalSession {
   // 書き出した画面にはカーソルの表示・非表示が含まれないため、DECTCEM（CSI ? 25 h/l）を見て自分で追う
   private cursorHidden = false;
 
-  constructor(private command: string[]) {
+  constructor(
+    private command: string[],
+    // コマンドが終了したとき（シェルの exit など）に呼ぶ
+    private onExit: () => void = () => {},
+  ) {
     this.screen.loadAddon(this.serializer);
     for (const [final, hidden] of [["h", false], ["l", true]] as const) {
       this.screen.parser.registerCsiHandler({ prefix: "?", final }, (params) => {
@@ -55,15 +59,18 @@ export class TerminalSession {
     });
 
     // 起動直後の出力を取りこぼさないよう、最初にブラウザがつながったときに起動する
-    this.proc ??= Bun.spawn(this.command, {
-      terminal: {
-        ...this.size,
-        data: (_terminal, data) => {
-          this.screen.write(data);
-          this.broadcast({ type: "output", data });
+    if (!this.proc) {
+      this.proc = Bun.spawn(this.command, {
+        terminal: {
+          ...this.size,
+          data: (_terminal, data) => {
+            this.screen.write(data);
+            this.broadcast({ type: "output", data });
+          },
         },
-      },
-    });
+      });
+      this.proc.exited.then(() => this.onExit());
+    }
 
     return {
       resize: (size) => {
