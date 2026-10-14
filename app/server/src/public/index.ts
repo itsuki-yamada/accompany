@@ -4,7 +4,11 @@ type Layout =
   | { type: "terminal"; id: string }
   | { type: "split"; id: string; direction: "row" | "column"; ratio: number; children: [Layout, Layout] };
 
+type Tab = { id: string; name: string; layout: Layout };
+type Tabs = { tabs: Tab[]; active: string };
+
 const root = document.getElementById("workspace")!;
+const tabBar = document.getElementById("tabs")!;
 const panes = new Map<string, Pane>();
 
 // 参加者とそのフォーカス先。自分が誰かはサーバーが最初に教えてくれる
@@ -16,10 +20,10 @@ const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 const socket = new WebSocket(`${protocol}//${location.host}/ws/workspace`);
 const send = (message: object) => socket.send(JSON.stringify(message));
 
-// 分割の配置は参加者全員で共有する。サーバーから届くたびに組み直す。
+// タブの並びと表示中のタブ、分割の配置は参加者全員で共有する。サーバーから届くたびに組み直す。
 // ただし境界をドラッグしている間は、組み直すとドラッグ中の境界がなくなるので、手を離すまで待つ
 let dragging = false;
-let deferredLayout: Layout | undefined;
+let deferredTabs: Tabs | undefined;
 socket.onmessage = (event) => {
   const message = JSON.parse(event.data);
   if (message.type === "welcome") {
@@ -27,11 +31,46 @@ socket.onmessage = (event) => {
   } else if (message.type === "presence") {
     members = message.members;
     showViewers();
-  } else if (message.type === "layout") {
-    if (dragging) deferredLayout = message.layout;
-    else render(message.layout);
+  } else if (message.type === "tabs") {
+    if (dragging) deferredTabs = message;
+    else renderTabs(message);
   }
 };
+
+// 表示中のタブの配置だけを組み立てる。ほかのタブのターミナルは接続を切り、戻ったときにサーバーから画面を復元する
+function renderTabs({ tabs, active }: Tabs) {
+  const tablist = document.createElement("div");
+  tablist.className = "tab-list";
+  tablist.setAttribute("role", "tablist");
+  tablist.append(
+    ...tabs.map((tab) => {
+      const item = document.createElement("div");
+      item.className = "tab";
+      const select = button(tab.name, tab.name, () => send({ type: "select-tab", tab: tab.id }));
+      select.setAttribute("role", "tab");
+      select.setAttribute("aria-selected", String(tab.id === active));
+      const close = button(`${tab.name} を閉じる`, "×", () => send({ type: "close-tab", tab: tab.id }));
+      // 最後のタブは閉じられない
+      close.disabled = tabs.length === 1;
+      item.append(select, close);
+      return item;
+    }),
+  );
+  tabBar.replaceChildren(tablist, button("新しいタブ", "+", () => send({ type: "new-tab" })));
+
+  const layout = tabs.find((t) => t.id === active)?.layout;
+  if (layout) render(layout);
+}
+
+function button(label: string, text: string, onClick: () => void) {
+  const element = document.createElement("button");
+  element.type = "button";
+  element.textContent = text;
+  element.title = label;
+  element.setAttribute("aria-label", label);
+  element.addEventListener("click", onClick);
+  return element;
+}
 
 function render(layout: Layout) {
   const ids = new Set(terminalIds(layout));
@@ -101,8 +140,8 @@ function divider(split: HTMLElement, node: Extract<Layout, { type: "split" }>, f
       element.removeEventListener("pointermove", move);
       element.removeEventListener("pointerup", up);
       dragging = false;
-      if (deferredLayout) render(deferredLayout);
-      deferredLayout = undefined;
+      if (deferredTabs) renderTabs(deferredTabs);
+      deferredTabs = undefined;
     };
     element.addEventListener("pointermove", move);
     element.addEventListener("pointerup", up);
