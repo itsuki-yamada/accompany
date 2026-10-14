@@ -5,13 +5,25 @@ import { fileURLToPath } from "node:url";
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const defaultCommand = "bun app/server/src/cli.ts";
 
-export type Accompany = { url: string; stop: () => void };
+export type Accompany = { url: string; stop: () => Promise<void> };
 
-export function startAccompany(args: string[] = []): Promise<Accompany> {
+export function startAccompany(
+  args: string[] = [],
+  env: Record<string, string> = {},
+): Promise<Accompany> {
   const command = [process.env.ACCOMPANY_CMD ?? defaultCommand, ...args].join(" ");
-  const child: ChildProcess = spawn(command, { cwd: repoRoot, shell: true, detached: true });
-  const stop = () => {
-    if (child.pid) process.kill(-child.pid);
+  const child: ChildProcess = spawn(command, {
+    cwd: repoRoot,
+    shell: true,
+    detached: true,
+    env: { ...process.env, ...env },
+  });
+  // 次のテストが同じポートで起動できるよう、プロセスグループ全体が終わるまで待つ
+  const stop = async () => {
+    const pgid = child.pid;
+    if (!pgid) return;
+    process.kill(-pgid);
+    while (isAlive(pgid)) await new Promise((r) => setTimeout(r, 20));
   };
 
   return new Promise((resolve, reject) => {
@@ -27,4 +39,13 @@ export function startAccompany(args: string[] = []): Promise<Accompany> {
       reject(new Error(`Accompany が URL を表示する前に終了した (code: ${code})\n${output}`)),
     );
   });
+}
+
+function isAlive(pgid: number) {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
