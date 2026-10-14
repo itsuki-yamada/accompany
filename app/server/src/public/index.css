@@ -181,3 +181,61 @@ body {
   color: #000;
   background: var(--viewer-color);
 }
+
+/* ターミナルの検索バー。参加者ごとに、ターミナルの右上に重ねて開く。
+   ターミナルの表示領域を狭めると、端末の大きさ（参加者のうち一番小さい表示領域に合わせる）が変わり、
+   ほかの参加者の画面にも影響するので、重ねて表示する */
+.pane {
+  position: relative;
+}
+
+.search-bar {
+  position: absolute;
+  top: 24px;
+  right: 12px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  font-size: 12px;
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 4px;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 50%);
+}
+
+.search-bar[hidden] {
+  display: none;
+}
+
+.search-bar input {
+  flex: 0 1 200px;
+  min-width: 60px;
+  padding: 1px 4px;
+  border: 1px solid #555;
+  border-radius: 3px;
+  background: #111;
+  color: #eee;
+  font: inherit;
+}
+
+.search-count {
+  min-width: 48px;
+  color: #aaa;
+}
+
+.search-bar button {
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.search-bar button[aria-pressed="true"] {
+  border-color: #888;
+  background: #444;
+  color: #fff;
+}
