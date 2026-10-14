@@ -1,13 +1,96 @@
 @import "@xterm/xterm/css/xterm.css";
 
+html,
 body {
   margin: 0;
+  height: 100%;
   background: #000;
+  color: #ccc;
+  font-family: system-ui, sans-serif;
 }
 
-/* 自分の画面に収まる端末の大きさを、この領域から計算する */
-#terminal {
+#workspace {
+  display: flex;
   width: 100vw;
   height: 100vh;
+  overflow: hidden;
+}
+
+#workspace > *,
+.split > .split,
+.split > .pane {
+  min-width: 0;
+  min-height: 0;
+}
+
+#workspace > * {
+  flex: 1 1 0;
+}
+
+.split {
+  display: flex;
+}
+
+.split-row {
+  flex-direction: row;
+}
+
+.split-column {
+  flex-direction: column;
+}
+
+.divider {
+  flex: 0 0 4px;
+  background: #333;
+}
+
+.split-row > .divider {
+  cursor: col-resize;
+}
+
+.split-column > .divider {
+  cursor: row-resize;
+}
+
+.divider:hover {
+  background: #555;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+}
+
+.pane-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 6px;
+  font-size: 12px;
+  background: #1a1a1a;
+}
+
+.pane-bar span {
+  flex: 1;
+}
+
+.pane-bar button {
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.pane-bar button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* 自分の表示領域に収まる端末の大きさを、この領域から計算する */
+.pane-terminal {
+  flex: 1 1 0;
+  min-height: 0;
   overflow: hidden;
 }

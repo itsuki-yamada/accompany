@@ -11,13 +11,13 @@ test.afterEach(async () => {
 });
 
 // ブラウザによっては外部サイトから localhost への接続を止めるが、それに頼らずサーバー側で拒否することを確かめるため、
-// ヘッダーを指定して端末の WebSocket に直接接続し、応答のステータスを返す
-function connectTerminal(port: string, headers: { Host: string; Origin: string }) {
+// ヘッダーを指定して WebSocket に直接接続し、応答のステータスを返す
+function connect(path: string, port: string, headers: { Host: string; Origin: string }) {
   return new Promise<number | undefined>((resolve, reject) => {
     const req = request({
       host: "127.0.0.1",
       port,
-      path: "/ws",
+      path,
       headers: {
         ...headers,
         Connection: "Upgrade",
@@ -36,39 +36,45 @@ function connectTerminal(port: string, headers: { Host: string; Origin: string }
   });
 }
 
-test("Accompany の画面からは、端末の WebSocket につながる", async () => {
-  accompany = await startAccompany(fakeAgent);
-  const { port } = new URL(accompany.url);
+// 端末はサーバー上のコマンドを操作でき、配置の WebSocket からはターミナルを増やせるので、どちらも守る
+for (const [name, path] of [
+  ["ターミナル", "/ws/terminals/1"],
+  ["画面の配置", "/ws/workspace"],
+] as const) {
+  test(`Accompany の画面からは、${name}の WebSocket につながる`, async () => {
+    accompany = await startAccompany(fakeAgent);
+    const { port } = new URL(accompany.url);
 
-  const status = await connectTerminal(port, {
-    Host: `localhost:${port}`,
-    Origin: `http://localhost:${port}`,
+    const status = await connect(path, port, {
+      Host: `localhost:${port}`,
+      Origin: `http://localhost:${port}`,
+    });
+
+    expect(status).toBe(101);
   });
 
-  expect(status).toBe(101);
-});
+  test(`別のサイトのページからは、${name}の WebSocket につながらない`, async () => {
+    accompany = await startAccompany(fakeAgent);
+    const { port } = new URL(accompany.url);
 
-test("別のサイトのページからは、端末の WebSocket につながらない", async () => {
-  accompany = await startAccompany(fakeAgent);
-  const { port } = new URL(accompany.url);
+    const status = await connect(path, port, {
+      Host: `localhost:${port}`,
+      Origin: "http://evil.test",
+    });
 
-  const status = await connectTerminal(port, {
-    Host: `localhost:${port}`,
-    Origin: "http://evil.test",
+    expect(status).toBe(403);
   });
 
-  expect(status).toBe(403);
-});
+  test(`localhost 以外のホスト名で届いた接続は、${name}の WebSocket につながらない（DNS rebinding 対策）`, async () => {
+    accompany = await startAccompany(fakeAgent);
+    const { port } = new URL(accompany.url);
 
-test("localhost 以外のホスト名で届いた接続は、端末の WebSocket につながらない（DNS rebinding 対策）", async () => {
-  accompany = await startAccompany(fakeAgent);
-  const { port } = new URL(accompany.url);
+    // DNS rebinding では Host と Origin が攻撃者のドメインでそろう
+    const status = await connect(path, port, {
+      Host: `evil.test:${port}`,
+      Origin: `http://evil.test:${port}`,
+    });
 
-  // DNS rebinding では Host と Origin が攻撃者のドメインでそろう
-  const status = await connectTerminal(port, {
-    Host: `evil.test:${port}`,
-    Origin: `http://evil.test:${port}`,
+    expect(status).toBe(403);
   });
-
-  expect(status).toBe(403);
-});
+}

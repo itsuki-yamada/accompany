@@ -1,33 +1,102 @@
-import { FitAddon } from "@xterm/addon-fit";
-import { Terminal } from "@xterm/xterm";
+import { Pane } from "./pane";
 
-const terminal = new Terminal();
-const fit = new FitAddon();
-terminal.loadAddon(fit);
-terminal.open(document.getElementById("terminal")!);
-terminal.focus();
+type Layout =
+  | { type: "terminal"; id: string }
+  | { type: "split"; id: string; direction: "row" | "column"; ratio: number; children: [Layout, Layout] };
+
+const root = document.getElementById("workspace")!;
+const panes = new Map<string, Pane>();
 
 const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-const socket = new WebSocket(`${protocol}//${location.host}/ws`);
-socket.binaryType = "arraybuffer";
+const socket = new WebSocket(`${protocol}//${location.host}/ws/workspace`);
+const send = (message: object) => socket.send(JSON.stringify(message));
 
-// 端末の大きさは参加者のうち一番小さい画面に合わせるため、自分の画面に収まる大きさをサーバーに伝え、
-// サーバーが決めた大きさで描く
-const sendSize = () => {
-  const size = fit.proposeDimensions();
-  if (size && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: "resize", cols: size.cols, rows: size.rows }));
-  }
-};
-socket.onopen = sendSize;
-window.addEventListener("resize", sendSize);
-
+// 分割の配置は参加者全員で共有する。サーバーから届くたびに組み直す。
+// ただし境界をドラッグしている間は、組み直すとドラッグ中の境界がなくなるので、手を離すまで待つ
+let dragging = false;
+let deferredLayout: Layout | undefined;
 socket.onmessage = (event) => {
-  if (typeof event.data === "string") {
-    const message = JSON.parse(event.data);
-    if (message.type === "resize") terminal.resize(message.cols, message.rows);
-  } else {
-    terminal.write(new Uint8Array(event.data));
-  }
+  const message = JSON.parse(event.data);
+  if (message.type !== "layout") return;
+  if (dragging) deferredLayout = message.layout;
+  else render(message.layout);
 };
-terminal.onData((data) => socket.send(JSON.stringify({ type: "input", data })));
+
+function render(layout: Layout) {
+  const ids = new Set(terminalIds(layout));
+  for (const [id, pane] of panes) {
+    if (!ids.has(id)) {
+      pane.dispose();
+      panes.delete(id);
+    }
+  }
+  const isFirstRender = panes.size === 0;
+  const element = build(layout);
+  // 分割の子だったときの割合が残らないよう、一番外側は画面いっぱいに広げる
+  element.style.flex = "1 1 0";
+  root.replaceChildren(element);
+  panes.forEach((pane) => pane.setClosable(ids.size > 1));
+  if (isFirstRender) panes.values().next().value?.focus();
+}
+
+function build(node: Layout): HTMLElement {
+  if (node.type === "terminal") return paneFor(node.id).element;
+
+  const split = document.createElement("div");
+  split.className = `split split-${node.direction}`;
+  const [first, second] = node.children.map(build);
+  first.style.flex = `${node.ratio} 1 0`;
+  second.style.flex = `${1 - node.ratio} 1 0`;
+  split.append(first, divider(split, node, first, second), second);
+  return split;
+}
+
+function paneFor(id: string) {
+  let pane = panes.get(id);
+  if (!pane) {
+    pane = new Pane(id, {
+      split: (direction) => send({ type: "split", terminal: id, direction }),
+      close: () => send({ type: "close", terminal: id }),
+    });
+    panes.set(id, pane);
+  }
+  return pane;
+}
+
+// 境界をドラッグして割合を変える。手元ではすぐに反映し、サーバー経由で全員に配る
+function divider(split: HTMLElement, node: Extract<Layout, { type: "split" }>, first: HTMLElement, second: HTMLElement) {
+  const element = document.createElement("div");
+  element.className = "divider";
+  element.setAttribute("role", "separator");
+  element.setAttribute("aria-orientation", node.direction === "row" ? "vertical" : "horizontal");
+  element.addEventListener("pointerdown", (down) => {
+    down.preventDefault();
+    element.setPointerCapture(down.pointerId);
+    dragging = true;
+    const move = (event: PointerEvent) => {
+      const rect = split.getBoundingClientRect();
+      const ratio =
+        node.direction === "row"
+          ? (event.clientX - rect.left) / rect.width
+          : (event.clientY - rect.top) / rect.height;
+      const clamped = Math.min(0.9, Math.max(0.1, ratio));
+      first.style.flex = `${clamped} 1 0`;
+      second.style.flex = `${1 - clamped} 1 0`;
+      send({ type: "resize-split", split: node.id, ratio: clamped });
+    };
+    const up = () => {
+      element.removeEventListener("pointermove", move);
+      element.removeEventListener("pointerup", up);
+      dragging = false;
+      if (deferredLayout) render(deferredLayout);
+      deferredLayout = undefined;
+    };
+    element.addEventListener("pointermove", move);
+    element.addEventListener("pointerup", up);
+  });
+  return element;
+}
+
+function terminalIds(node: Layout): string[] {
+  return node.type === "terminal" ? [node.id] : node.children.flatMap(terminalIds);
+}
