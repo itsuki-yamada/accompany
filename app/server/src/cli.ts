@@ -20,6 +20,8 @@ const server = Bun.serve({
   hostname: "127.0.0.1",
   port: Number(values.port),
   development: false,
+  // 本番モードの既定では同じポートで二重に待ち受けてしまい、接続がどちらのコマンドにつながるか分からなくなる
+  reusePort: false,
   routes: { "/": index },
   fetch: app.fetch,
   websocket,
@@ -33,4 +35,5 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
   });
 }
 
-console.log(`Accompany: http://localhost:${server.port}`);
+// localhost は環境によって ::1 に解決されるため、待ち受けているアドレスをそのまま表示する
+console.log(`Accompany: http://${server.hostname}:${server.port}`);
