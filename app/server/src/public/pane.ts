@@ -1,4 +1,5 @@
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
 
 const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -46,6 +47,8 @@ export class Pane {
     this.element.append(bar, container);
 
     this.terminal.loadAddon(this.fit);
+    // 出力の URL をクリックで開く。開いたページから元のページを操作されないよう、opener を切って新しいタブで開く
+    this.terminal.loadAddon(new WebLinksAddon());
     this.terminal.open(container);
 
     this.socket = new WebSocket(`${protocol}//${location.host}/ws/terminals/${id}`);
