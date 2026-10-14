@@ -39,16 +39,14 @@ export function createApp(workspace: Workspace) {
 
   app.use("/ws/*", sameOriginOnly);
 
-  // 分割の配置を全員に配り、分割・閉じる・割合の変更を受け付ける
+  // 分割の配置と、参加者ごとのフォーカス先を全員に配り、分割・閉じる・割合の変更・フォーカスの移動を受け付ける
   app.get(
     "/ws/workspace",
     upgradeWebSocket(() => {
-      let unsubscribe: (() => void) | undefined;
+      let member: ReturnType<Workspace["join"]> | undefined;
       return {
         onOpen: (_event, ws) => {
-          unsubscribe = workspace.subscribe((layout) =>
-            ws.send(JSON.stringify({ type: "layout", layout })),
-          );
+          member = workspace.join((event) => ws.send(JSON.stringify(event)));
         },
         onMessage: (event) => {
           const message = parseJson(event.data);
@@ -58,9 +56,11 @@ export function createApp(workspace: Workspace) {
             workspace.close(String(message.terminal));
           } else if (message?.type === "resize-split" && typeof message.ratio === "number") {
             workspace.resizeSplit(String(message.split), message.ratio);
+          } else if (message?.type === "focus") {
+            member?.focus(String(message.terminal));
           }
         },
-        onClose: () => unsubscribe?.(),
+        onClose: () => member?.leave(),
       };
     }),
   );
