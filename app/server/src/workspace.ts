@@ -11,7 +11,9 @@ type Listener = (layout: Layout) => void;
 export class Workspace {
   private terminals = new Map<string, TerminalSession>();
   private listeners = new Set<Listener>();
+  // ターミナルの番号は画面に出るので、分割の節とは別に数えて 1, 2, 3 と続ける
   private nextId = 1;
+  private nextSplitId = 1;
   layout: Layout;
 
   // 最初のターミナルは起動時のコマンド、分割で増やしたターミナルはシェルを起動する
@@ -38,7 +40,7 @@ export class Workspace {
     const added = this.createTerminal(this.shellCommand);
     this.replace(target, {
       type: "split",
-      id: `split-${this.nextId++}`,
+      id: `split-${this.nextSplitId++}`,
       direction,
       ratio: 0.5,
       children: [target, added],
