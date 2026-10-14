@@ -44,6 +44,20 @@ test("全画面の TUI でも、途中から参加した人に現在の画面が
   await expect(terminalScreen(guest)).not.toContainText("count: 2");
 });
 
+test("TUI がカーソルを隠しているとき、途中から参加した人の画面でもカーソルが隠れている", async ({
+  browser,
+}) => {
+  accompany = await startAccompany(["--", "bun", "e2e/fixtures/fake-tui.ts"]);
+  const host = await openAsParticipant(browser, accompany.url);
+  await expectTerminalToShow(host, "count: 0");
+  await expect(host.locator(".xterm-rows .xterm-cursor")).toHaveCount(0);
+
+  const guest = await openAsParticipant(browser, accompany.url);
+
+  await expectTerminalToShow(guest, "count: 0");
+  await expect(guest.locator(".xterm-rows .xterm-cursor")).toHaveCount(0);
+});
+
 test("途中から参加した直後の出力も、取りこぼさずに表示される", async ({ browser }) => {
   accompany = await startAccompany(["--", "bun", "e2e/fixtures/fake-agent.ts"]);
   const host = await openAsParticipant(browser, accompany.url);
