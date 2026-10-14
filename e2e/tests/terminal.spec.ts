@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { startAccompany, type Accompany } from "./accompany";
+import { startAccompany, testPort, type Accompany } from "./accompany";
 import { expectTerminalToShow, typeInTerminal } from "./terminal";
 
 const fakeAgent = ["--", "bun", "e2e/fixtures/fake-agent.ts"];
@@ -37,18 +37,18 @@ test("コマンドを省略すると $SHELL が起動する", async ({ page }) =
 });
 
 test("--port で指定したポートで起動する", async ({ page }) => {
-  accompany = await startAccompany(["--port", "4789", ...fakeAgent]);
+  accompany = await startAccompany(["--port", testPort(1), ...fakeAgent]);
 
-  expect(new URL(accompany.url).port).toBe("4789");
+  expect(new URL(accompany.url).port).toBe(testPort(1));
   await page.goto(accompany.url);
   await expectTerminalToShow(page, "Fake Agent ready");
 });
 
 test("同じポートで Accompany が動いているときは、起動に失敗する", async () => {
-  accompany = await startAccompany(["--port", "4790", ...fakeAgent]);
+  accompany = await startAccompany(["--port", testPort(2), ...fakeAgent]);
 
   // 二重に待ち受けると、ブラウザの接続がどちらのコマンドにつながるか分からなくなる
-  const second = await startAccompany(["--port", "4790", ...fakeAgent]).catch((e: Error) => e);
+  const second = await startAccompany(["--port", testPort(2), ...fakeAgent]).catch((e: Error) => e);
   if (!(second instanceof Error)) await second.stop();
 
   expect(second).toBeInstanceOf(Error);

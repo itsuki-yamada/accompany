@@ -5,13 +5,22 @@ import { fileURLToPath } from "node:url";
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const defaultCommand = "bun app/server/src/cli.ts";
 
+// 複数の作業ディレクトリで同時に E2E を流してもポートがぶつからないよう、E2E_PORT_BASE で使うポートをずらせる
+const portBase = Number(process.env.E2E_PORT_BASE ?? 3000);
+
+// テストで使うポート。offset 0 は、--port を指定しないテストが使う
+export function testPort(offset = 0) {
+  return String(portBase + offset);
+}
+
 export type Accompany = { url: string; stop: () => Promise<void> };
 
 export function startAccompany(
   args: string[] = [],
   env: Record<string, string> = {},
 ): Promise<Accompany> {
-  const command = [process.env.ACCOMPANY_CMD ?? defaultCommand, ...args].join(" ");
+  const portArgs = args.includes("--port") ? [] : ["--port", testPort()];
+  const command = [process.env.ACCOMPANY_CMD ?? defaultCommand, ...portArgs, ...args].join(" ");
   const child: ChildProcess = spawn(command, {
     cwd: repoRoot,
     shell: true,
