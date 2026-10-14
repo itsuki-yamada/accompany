@@ -62,7 +62,22 @@ export class Pane {
         this.terminal.write(new Uint8Array(event.data));
       }
     };
-    this.terminal.onData((data) => this.socket.send(JSON.stringify({ type: "input", data })));
+    this.terminal.onData((data) => this.send(data));
+    // Shift+Enter は、Claude Code などが改行として扱う ESC + CR を送る（/terminal-setup が VS Code などに入れる設定と同じ）
+    this.terminal.attachCustomKeyEventHandler((event) => {
+      const shiftEnter =
+        event.key === "Enter" &&
+        event.shiftKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        // 日本語入力で変換を確定する Enter は IME に任せる
+        !event.isComposing;
+      if (!shiftEnter) return true;
+      if (event.type === "keydown") this.send("\x1b\r");
+      event.preventDefault();
+      return false;
+    });
     this.terminal.textarea?.addEventListener("focus", actions.focused);
 
     // 端末の大きさは参加者のうち一番小さい表示領域に合わせるため、自分の表示領域に収まる大きさをサーバーに伝え、
@@ -104,6 +119,10 @@ export class Pane {
     this.socket.close();
     this.terminal.dispose();
     this.element.remove();
+  }
+
+  private send(data: string) {
+    this.socket.send(JSON.stringify({ type: "input", data }));
   }
 
   private sendSize() {
