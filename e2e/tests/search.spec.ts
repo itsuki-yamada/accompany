@@ -223,3 +223,20 @@ test("検索は参加者ごとの操作で、ほかの参加者の画面には�
   await expect(screen(bob)).toContainText("Search output ready");
   await expect(screen(bob)).not.toContainText("Needle in the scrollback");
 });
+
+// 端末の大きさは参加者のうち一番小さい表示領域に合わせるので、検索バーでターミナルの表示領域が狭まると、
+// ほかの参加者の端末も小さくなってしまう
+test("検索バーを開いても、端末の大きさは変わらない", async ({ page }) => {
+  accompany = await startAccompany(["--", "bun", "e2e/fixtures/size-reporter.ts"]);
+  await page.goto(accompany.url);
+  await expectPaneToShow(page, 1, "size:");
+  const before = (await screen(page).textContent())!.match(/size: \d+x\d+/g);
+
+  await focusTerminal(page);
+  await page.keyboard.press(openKey);
+  await expect(searchBar(page)).toBeVisible();
+
+  // 大きさが変わると、偽のエージェントが新しい大きさを表示する
+  await page.waitForTimeout(500);
+  expect((await screen(page).textContent())!.match(/size: \d+x\d+/g)).toEqual(before);
+});
