@@ -7,9 +7,17 @@ const defaultCommand = "bun app/server/src/cli.ts";
 
 export type Accompany = { url: string; stop: () => void };
 
-export function startAccompany(args: string[] = []): Promise<Accompany> {
+export function startAccompany(
+  args: string[] = [],
+  env: Record<string, string> = {},
+): Promise<Accompany> {
   const command = [process.env.ACCOMPANY_CMD ?? defaultCommand, ...args].join(" ");
-  const child: ChildProcess = spawn(command, { cwd: repoRoot, shell: true, detached: true });
+  const child: ChildProcess = spawn(command, {
+    cwd: repoRoot,
+    shell: true,
+    detached: true,
+    env: { ...process.env, ...env },
+  });
   const stop = () => {
     if (child.pid) process.kill(-child.pid);
   };

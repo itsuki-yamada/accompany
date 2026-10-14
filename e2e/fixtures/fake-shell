@@ -1,0 +1,4 @@
+#!/bin/sh
+# E2E で $SHELL の代わりに起動するシェル
+echo "Fake Shell ready"
+exec cat
