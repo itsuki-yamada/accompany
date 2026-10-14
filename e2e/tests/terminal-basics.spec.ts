@@ -26,36 +26,43 @@ test("日本語入力では、変換を確定した文字だけがコマンド�
   await expect(terminalScreen(page)).not.toContainText("e3 81 ab");
 });
 
-test("クリップボードの文字をペーストすると、コマンドに届く", async ({ page, context }) => {
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+// コピー・ペーストのキー（Cmd+C / Ctrl+V など）をコピー・ペーストの操作に結びつけるのはブラウザの役目で、
+// その結びつきは OS によって違い、Linux のヘッドレス Chromium ではキー入力から起きない。
+// ここでは、ブラウザがその操作のときに出す copy / paste イベントを直接送り、ターミナルが正しく扱うことを確かめる
+test("ペーストすると、ペーストした文字がコマンドに届く", async ({ page }) => {
   accompany = await startAccompany([], { SHELL: "e2e/fixtures/fake-shell" });
   await page.goto(accompany.url);
   await expectTerminalToShow(page, "Fake Shell ready");
-  await page.evaluate(() => navigator.clipboard.writeText("pasted from clipboard"));
 
-  await page.locator(".xterm-helper-textarea").focus();
-  await page.keyboard.press("ControlOrMeta+V");
-  await page.keyboard.press("Enter");
+  await page.locator(".xterm-helper-textarea").evaluate((textarea) => {
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/plain", "pasted from clipboard\r");
+    textarea.dispatchEvent(new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true }));
+  });
 
   await expectTerminalToShow(page, "pasted from clipboard");
 });
 
-test("ターミナルの文字を選択してコピーすると、クリップボードに入る", async ({ page, context }) => {
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+test("ターミナルの文字を選択してコピーすると、選択した文字がクリップボードに入る", async ({ page }) => {
   accompany = await startAccompany([], { SHELL: "e2e/fixtures/fake-shell" });
   await page.goto(accompany.url);
   await expectTerminalToShow(page, "Fake Shell ready");
   await typeInTerminal(page, "copy me please\n");
   await expectTerminalToShow(page, "copy me please");
 
-  // xterm は空白をノーブレークスペースで描くので、空白の種類を問わずに行を探し、トリプルクリックで行を選択する
+  // xterm は空白をノーブレークスペースで描き、行を描き直し続けるので、空白の種類を問わずに行を探し、
+  // 位置を取ってマウスでトリプルクリックし、行を選択する
   const line = page.locator(".xterm-rows > div").filter({ hasText: /copy\sme\splease/ }).last();
-  // xterm は行を描き直し続けるので、位置を取ってマウスで直接クリックする
   const box = (await line.boundingBox())!;
   await page.mouse.click(box.x + 20, box.y + box.height / 2, { clickCount: 3 });
-  await page.keyboard.press("ControlOrMeta+C");
 
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("copy me please");
+  const copied = await page.locator(".xterm-helper-textarea").evaluate((textarea) => {
+    const clipboardData = new DataTransfer();
+    textarea.dispatchEvent(new ClipboardEvent("copy", { clipboardData, bubbles: true, cancelable: true }));
+    return clipboardData.getData("text/plain");
+  });
+
+  expect(copied).toContain("copy me please");
 });
 
 test("出力に含まれる URL をクリックすると、新しいタブで開く", async ({ page }) => {
