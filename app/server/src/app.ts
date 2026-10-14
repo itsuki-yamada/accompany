@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/bun";
 import { createMiddleware } from "hono/factory";
-import type { TerminalSession } from "./terminal";
+import type { Participant, Size, TerminalSession } from "./terminal";
 
 const loopbackHostnames = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
@@ -18,6 +18,13 @@ const sameOriginOnly = createMiddleware(async (c, next) => {
   await next();
 });
 
+// ブラウザから届く制御メッセージ。大きさは、端末として扱える範囲の整数だけを受け付ける
+function parseSize(message: { cols?: unknown; rows?: unknown }): Size | undefined {
+  const { cols, rows } = message;
+  const valid = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 1 && (n as number) <= 1000;
+  return valid(cols) && valid(rows) ? { cols, rows } : undefined;
+}
+
 export function createApp(session: TerminalSession) {
   const app = new Hono();
 
@@ -25,13 +32,31 @@ export function createApp(session: TerminalSession) {
     "/ws",
     sameOriginOnly,
     upgradeWebSocket(() => {
-      let detach: (() => void) | undefined;
+      let participant: Participant | undefined;
       return {
+        // 出力はバイナリで、端末の大きさの変更は JSON で送る
         onOpen: (_event, ws) => {
-          detach = session.attach((data) => ws.send(data));
+          participant = session.attach((message) =>
+            message.type === "output"
+              ? ws.send(message.data)
+              : ws.send(JSON.stringify({ type: "resize", ...message.size })),
+          );
         },
-        onMessage: (event) => session.write(String(event.data)),
-        onClose: () => detach?.(),
+        onMessage: (event) => {
+          let message;
+          try {
+            message = JSON.parse(String(event.data));
+          } catch {
+            return; // 制御メッセージとして読めないものは無視する
+          }
+          if (message.type === "input" && typeof message.data === "string") {
+            session.write(message.data);
+          } else if (message.type === "resize") {
+            const size = parseSize(message);
+            if (size) participant?.resize(size);
+          }
+        },
+        onClose: () => participant?.detach(),
       };
     }),
   );

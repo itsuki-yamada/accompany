@@ -4,3 +4,10 @@ body {
   margin: 0;
   background: #000;
 }
+
+/* 自分の画面に収まる端末の大きさを、この領域から計算する */
+#terminal {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
