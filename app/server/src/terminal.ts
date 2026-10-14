@@ -15,9 +15,17 @@ export class TerminalSession {
   // 途中から参加したブラウザに現在の画面を送るため、PTY の出力をサーバー側の端末にも反映しておく
   private screen = new Terminal({ cols, rows, allowProposedApi: true });
   private serializer = new SerializeAddon();
+  // 書き出した画面にはカーソルの表示・非表示が含まれないため、DECTCEM（CSI ? 25 h/l）を見て自分で追う
+  private cursorHidden = false;
 
   constructor(private command: string[]) {
     this.screen.loadAddon(this.serializer);
+    for (const [final, hidden] of [["h", false], ["l", true]] as const) {
+      this.screen.parser.registerCsiHandler({ prefix: "?", final }, (params) => {
+        if (params.includes(25)) this.cursorHidden = hidden;
+        return false;
+      });
+    }
   }
 
   attach(listener: Listener): () => void {
@@ -28,7 +36,7 @@ export class TerminalSession {
     const receive: Listener = (data) => (restored ? listener(data) : pending.push(data));
     this.listeners.add(receive);
     this.screen.write("", () => {
-      const snapshot = this.serializer.serialize();
+      const snapshot = this.serializer.serialize() + (this.cursorHidden ? "\x1b[?25l" : "");
       if (snapshot) listener(encoder.encode(snapshot));
       pending.forEach(listener);
       restored = true;
