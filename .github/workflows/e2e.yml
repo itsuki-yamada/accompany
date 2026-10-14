@@ -24,9 +24,10 @@ jobs:
         working-directory: e2e
         run: bunx playwright install --with-deps chromium
 
+      # @wip は人間が main に積んだ実装前のテスト（docs/development-process.md）
       - name: E2E を実行する
         working-directory: e2e
-        run: bun run test
+        run: bun run test --grep-invert @wip
 
       # 失敗したときこそ証跡が必要なので、成否にかかわらずアップロードする
       - name: HTML レポートをアップロードする
