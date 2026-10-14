@@ -66,7 +66,13 @@ export class Pane {
     // Shift+Enter は、Claude Code などが改行として扱う ESC + CR を送る（/terminal-setup が VS Code などに入れる設定と同じ）
     this.terminal.attachCustomKeyEventHandler((event) => {
       const shiftEnter =
-        event.key === "Enter" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
+        event.key === "Enter" &&
+        event.shiftKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        // 日本語入力で変換を確定する Enter は IME に任せる
+        !event.isComposing;
       if (!shiftEnter) return true;
       if (event.type === "keydown") this.send("\x1b\r");
       event.preventDefault();
