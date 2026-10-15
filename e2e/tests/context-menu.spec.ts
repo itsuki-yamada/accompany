@@ -265,3 +265,48 @@ test("リセットは、ほかの参加者の画面と、あとから参加し�
     await expect(terminalScreen(page)).not.toContainText("keys: 1b 4f 41");
   }
 });
+
+test("「ターミナルのリセット」で、コマンドが残したタイトルも全員の画面から消える", async ({ browser }) => {
+  // 入力した行（「2;タイトル」）を OSC 2 でタイトルとして設定する偽のシェル
+  accompany = await startAccompany([], { SHELL: "e2e/fixtures/title-shell" });
+  const host = await open(browser, accompany.url);
+  const guest = await open(browser, accompany.url);
+  await expectTerminalToShow(host, "Title setter ready");
+  await typeInTerminal(host, "2;stale title\n");
+  for (const page of [host, guest]) {
+    await expect(pane(page, 1).locator(".pane-program")).toHaveText("stale title");
+  }
+
+  await openMenu(host);
+  await menuItem(host, "ターミナルのリセット").click();
+
+  for (const page of [host, guest]) {
+    await expect(pane(page, 1).locator(".pane-program")).toBeHidden();
+  }
+});
+
+test("メニューを開いている間に、ほかの参加者がそのターミナルを閉じると、メニューも閉じる", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const host = await open(browser, accompany.url);
+  const guest = await open(browser, accompany.url);
+  await expectTerminalToShow(host, "Fake Shell ready");
+  await pane(host, 1).getByRole("button", { name: "右に分割" }).click();
+  await expectPaneToShow(host, 2, "Fake Shell ready");
+  await expectPaneToShow(guest, 2, "Fake Shell ready");
+  await openMenu(host, 2);
+
+  await pane(guest, 2).getByRole("button", { name: "閉じる" }).click();
+
+  await expect(pane(host, 2)).toHaveCount(0);
+  await expect(menu(host)).toBeHidden();
+});
+
+test("メニューには、どのターミナルのメニューかがわかる名前が付いている", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await open(browser, accompany.url);
+  await expectTerminalToShow(page, "Fake Shell ready");
+
+  await openMenu(page);
+
+  await expect(page.getByRole("menu", { name: "ターミナル 1 のメニュー" })).toBeVisible();
+});
