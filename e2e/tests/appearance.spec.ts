@@ -22,8 +22,8 @@ async function openAsParticipant(browser: Browser, url: string) {
 
 // 表示の設定は、タブバーのボタンで開く
 async function openSettings(page: Page) {
-  await page.getByRole("button", { name: "表示の設定" }).click();
   const dialog = page.getByRole("dialog", { name: "表示の設定" });
+  if (!(await dialog.isVisible())) await page.getByRole("button", { name: "表示の設定" }).click();
   await expect(dialog).toBeVisible();
   return dialog;
 }
@@ -38,13 +38,19 @@ async function setFontSize(page: Page, size: number) {
   await dialog.getByLabel("フォントの大きさ").fill(String(size));
 }
 
-// ターミナルの背景色と文字色（[r, g, b]）
+// ターミナルの背景色と文字色（[r, g, b]）。背景色は、端末の画面から外側へたどって最初に色の付いた要素のもの
 async function terminalColors(page: Page) {
   return page.evaluate(() => {
-    const rgb = (color: string) => (color.match(/\d+/g) ?? []).slice(0, 3).map(Number);
-    const background = getComputedStyle(document.querySelector(".xterm-viewport")!).backgroundColor;
+    const rgb = (color: string) => (color.match(/[\d.]+/g) ?? []).map(Number);
+    let element: Element | null = document.querySelector(".xterm-screen");
+    let background = "";
+    while (element) {
+      background = getComputedStyle(element).backgroundColor;
+      if (rgb(background)[3] !== 0) break;
+      element = element.parentElement;
+    }
     const foreground = getComputedStyle(document.querySelector(".xterm-rows")!).color;
-    return { background: rgb(background), foreground: rgb(foreground) };
+    return { background: rgb(background).slice(0, 3), foreground: rgb(foreground).slice(0, 3) };
   });
 }
 
