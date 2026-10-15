@@ -4,6 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import { acceptFileDrop } from "./file-drop";
 import { isSearchKey, SearchBar } from "./search";
 import { showContextMenu } from "./context-menu";
+import { shortcutFor, withKeys, type Shortcut } from "./shortcuts";
 
 const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 
@@ -12,6 +13,8 @@ export type PaneActions = {
   close: () => void;
   // キー入力の先がこのターミナルに移ったとき
   focused: () => void;
+  // このターミナルにキー入力しているときに押されたキーボードショートカット
+  shortcut: (shortcut: Shortcut) => void;
 };
 
 // このターミナルにフォーカスしている参加者
@@ -53,9 +56,9 @@ export class Pane {
       this.program,
       this.viewers,
       button("検索", "⌕", () => this.search.open()),
-      button("右に分割", "⇥", () => actions.split("row")),
-      button("下に分割", "⤓", () => actions.split("column")),
-      (this.closeButton = button("閉じる", "×", actions.close)),
+      button("右に分割", "⇥", () => actions.split("row"), withKeys("右に分割")),
+      button("下に分割", "⤓", () => actions.split("column"), withKeys("下に分割")),
+      (this.closeButton = button("閉じる", "×", actions.close, withKeys("ターミナルを閉じる", "閉じる"))),
     );
     const container = document.createElement("div");
     container.className = "pane-terminal";
@@ -64,14 +67,17 @@ export class Pane {
     this.notice.hidden = true;
     this.element.append(bar, this.search.element, container, this.notice);
 
-    // 検索バーを開くキーは、xterm やブラウザ（ページ内検索）より先に拾う
+    // 検索バーを開くキーとキーボードショートカットは、xterm やブラウザ（ページ内検索など）より先に拾う
     this.element.addEventListener(
       "keydown",
       (event) => {
-        if (!isSearchKey(event)) return;
+        const shortcut = shortcutFor(event);
+        if (!isSearchKey(event) && !shortcut) return;
         event.preventDefault();
         event.stopPropagation();
-        this.search.open();
+        if (shortcut === "ignore") return;
+        if (shortcut) actions.shortcut(shortcut);
+        else this.search.open();
       },
       { capture: true },
     );
@@ -246,11 +252,11 @@ export class Pane {
   }
 }
 
-function button(label: string, text: string, onClick: () => void) {
+function button(label: string, text: string, onClick: () => void, title = label) {
   const element = document.createElement("button");
   element.type = "button";
   element.textContent = text;
-  element.title = label;
+  element.title = title;
   element.setAttribute("aria-label", label);
   element.addEventListener("click", onClick);
   return element;
