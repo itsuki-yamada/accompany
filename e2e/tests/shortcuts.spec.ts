@@ -127,7 +127,7 @@ test("Cmd+Shift+矢印 / Ctrl+Shift+矢印 で、隣のターミナルへフォ�
   await expectPaneToShow(page, 1, "typed in left");
 });
 
-test("Ctrl+Shift+O で新しいタブを開き、Cmd+Shift+] / [ や Ctrl+Shift+] / [ で次・前のタブに切り替える", async ({
+test("Ctrl+Shift+O で新しいタブを開き、Cmd+Shift+. / , や Ctrl+Shift+. / , で次・前のタブに切り替える", async ({
   browser,
 }) => {
   accompany = await startAccompany([], fakeShell);
@@ -145,22 +145,72 @@ test("Ctrl+Shift+O で新しいタブを開き、Cmd+Shift+] / [ や Ctrl+Shift+
   await expect(tab(page, "タブ 3")).toHaveAttribute("aria-selected", "true");
   await expectFocusOn(page, 3);
 
-  await page.keyboard.press("Control+Shift+BracketLeft");
+  await page.keyboard.press("Control+Shift+Comma");
   await expect(tab(page, "タブ 2")).toHaveAttribute("aria-selected", "true");
   await expectFocusOn(page, 2);
 
-  await page.keyboard.press("Meta+Shift+BracketRight");
+  await page.keyboard.press("Meta+Shift+Period");
   await expect(tab(page, "タブ 3")).toHaveAttribute("aria-selected", "true");
   await expectFocusOn(page, 3);
 
   // 端では反対側に回る
-  await page.keyboard.press("Control+Shift+BracketRight");
+  await page.keyboard.press("Control+Shift+Period");
   await expect(tab(page, "タブ 1")).toHaveAttribute("aria-selected", "true");
   await expectFocusOn(page, 1);
 
-  await page.keyboard.press("Meta+Shift+BracketLeft");
+  await page.keyboard.press("Meta+Shift+Comma");
   await expect(tab(page, "タブ 3")).toHaveAttribute("aria-selected", "true");
   await expectFocusOn(page, 3);
+});
+
+test("キーを押し続けても、分割・閉じる・新しいタブは 1 回だけ行う", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+  await focusPane(page, 1);
+  await page.keyboard.press("Control+Shift+R");
+  await expectPaneToShow(page, 2, "Fake Shell ready");
+  await page.keyboard.press("Control+Shift+D");
+  await expectPaneToShow(page, 3, "Fake Shell ready");
+  await expectFocusOn(page, 1);
+
+  // 押しっぱなしにすると、2 回目以降の keydown は repeat になる
+  const hold = async (key: string) => {
+    await page.keyboard.down("Control");
+    await page.keyboard.down("Shift");
+    for (let i = 0; i < 3; i++) await page.keyboard.down(key);
+    await page.keyboard.up(key);
+    await page.keyboard.up("Shift");
+    await page.keyboard.up("Control");
+  };
+
+  await hold("KeyX");
+  await expect(pane(page, 1)).toHaveCount(0);
+  // 続けて閉じていれば、少し待つ間に残りのターミナルも閉じる
+  await page.waitForTimeout(500);
+  await expect(panes(page)).toHaveCount(2);
+
+  await hold("KeyO");
+  await expect(page.getByRole("tab")).toHaveText(["タブ 1", "タブ 2"]);
+  await page.waitForTimeout(500);
+  await expect(page.getByRole("tab")).toHaveCount(2);
+});
+
+test("Latin 以外の配列でも、キーの位置（event.code）でショートカットが効く", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+  await focusPane(page, 1);
+
+  // ロシア語配列で R の位置のキー（К）を Ctrl+Shift で押したときの keydown
+  await input(page, 1).dispatchEvent("keydown", {
+    key: "К",
+    code: "KeyR",
+    ctrlKey: true,
+    shiftKey: true,
+    bubbles: true,
+    cancelable: true,
+  });
+
+  await expectPaneToShow(page, 2, "Fake Shell ready");
 });
 
 test("ショートカットと同じ文字・矢印でも、Shift なしの Ctrl キーはこれまでどおりコマンドに届く", async ({ page }) => {
@@ -211,7 +261,7 @@ test("ショートカットの一覧を、タブバーのボタンとツール�
     "次のタブ",
     "前のタブ",
     "⌘⇧R",
-    "Ctrl+Shift+]",
+    "Ctrl+Shift+.",
   ]) {
     await expect(list).toContainText(text);
   }
