@@ -1,0 +1,3 @@
+#!/bin/sh
+# E2E で $SHELL の代わりに起動し、入力した行をターミナルのタイトルとして設定する
+exec bun e2e/fixtures/title-setter.ts
