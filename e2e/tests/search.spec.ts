@@ -199,6 +199,21 @@ test("分割したターミナルでは、キー入力の先のターミナル�
   await expect(searchBar(page, 1)).toBeHidden();
 });
 
+test("バーの検索ボタンで開くと、そのターミナルにフォーカスが移る", async ({ page }) => {
+  accompany = await startAccompany(searchOutput, { SHELL: "e2e/fixtures/fake-shell" });
+  await open(page, accompany.url);
+  await pane(page, 1).getByRole("button", { name: "右に分割" }).click();
+  await expectPaneToShow(page, 2, "Fake Shell ready");
+  await focusTerminal(page, 1);
+  await expect(pane(page, 1)).toHaveAttribute("data-focused", "true");
+
+  await pane(page, 2).getByRole("button", { name: "検索", exact: true }).click();
+
+  await expect(searchInput(page, 2)).toBeFocused();
+  await expect(pane(page, 2)).toHaveAttribute("data-focused", "true");
+  await expect(pane(page, 1)).not.toHaveAttribute("data-focused", "true");
+});
+
 async function openAsParticipant(browser: Browser, url: string) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   const page = await context.newPage();
