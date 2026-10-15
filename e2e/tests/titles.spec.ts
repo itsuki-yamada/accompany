@@ -97,9 +97,13 @@ test("長いタイトルはバーの中で省略して表示し、全文はツ�
   await setTitle(page, 1, `2;${long}`);
 
   await expect(paneTitle(page, 1)).toHaveAttribute("title", long);
-  // 省略して表示し（中身が表示幅より長い）、バーのボタンは画面からはみ出さない
+  // 省略して表示し（中身が表示幅より長い）、フォーカスしている人の表示やバーのボタンは削られない
   const title = paneTitle(page, 1);
   expect(await title.evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true);
+  // 「あなた」が折り返されずに 1 行で出る
+  const badge = pane(page, 1).getByRole("status").getByText("あなた", { exact: true });
+  await expect(badge).toBeVisible();
+  expect((await badge.boundingBox())!.height).toBeLessThanOrEqual(16);
   const paneBox = (await pane(page, 1).boundingBox())!;
   const closeBox = (await pane(page, 1).getByRole("button", { name: "閉じる" }).boundingBox())!;
   expect(closeBox.x + closeBox.width).toBeLessThanOrEqual(paneBox.x + paneBox.width);
