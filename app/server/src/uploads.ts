@@ -14,19 +14,20 @@ export class Uploads {
   // 一時ディレクトリはほかのユーザーと共有しているので、既にあるものやシンボリックリンクはたどらない
   // （ディレクトリは recursive なしで作り、ファイルは排他作成 wx で書く。既にあればエラーにする）
   async save(files: File[]) {
+    // 中身は先にすべて読んでおく。保存先を確かめてから書き終えるまでに await を挟まず、同期処理だけにして、
+    // 確かめたあとに保存先が置き換えられうる間をできるだけ短くする（同時に来たほかの save とも混ざらない）
+    const contents = await Promise.all(files.map(async (file) => new Uint8Array(await file.arrayBuffer())));
     const dir = join(this.currentRoot(), String(this.nextId++));
     mkdirSync(dir, { mode: 0o700 });
     const used = new Set<string>();
-    const paths: string[] = [];
-    for (const file of files) {
+    return files.map((file, i) => {
       let name = safeName(file.name);
       for (let n = 2; used.has(name); n++) name = `${n}-${safeName(file.name)}`;
       used.add(name);
       const path = join(dir, name);
-      writeFileSync(path, new Uint8Array(await file.arrayBuffer()), { flag: "wx", mode: 0o600 });
-      paths.push(path);
-    }
-    return paths;
+      writeFileSync(path, contents[i], { flag: "wx", mode: 0o600 });
+      return path;
+    });
   }
 
   remove() {
