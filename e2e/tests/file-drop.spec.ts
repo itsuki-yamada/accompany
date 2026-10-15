@@ -133,6 +133,28 @@ test("ドロップしたターミナルにだけ貼り付けられる", async ({
   await expect(screenOf(page, 1)).not.toContainText("for-right.txt");
 });
 
+test("ターミナルの外（分割の境目など）にドロップしても、ブラウザがファイルを開いて画面から離れない", async ({ browser }) => {
+  accompany = await start();
+  const page = await openAsParticipant(browser, accompany.url);
+  await pane(page, 1).getByRole("button", { name: "右に分割" }).click();
+  await expectPaneToShow(page, 2, "Fake Shell ready");
+
+  // テストから送るイベントではブラウザの既定の動作（ファイルを開く）は起きないので、
+  // 既定の動作が取り消されていること（defaultPrevented）で確かめる
+  const prevented = await page.locator(".divider").first().evaluate((divider) => {
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(new File(["outside"], "outside.txt"));
+    return ["dragover", "drop"].map((type) => {
+      const event = new DragEvent(type, { dataTransfer, bubbles: true, cancelable: true });
+      divider.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+  });
+
+  expect(prevented).toEqual([true, true]);
+  expect(savedFiles("outside.txt")).toEqual([]);
+});
+
 test("ファイル名にパスの区切りが含まれていても、保存先の外には書き込まれない", async ({ browser }) => {
   accompany = await start();
   const page = await openAsParticipant(browser, accompany.url);
