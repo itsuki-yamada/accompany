@@ -1,11 +1,20 @@
 // ターミナルに画像やファイルをドロップすると、サーバーにアップロードして保存し、保存先のパスをターミナルの入力に貼り付ける。
 // ブラウザからはドロップしたファイルのローカルのパスを取れないので、サーバー上に置いたコピーのパスを渡す
+
+// ターミナルの外（分割の境目など）にドロップしたときに、ブラウザがファイルを開いて Accompany の画面から離れないようにする
+for (const type of ["dragover", "drop"] as const) {
+  window.addEventListener(type, (event) => {
+    if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+  });
+}
+
 export function acceptFileDrop(element: HTMLElement, paste: (text: string) => void) {
   const indicator = document.createElement("div");
   indicator.className = "drop-indicator";
   indicator.textContent = "ドロップしてパスを貼り付け";
   element.append(indicator);
 
+  let errorTimer: ReturnType<typeof setTimeout> | undefined;
   // 子要素に出入りするたびに dragenter / dragleave が届くので、数えて外に出たときだけ表示を消す
   let depth = 0;
   const show = (visible: boolean) => {
@@ -47,7 +56,9 @@ export function acceptFileDrop(element: HTMLElement, paste: (text: string) => vo
       // 失敗したことがわかるよう、少しの間だけ表示を出す
       indicator.textContent = "アップロードできませんでした";
       element.dataset.dropError = "true";
-      setTimeout(() => {
+      // 続けて失敗したときに、前のタイマーが新しい表示を早く消さないよう、タイマーは 1 つだけにする
+      clearTimeout(errorTimer);
+      errorTimer = setTimeout(() => {
         indicator.textContent = "ドロップしてパスを貼り付け";
         delete element.dataset.dropError;
       }, 3000);

@@ -13,7 +13,8 @@ export class Uploads {
   // ドロップ 1 回ごとにディレクトリを分け、元のファイル名のまま保存する。同じ名前のファイルを何度ドロップしても上書きしない
   async save(files: File[]) {
     const dir = join(this.dir, String(this.nextId++));
-    mkdirSync(dir);
+    // 長く起動している間に OS が一時ディレクトリを掃除しても保存できるよう、親のディレクトリごと作る
+    mkdirSync(dir, { recursive: true });
     const used = new Set<string>();
     const paths: string[] = [];
     for (const file of files) {
