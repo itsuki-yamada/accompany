@@ -15,10 +15,16 @@ test.afterEach(async () => {
 type Permission = "default" | "granted" | "denied";
 
 // ブラウザの通知（Notification API）を差し替え、出した通知と許可を求めた回数を記録する。
-// ページが見えているかどうか（document.hidden）も、テストから切り替えられるようにする
-async function openAsParticipant(browser: Browser, url: string, permission: Permission = "granted") {
+// ページが見えているかどうか（document.hidden）も、テストから切り替えられるようにする。
+// バーに出たエージェントの状態は、一瞬で変わったものも見逃さないよう、変わるたびに記録する
+async function openAsParticipant(
+  browser: Browser,
+  url: string,
+  permission: Permission = "granted",
+  initiallyHidden = false,
+) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
-  await context.addInitScript((initial: Permission) => {
+  await context.addInitScript(([initial, initiallyHidden]: [Permission, boolean]) => {
     const w = window as any;
     w.notifications = [];
     w.permissionRequests = 0;
@@ -39,14 +45,21 @@ async function openAsParticipant(browser: Browser, url: string, permission: Perm
     };
     Object.defineProperty(window, "Notification", { value: w.FakeNotification });
 
-    let hidden = false;
+    let hidden = initiallyHidden;
     Object.defineProperty(document, "hidden", { get: () => hidden });
     Object.defineProperty(document, "visibilityState", { get: () => (hidden ? "hidden" : "visible") });
     w.setHidden = (value: boolean) => {
       hidden = value;
       document.dispatchEvent(new Event("visibilitychange"));
     };
-  }, permission);
+
+    w.statusHistory = [];
+    new MutationObserver(() => {
+      document.querySelectorAll('[role="status"][aria-label="エージェントの状態"]').forEach((e) => {
+        if (w.statusHistory.at(-1) !== e.textContent) w.statusHistory.push(e.textContent);
+      });
+    }).observe(document, { subtree: true, childList: true, characterData: true });
+  }, [permission, initiallyHidden] as [Permission, boolean]);
   const page = await context.newPage();
   await page.goto(url);
   await expectPaneToShow(page, 1, "Busy Agent ready");
@@ -59,6 +72,10 @@ function agentStatus(page: Page, n: number) {
 
 function notificationTitles(page: Page) {
   return page.evaluate(() => (window as any).notifications.map((n: Notification) => n.title));
+}
+
+function statusHistory(page: Page) {
+  return page.evaluate(() => (window as any).statusHistory as string[]);
 }
 
 function setHidden(page: Page, hidden: boolean) {
@@ -131,22 +148,46 @@ test("フォーカスして見ているターミナルの作業が終わって�
   expect(await notificationTitles(page)).toEqual([]);
 });
 
-test("起動直後の出力や、入力の表示（エコー）では作業中にならず、通知も出ない", async ({ browser }) => {
+test("ページを開いただけでは、起動直後の問い合わせへの応答や出力で作業中にならず、通知も出ない", async ({
+  browser,
+}) => {
+  accompany = await startAccompany(busyAgent);
+  // 偽のエージェントは起動直後に端末へ問い合わせ、ブラウザの端末が自動で応答する。そのあと 1.8 秒出力し続ける
+  const page = await openAsParticipant(browser, accompany.url, "granted", true);
+
+  // 入力待ちと判定されるまでの時間（2 秒）を過ぎるまで待つ
+  await page.waitForTimeout(2_500);
+  await expect(agentStatus(page, 1)).toHaveText("入力待ち");
+  expect(await statusHistory(page)).not.toContain("作業中");
+  expect(await notificationTitles(page)).toEqual([]);
+});
+
+test("入力の表示（エコー）では作業中にならず、通知も出ない", async ({ browser }) => {
   accompany = await startAccompany(busyAgent);
   const page = await openAsParticipant(browser, accompany.url);
   await setHidden(page, true);
-
-  // 起動直後の出力は 1.5 秒続く。入力待ちと判定されるまでの時間（2 秒）を過ぎても作業中にならない
-  await page.waitForTimeout(2_500);
-  await expect(agentStatus(page, 1)).toHaveText("入力待ち");
 
   // 1 文字ずつ 1.5 秒以上打ち続けても、エコーだけでは作業中にならない
   await pane(page, 1).locator(".xterm-helper-textarea").focus();
   await page.keyboard.type("hello agent status", { delay: 100 });
   await expectPaneToShow(page, 1, "hello agent status");
-  await expect(agentStatus(page, 1)).toHaveText("入力待ち");
   await page.waitForTimeout(2_500);
 
+  expect(await statusHistory(page)).not.toContain("作業中");
+  expect(await notificationTitles(page)).toEqual([]);
+});
+
+test("入力のあとしばらく出力がなければ、そのあと出力が続いても作業中にならない", async ({ browser }) => {
+  accompany = await startAccompany(busyAgent);
+  const page = await openAsParticipant(browser, accompany.url);
+  await setHidden(page, true);
+
+  // 偽のエージェントは「later」を受け取ると、3 秒何も出さずに待ってから 3 秒出力し続ける
+  await typeInPane(page, 1, "later\n");
+  await expect(pane(page, 1).locator(".xterm-rows")).toContainText("done", { timeout: 10_000 });
+  await page.waitForTimeout(2_500);
+
+  expect(await statusHistory(page)).not.toContain("作業中");
   expect(await notificationTitles(page)).toEqual([]);
 });
 
