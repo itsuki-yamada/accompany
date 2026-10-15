@@ -1,0 +1,72 @@
+name: Release
+
+# main にマージされるたびに、tarball の形で E2E を通したうえで、
+# 先行版 edge を作り直し、まだなければ package.json のバージョンの正式な Release を作る
+on:
+  push:
+    branches:
+      - main
+  # 常に dry-run: タグも Release も作らずに、tarball・E2E・「何をするか」の表示までを試す
+  workflow_dispatch:
+
+# main の実行は 1 本ずつ流し、edge の更新が競合しないようにする（待っている実行は最新のものだけが残る）。
+# dry-run は何も書き込まないので、それぞれ独立に流す
+concurrency:
+  group: ${{ github.workflow }}-${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'publish' || github.run_id }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  e2e:
+    uses: ./.github/workflows/e2e.yml
+    permissions:
+      contents: read
+
+  # main への push のときだけ。書き込み権限はこのジョブだけに渡す
+  release:
+    name: Release を作る
+    needs: e2e
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: E2E を通した tarball を取得する
+        uses: actions/download-artifact@v8
+        with:
+          name: accompany-tarball
+          path: tarball
+
+      - name: edge を作り直し、まだなければ正式な Release を作る
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DRY_RUN: "false"
+        run: .github/scripts/release.sh tarball/accompany-*.tgz
+
+  # main への push 以外（workflow_dispatch）では、読み取り権限だけで何をするかを表示する
+  dry-run:
+    name: Release を作らずに、何をするかを表示する
+    needs: e2e
+    if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: E2E を通した tarball を取得する
+        uses: actions/download-artifact@v8
+        with:
+          name: accompany-tarball
+          path: tarball
+
+      - name: 何をするかを表示する
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DRY_RUN: "true"
+        run: .github/scripts/release.sh tarball/accompany-*.tgz
