@@ -31,6 +31,7 @@ export class Workspace {
   private nextId = 1;
   private nextSplitId = 1;
   private nextTabId = 1;
+  private titlesQueued = false;
   tabs: Tab[] = [];
   active: string;
 
@@ -183,10 +184,16 @@ export class Workspace {
     return { type: "titles", titles };
   }
 
-  // タイトルは画面の配置とは別に配る。シェルのプロンプトなどで頻繁に変わるので、そのたびに配置を組み直さない
+  // タイトルは画面の配置とは別に配る。シェルのプロンプトなどで頻繁に変わるので、そのたびに配置を組み直さない。
+  // 1 回の出力の中で何度も変わったときは、最後のタイトルだけを 1 回で配る
   private notifyTitles() {
-    const event = this.titlesEvent();
-    this.members.forEach((_, l) => l(event));
+    if (this.titlesQueued) return;
+    this.titlesQueued = true;
+    queueMicrotask(() => {
+      this.titlesQueued = false;
+      const event = this.titlesEvent();
+      this.members.forEach((_, l) => l(event));
+    });
   }
 
   private notifyPresence() {
