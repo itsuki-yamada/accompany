@@ -5,8 +5,8 @@ import { expectTerminalToShow, terminalScreen, typeInTerminal } from "./terminal
 
 // 分割で増えるターミナルは $SHELL を起動するので、入力をそのまま返す偽のシェルにする
 const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
-// マウスの報告モードを有効にしたまま、受け取った入力を 16 進で表示する TUI
-const mouseReporter = ["--", "bun", "e2e/fixtures/mouse-reporter.ts"];
+// マウスの報告モードとアプリケーションカーソルキーモードを有効にしたまま、受け取った入力を 16 進で表示する TUI
+const modeReporter = ["--", "bun", "e2e/fixtures/mode-reporter.ts"];
 const clipboard = ["clipboard-read", "clipboard-write"];
 
 let accompany: Accompany | undefined;
@@ -41,6 +41,11 @@ async function openMenu(page: Page, n = 1, at?: { x: number; y: number }) {
 async function clickTerminal(page: Page) {
   const box = (await page.locator(".xterm-screen").boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+}
+
+async function pressArrowUp(page: Page) {
+  await page.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.press("ArrowUp");
 }
 
 // 行の中央をトリプルクリックして、その行を選択する。選択した行の位置を返す
@@ -190,9 +195,9 @@ test("クリップボードの読み取りが許可されていないときは�
 });
 
 test("TUI がマウスの報告モードを有効にしていても、右クリックはアプリに渡さずにメニューを出す", async ({ browser }) => {
-  accompany = await startAccompany(mouseReporter);
+  accompany = await startAccompany(modeReporter);
   const page = await open(browser, accompany.url);
-  await expectTerminalToShow(page, "Mouse reporter ready");
+  await expectTerminalToShow(page, "Mode reporter ready");
 
   await openMenu(page);
   await page.keyboard.press("Escape");
@@ -203,15 +208,17 @@ test("TUI がマウスの報告モードを有効にしていても、右クリ�
   await expect(terminalScreen(page)).not.toContainText("keys: 1b");
 });
 
-test("「ターミナルのリセット」で、TUI が残したマウスの報告モードが戻る。コマンドは動き続ける", async ({
+test("「ターミナルのリセット」で、TUI が残したマウスの報告やカーソルキーのモードが戻る。コマンドは動き続ける", async ({
   browser,
 }) => {
-  accompany = await startAccompany(mouseReporter);
+  accompany = await startAccompany(modeReporter);
   const page = await open(browser, accompany.url);
-  await expectTerminalToShow(page, "Mouse reporter ready");
-  // リセットする前は、左クリックがアプリに報告される（ESC [ < 0 ...）
+  await expectTerminalToShow(page, "Mode reporter ready");
+  // リセットする前は、左クリックがアプリに報告され（ESC [ < 0 ...）、上矢印は ESC O A になる
   await clickTerminal(page);
   await expectTerminalToShow(page, "keys: 1b 5b 3c 30");
+  await pressArrowUp(page);
+  await expectTerminalToShow(page, "keys: 1b 4f 41");
 
   await openMenu(page);
   await menuItem(page, "ターミナルのリセット").click();
@@ -219,35 +226,42 @@ test("「ターミナルのリセット」で、TUI が残したマウスの報�
   await expect(menu(page)).toBeHidden();
   await expect(terminalScreen(page)).not.toContainText("keys:");
   await clickTerminal(page);
+  await pressArrowUp(page);
   await typeInTerminal(page, "x");
-  // 同じコマンドが入力を受け取り続けていて、クリックはもう報告されない
+  // 同じコマンドが入力を受け取り続けていて、クリックはもう報告されず、上矢印は通常の ESC [ A になる
   await expectTerminalToShow(page, "keys: 78");
-  await expect(terminalScreen(page)).not.toContainText("keys: 1b");
+  await expectTerminalToShow(page, "keys: 1b 5b 41");
+  await expect(terminalScreen(page)).not.toContainText("keys: 1b 5b 3c");
+  await expect(terminalScreen(page)).not.toContainText("keys: 1b 4f 41");
 });
 
 test("リセットは、ほかの参加者の画面と、あとから参加した人の画面にも反映される", async ({ browser }) => {
-  accompany = await startAccompany(mouseReporter);
+  accompany = await startAccompany(modeReporter);
   const host = await open(browser, accompany.url);
   const guest = await open(browser, accompany.url);
-  await expectTerminalToShow(host, "Mouse reporter ready");
-  await expectTerminalToShow(guest, "Mouse reporter ready");
+  await expectTerminalToShow(host, "Mode reporter ready");
+  await expectTerminalToShow(guest, "Mode reporter ready");
 
   await openMenu(host);
   await menuItem(host, "ターミナルのリセット").click();
-  await expect(terminalScreen(guest)).not.toContainText("Mouse reporter ready");
+  await expect(terminalScreen(guest)).not.toContainText("Mode reporter ready");
   const late = await open(browser, accompany.url);
   // あとから参加した人の画面が復元されるのを、リセットのあとの出力で待つ
   await typeInTerminal(host, "z");
   await expect(terminalScreen(late)).toContainText("keys: 7a");
 
   await clickTerminal(guest);
+  await pressArrowUp(guest);
   await typeInTerminal(guest, "x");
-  await clickTerminal(late);
-  await typeInTerminal(late, "y");
-
-  // 入力がアプリに届き、クリックはどちらの画面からも報告されていない
-  await expect(terminalScreen(late)).toContainText("keys: 79");
   await expect(terminalScreen(guest)).toContainText("keys: 78");
-  await expect(terminalScreen(guest)).not.toContainText("keys: 1b");
-  await expect(terminalScreen(late)).not.toContainText("keys: 1b");
+  await clickTerminal(late);
+  await pressArrowUp(late);
+  await typeInTerminal(late, "y");
+  await expect(terminalScreen(late)).toContainText("keys: 79");
+
+  // どちらの画面でも、クリックは報告されず、上矢印は通常の ESC [ A になる
+  for (const page of [guest, late]) {
+    await expect(terminalScreen(page)).not.toContainText("keys: 1b 5b 3c");
+    await expect(terminalScreen(page)).not.toContainText("keys: 1b 4f 41");
+  }
 });
