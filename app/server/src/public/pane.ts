@@ -31,6 +31,8 @@ export class Pane {
   private search = new SearchBar(this.terminal);
   private notice = document.createElement("div");
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  // 開いている右クリックメニューを閉じる。ターミナルがなくなったら、メニューも閉じる
+  private closeMenu = () => {};
 
   constructor(id: string, actions: PaneActions) {
     this.element.className = "pane";
@@ -179,6 +181,7 @@ export class Pane {
 
   dispose() {
     clearTimeout(this.noticeTimer);
+    this.closeMenu();
     this.resizeObserver.disconnect();
     this.socket.close();
     this.terminal.dispose();
@@ -186,9 +189,10 @@ export class Pane {
   }
 
   private openMenu(x: number, y: number, actions: PaneActions) {
-    showContextMenu(
+    this.closeMenu = showContextMenu(
       x,
       y,
+      `${this.element.getAttribute("aria-label")} のメニュー`,
       [
         { label: "コピー", disabled: !this.terminal.hasSelection(), action: () => this.copy() },
         { label: "ペースト", action: () => this.paste() },

@@ -51,9 +51,14 @@ export class TerminalSession {
         return false;
       });
     }
-    // RIS（ESC c）でカーソルも表示に戻る
+    // RIS（ESC c）でカーソルも表示に戻る。xterm.js は RIS でタイトルの変更を知らせないので、
+    // コマンドが残したタイトルもここで消す（docs/adr/33-context-menu.md）
     this.screen.parser.registerEscHandler({ final: "c" }, () => {
       this.cursorHidden = false;
+      if (this.title !== "") {
+        this.title = "";
+        this.onTitleChange();
+      }
       return false;
     });
   }

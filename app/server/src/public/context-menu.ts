@@ -4,13 +4,15 @@ export type MenuItem = { label: string; disabled?: boolean; action: () => void }
 let closeCurrent: (() => void) | undefined;
 
 // 指定した位置にメニューを出す。Escape・Tab・外側のクリック・項目の選択で閉じる。
-// 外側のクリック以外で閉じたときは、onClose でキー入力の先を元に戻す
-export function showContextMenu(x: number, y: number, items: MenuItem[], onClose: () => void) {
+// 外側のクリック以外で閉じたときは、onClose でキー入力の先を元に戻す。
+// 戻り値はメニューを閉じる関数（メニューの対象がなくなったときに使う）
+export function showContextMenu(x: number, y: number, label: string, items: MenuItem[], onClose: () => void) {
   closeCurrent?.();
 
   const menu = document.createElement("div");
   menu.className = "context-menu";
   menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", label);
   const buttons: HTMLButtonElement[] = [];
   for (const item of items) {
     if (item === "separator") {
@@ -60,6 +62,7 @@ export function showContextMenu(x: number, y: number, items: MenuItem[], onClose
     if (!menu.contains(event.target as Node)) close(false);
   };
   const close = (restoreFocus: boolean) => {
+    if (!menu.isConnected) return;
     document.removeEventListener("pointerdown", onPointerDown, true);
     menu.remove();
     closeCurrent = undefined;
@@ -74,4 +77,5 @@ export function showContextMenu(x: number, y: number, items: MenuItem[], onClose
   menu.style.left = `${Math.max(0, Math.min(x, innerWidth - width))}px`;
   menu.style.top = `${Math.max(0, Math.min(y, innerHeight - height))}px`;
   buttons[0]?.focus();
+  return () => close(false);
 }
