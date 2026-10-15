@@ -1,5 +1,6 @@
 import { notifyDone, requestPermissionOnFirstInteraction } from "./notify";
 import { Pane, type AgentStatus, type Viewer } from "./pane";
+import { QuickCommands } from "./quick-commands";
 import { shortcutList, withKeys, type Direction, type Shortcut } from "./shortcuts";
 
 type Layout =
@@ -33,6 +34,8 @@ requestPermissionOnFirstInteraction();
 const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 const socket = new WebSocket(`${protocol}//${location.host}/ws/workspace`);
 const send = (message: object) => socket.send(JSON.stringify(message));
+// よく使うコマンドの一覧と、その登録・編集・削除の画面
+const quickCommands = new QuickCommands(send);
 
 // タブの並びと表示中のタブ、分割の配置は参加者全員で共有する。サーバーから届くたびに組み直す。
 // ただし境界をドラッグしている間は、組み直すとドラッグ中の境界がなくなるので、手を離すまで待つ
@@ -54,6 +57,8 @@ socket.onmessage = (event) => {
     notifyFinished(statuses, message.statuses);
     statuses = message.statuses;
     showStatuses();
+  } else if (message.type === "commands") {
+    quickCommands.set(message.commands);
   } else if (message.type === "tabs") {
     if (dragging) deferredTabs = message;
     else renderTabs(message);
@@ -155,6 +160,8 @@ function paneFor(id: string) {
       close: () => send({ type: "close", terminal: id }),
       focused: () => send({ type: "focus", terminal: id }),
       shortcut: (shortcut) => runShortcut(id, shortcut),
+      commands: () => quickCommands.list,
+      manageCommands: () => quickCommands.open(),
     });
     panes.set(id, pane);
   }

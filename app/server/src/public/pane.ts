@@ -4,6 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import { acceptFileDrop } from "./file-drop";
 import { isSearchKey, SearchBar } from "./search";
 import { showContextMenu } from "./context-menu";
+import type { QuickCommand } from "./quick-commands";
 import { shortcutFor, withKeys, type Shortcut } from "./shortcuts";
 
 const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -15,6 +16,9 @@ export type PaneActions = {
   focused: () => void;
   // このターミナルにキー入力しているときに押されたキーボードショートカット
   shortcut: (shortcut: Shortcut) => void;
+  // 参加者全員で共有している、よく使うコマンドの一覧と、その登録・編集・削除の画面を開く
+  commands: () => QuickCommand[];
+  manageCommands: () => void;
 };
 
 // このターミナルで動いているエージェントの状態。サーバーが判定して全員に配る
@@ -65,6 +69,7 @@ export class Pane {
       this.program,
       this.status,
       this.viewers,
+      button("コマンド", "❯", (event) => this.openCommands(event.currentTarget as HTMLElement, actions)),
       button("検索", "⌕", () => this.search.open()),
       button("右に分割", "⇥", () => actions.split("row"), withKeys("右に分割")),
       button("下に分割", "⤓", () => actions.split("column"), withKeys("下に分割")),
@@ -229,6 +234,32 @@ export class Pane {
     );
   }
 
+  // よく使うコマンドの一覧を、ボタンの下にメニューで出す
+  private openCommands(anchor: HTMLElement, actions: PaneActions) {
+    const commands = actions.commands();
+    const { left, bottom } = anchor.getBoundingClientRect();
+    this.closeMenu = showContextMenu(
+      left,
+      bottom,
+      `${this.element.getAttribute("aria-label")} のコマンド`,
+      [
+        ...(commands.length > 0
+          ? commands.map((command) => ({ label: command.name, action: () => this.runCommand(command) }))
+          : [{ label: "登録したコマンドはありません", disabled: true, action: () => {} }]),
+        "separator",
+        { label: "コマンドを管理…", action: actions.manageCommands },
+      ],
+      () => this.terminal.focus(),
+    );
+  }
+
+  // 内容は貼り付けと同じく入力する。改行は CR になり、コマンドがブラケットペーストを有効にしていれば、
+  // 全体をブラケットペーストで囲む（docs/adr/35-quick-commands.md）。すぐ実行するものは、続けて Enter を送る
+  private runCommand(command: QuickCommand) {
+    this.terminal.paste(command.content);
+    if (command.run) this.send("\r");
+  }
+
   private async copy() {
     try {
       await navigator.clipboard.writeText(this.terminal.getSelection());
@@ -267,7 +298,7 @@ export class Pane {
   }
 }
 
-function button(label: string, text: string, onClick: () => void, title = label) {
+function button(label: string, text: string, onClick: (event: MouseEvent) => void, title = label) {
   const element = document.createElement("button");
   element.type = "button";
   element.textContent = text;
