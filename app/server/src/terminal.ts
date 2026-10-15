@@ -112,7 +112,7 @@ export class TerminalSession {
   }
 
   write(data: string) {
-    this.activity.input();
+    this.activity.input(data);
     this.proc?.terminal?.write(data);
   }
 
