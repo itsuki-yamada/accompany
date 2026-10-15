@@ -17,6 +17,10 @@ export type PaneActions = {
   shortcut: (shortcut: Shortcut) => void;
 };
 
+// このターミナルで動いているエージェントの状態。サーバーが判定して全員に配る
+export type AgentStatus = "working" | "idle";
+const statusLabels: Record<AgentStatus, string> = { working: "作業中", idle: "入力待ち" };
+
 // このターミナルにフォーカスしている参加者
 export type Viewer = { name: string; color: string; self: boolean };
 
@@ -26,6 +30,7 @@ export class Pane {
   private closeButton: HTMLButtonElement;
   private viewers = document.createElement("span");
   private program = document.createElement("span");
+  private status = document.createElement("span");
   // 検索のヒットの強調（decorations）に、xterm の試験的な API を使う
   private terminal = new Terminal({ allowProposedApi: true });
   private fit = new FitAddon();
@@ -51,9 +56,14 @@ export class Pane {
     this.program.hidden = true;
     this.viewers.className = "pane-viewers";
     this.viewers.setAttribute("role", "status");
+    this.status.className = "pane-status";
+    this.status.setAttribute("role", "status");
+    this.status.setAttribute("aria-label", "エージェントの状態");
+    this.setStatus("idle");
     bar.append(
       title,
       this.program,
+      this.status,
       this.viewers,
       button("検索", "⌕", () => this.search.open()),
       button("右に分割", "⇥", () => actions.split("row"), withKeys("右に分割")),
@@ -175,6 +185,11 @@ export class Pane {
     this.program.textContent = text;
     this.program.title = text;
     this.program.hidden = text === "";
+  }
+
+  setStatus(status: AgentStatus) {
+    this.status.textContent = statusLabels[status];
+    this.status.dataset.status = status;
   }
 
   setClosable(closable: boolean) {

@@ -1,6 +1,7 @@
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { Terminal } from "@xterm/headless";
 import type { Subprocess } from "bun";
+import { ActivityMonitor, type AgentStatus } from "./activity";
 
 export type Size = { cols: number; rows: number };
 
@@ -30,6 +31,7 @@ export class TerminalSession {
   private cursorHidden = false;
   // コマンドが OSC 0 / OSC 2 で設定したタイトル。ブラウザに出す前に sanitizeTitle で整える
   title = "";
+  private activity: ActivityMonitor;
 
   constructor(
     private command: string[],
@@ -37,7 +39,10 @@ export class TerminalSession {
     private onExit: () => void = () => {},
     // タイトルが変わったときに呼ぶ
     private onTitleChange: () => void = () => {},
+    // エージェントの状態（作業中・入力待ち）が変わったときに呼ぶ
+    onStatus: (status: AgentStatus) => void = () => {},
   ) {
+    this.activity = new ActivityMonitor(onStatus);
     this.screen.loadAddon(this.serializer);
     this.screen.onTitleChange((title) => {
       const sanitized = sanitizeTitle(title);
@@ -85,6 +90,7 @@ export class TerminalSession {
           ...this.size,
           data: (_terminal, data) => {
             this.screen.write(data);
+            this.activity.output();
             this.broadcast({ type: "output", data });
           },
         },
@@ -106,6 +112,7 @@ export class TerminalSession {
   }
 
   write(data: string) {
+    this.activity.input(data);
     this.proc?.terminal?.write(data);
   }
 
@@ -117,7 +124,12 @@ export class TerminalSession {
     this.broadcast({ type: "output", data });
   }
 
+  get status() {
+    return this.activity.status;
+  }
+
   kill() {
+    this.activity.dispose();
     this.proc?.kill();
   }
 
