@@ -47,6 +47,7 @@ function renderTabs({ tabs, active }: Tabs) {
       const item = document.createElement("div");
       item.className = "tab";
       const select = button(tab.name, tab.name, () => send({ type: "select-tab", tab: tab.id }));
+      select.className = "tab-select";
       select.setAttribute("role", "tab");
       select.setAttribute("aria-selected", String(tab.id === active));
       const close = button(`${tab.name} を閉じる`, "×", () => send({ type: "close-tab", tab: tab.id }));
