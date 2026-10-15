@@ -1,0 +1,5 @@
+#!/bin/sh
+# E2E で $SHELL の代わりに起動し、プロセス ID を E2E_PID_FILE に書き足してから、入力をそのまま返す
+echo "Fake Shell ready"
+echo $$ >> "$E2E_PID_FILE"
+exec cat

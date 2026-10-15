@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { startAccompany, type Accompany } from "./accompany";
 import { expectPaneToShow, pane, panes, typeInPane } from "./panes";
@@ -101,6 +102,57 @@ test("タブを閉じると、そのタブがなくなり、残りのタブが�
   await expectPaneToShow(page, 1, "Fake Shell ready");
 });
 
+test("タブを閉じると、そのタブのターミナルがすべて終了する", async ({ browser }, testInfo) => {
+  // 偽のシェルが、起動するたびにプロセス ID を書き足す
+  const pidFile = testInfo.outputPath("pids");
+  accompany = await startAccompany([], { SHELL: "e2e/fixtures/pid-shell", E2E_PID_FILE: pidFile });
+  const page = await openAsParticipant(browser, accompany.url);
+  await expectPaneToShow(page, 1, "Fake Shell ready");
+  await openNewTab(page);
+  await expectPaneToShow(page, 2, "Fake Shell ready");
+  await pane(page, 2).getByRole("button", { name: "右に分割" }).click();
+  await expectPaneToShow(page, 3, "Fake Shell ready");
+  const pids = async () => (await readFile(pidFile, "utf8")).trim().split("\n").map(Number);
+  await expect.poll(async () => (await pids()).length).toBe(3);
+  const [tab1Shell, ...tab2Shells] = await pids();
+  expect(tab2Shells.every(isAlive)).toBe(true);
+
+  await page.getByRole("button", { name: "タブ 2 を閉じる" }).click();
+
+  await expect(tabs(page)).toHaveText(["タブ 1"]);
+  await expect.poll(() => tab2Shells.some(isAlive)).toBe(false);
+  expect(isAlive(tab1Shell!)).toBe(true);
+  // 閉じたタブのターミナルにはつなげない
+  expect(await connectTo(page, 2)).toBe("error");
+  expect(await connectTo(page, 3)).toBe("error");
+  expect(await connectTo(page, 1)).toBe("open");
+});
+
+function isAlive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ブラウザからターミナルの入出力の WebSocket につないでみる
+function connectTo(page: Page, terminal: number) {
+  return page.evaluate(
+    (id) =>
+      new Promise<string>((resolve) => {
+        const socket = new WebSocket(`ws://${location.host}/ws/terminals/${id}`);
+        socket.onopen = () => {
+          socket.close();
+          resolve("open");
+        };
+        socket.onerror = () => resolve("error");
+      }),
+    terminal,
+  );
+}
+
 test("最後のタブは閉じられない", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
@@ -171,7 +223,7 @@ test("途中から参加した人に、タブの並びと表示中のタブ、�
   await expectPaneToShow(guest, 2, "before guest joins");
 });
 
-test("タブを切り替えても、ターミナルにフォーカスしている人の表示が出る", async ({ browser }) => {
+test("タブを切り替えても、切り替えた先のタブでターミナルにフォーカスしている人の表示が出る", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const host = await openAsParticipant(browser, accompany.url);
   const guest = await openAsParticipant(browser, accompany.url);
@@ -184,11 +236,24 @@ test("タブを切り替えても、ターミナルにフォーカスしてい�
   await pane(guest, 2).locator(".xterm-screen").click();
 
   // 先に開いた host が参加者 1、あとから開いた guest が参加者 2
-  const badge = (page: Page, name: string) => pane(page, 2).getByRole("status").getByText(name, { exact: true });
-  await expect(badge(host, "あなた")).toBeVisible();
-  await expect(badge(host, "参加者 2")).toBeVisible();
-  await expect(badge(guest, "参加者 1")).toBeVisible();
+  const badge = (page: Page, n: number, name: string) =>
+    pane(page, n).getByRole("status").getByText(name, { exact: true });
+  await expect(badge(host, 2, "あなた")).toBeVisible();
+  await expect(badge(host, 2, "参加者 2")).toBeVisible();
+  await expect(badge(guest, 2, "参加者 1")).toBeVisible();
   await expect(pane(host, 2)).toHaveAttribute("data-focused", "true");
+
+  // タブ 1 に戻っても、フォーカスしている人の表示が出る
+  await tab(guest, "タブ 1").click();
+  await expectPaneToShow(host, 1, "Fake Shell ready");
+  await pane(host, 1).locator(".xterm-screen").click();
+  await pane(guest, 1).locator(".xterm-screen").click();
+
+  await expect(badge(host, 1, "あなた")).toBeVisible();
+  await expect(badge(host, 1, "参加者 2")).toBeVisible();
+  await expect(badge(guest, 1, "あなた")).toBeVisible();
+  await expect(badge(guest, 1, "参加者 1")).toBeVisible();
+  await expect(pane(host, 1)).toHaveAttribute("data-focused", "true");
 });
 
 test("新しいタブのターミナルも、参加者のうち一番小さい画面に合わせた大きさになる", async ({ browser }) => {
