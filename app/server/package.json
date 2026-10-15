@@ -7,7 +7,7 @@
     "accompany": "src/cli.ts"
   },
   "files": [
-    "src"
+    "src/cli.ts"
   ],
   "dependencies": {
     "@xterm/addon-fit": "0.11.0",
