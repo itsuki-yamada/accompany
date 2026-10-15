@@ -15,7 +15,9 @@ export type Tab = { id: string; name: string; layout: Layout };
 export type WorkspaceEvent =
   | { type: "welcome"; you: number }
   | { type: "tabs"; tabs: Tab[]; active: string }
-  | { type: "presence"; members: Member[] };
+  | { type: "presence"; members: Member[] }
+  // ターミナルごとの、コマンドが設定したタイトル（ターミナルの ID → タイトル。空のものは含めない）
+  | { type: "titles"; titles: Record<string, string> };
 type Listener = (event: WorkspaceEvent) => void;
 
 const colors = ["#4fc3f7", "#ffb74d", "#81c784", "#f06292", "#ba68c8", "#fff176"];
@@ -51,6 +53,7 @@ export class Workspace {
     this.members.set(listener, member);
     listener({ type: "welcome", you: id });
     listener(this.tabsEvent());
+    listener(this.titlesEvent());
     this.notifyPresence();
     return {
       focus: (terminalId: string) => {
@@ -137,7 +140,14 @@ export class Workspace {
 
   private createTerminal(command: string[]): Layout {
     const id = String(this.nextId++);
-    this.terminals.set(id, new TerminalSession(command, () => this.close(id)));
+    this.terminals.set(
+      id,
+      new TerminalSession(
+        command,
+        () => this.close(id),
+        () => this.notifyTitles(),
+      ),
+    );
     return { type: "terminal", id };
   }
 
@@ -162,6 +172,20 @@ export class Workspace {
 
   private notify() {
     const event = this.tabsEvent();
+    this.members.forEach((_, l) => l(event));
+  }
+
+  private titlesEvent(): WorkspaceEvent {
+    const titles: Record<string, string> = {};
+    this.terminals.forEach((terminal, id) => {
+      if (terminal.title) titles[id] = terminal.title;
+    });
+    return { type: "titles", titles };
+  }
+
+  // タイトルは画面の配置とは別に配る。シェルのプロンプトなどで頻繁に変わるので、そのたびに配置を組み直さない
+  private notifyTitles() {
+    const event = this.titlesEvent();
     this.members.forEach((_, l) => l(event));
   }
 

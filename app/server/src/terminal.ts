@@ -28,13 +28,23 @@ export class TerminalSession {
   private serializer = new SerializeAddon();
   // 書き出した画面にはカーソルの表示・非表示が含まれないため、DECTCEM（CSI ? 25 h/l）を見て自分で追う
   private cursorHidden = false;
+  // コマンドが OSC 0 / OSC 2 で設定したタイトル。ブラウザに出す前に sanitizeTitle で整える
+  title = "";
 
   constructor(
     private command: string[],
     // コマンドが終了したとき（シェルの exit など）に呼ぶ
     private onExit: () => void = () => {},
+    // タイトルが変わったときに呼ぶ
+    private onTitleChange: () => void = () => {},
   ) {
     this.screen.loadAddon(this.serializer);
+    this.screen.onTitleChange((title) => {
+      const sanitized = sanitizeTitle(title);
+      if (sanitized === this.title) return;
+      this.title = sanitized;
+      this.onTitleChange();
+    });
     for (const [final, hidden] of [["h", false], ["l", true]] as const) {
       this.screen.parser.registerCsiHandler({ prefix: "?", final }, (params) => {
         if (params.includes(25)) this.cursorHidden = hidden;
@@ -110,4 +120,18 @@ export class TerminalSession {
   private broadcast(message: Message) {
     this.listeners.forEach((l) => l(message));
   }
+}
+
+// タイトルとして出す長さの上限（文字数）。超えた部分は切り詰め、末尾に … を付ける
+const maxTitleLength = 256;
+
+// コマンドが設定したタイトルを、バーに出せる 1 行の文字列に整える。
+// C0・C1 の制御文字はサーバー側の端末が OSC を読むときに取り除くが、念のためここでも取り除く。
+// 双方向テキストの制御文字は表示を偽装できるので取り除き、改行にあたる文字は空白にする
+export function sanitizeTitle(title: string) {
+  const text = title
+    .replace(/[\u2028\u2029\u0085]/g, " ")
+    .replace(/[\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu, "");
+  const chars = [...text];
+  return chars.length > maxTitleLength ? `${chars.slice(0, maxTitleLength - 1).join("")}…` : text;
 }
