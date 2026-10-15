@@ -244,7 +244,8 @@ test("検索は参加者ごとの操作で、ほかの参加者の画面には�
 test("検索バーを開いても、端末の大きさは変わらない", async ({ page }) => {
   accompany = await startAccompany(["--", "bun", "e2e/fixtures/size-reporter.ts"]);
   await page.goto(accompany.url);
-  await expectPaneToShow(page, 1, "size:");
+  // コマンドは既定の 80x24 で起動し、ブラウザの表示領域に合わせた大きさに変わるので、それを待つ
+  await expect(screen(page)).toContainText(/size: (?!80x24)\d+x\d+/);
   const before = (await screen(page).textContent())!.match(/size: \d+x\d+/g);
 
   await focusTerminal(page);
