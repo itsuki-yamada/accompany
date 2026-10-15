@@ -219,3 +219,50 @@ test("通知が許可されていなければ、作業が終わっても通知�
   await page.waitForTimeout(500);
   expect(await notificationTitles(page)).toEqual([]);
 });
+
+test("表示していないタブのターミナルの状態も配られ、そのタブに切り替えるとバーに今の状態が出る", async ({
+  browser,
+}) => {
+  accompany = await startAccompany(busyAgent, fakeShell);
+  const host = await openAsParticipant(browser, accompany.url);
+  const guest = await openAsParticipant(browser, accompany.url);
+
+  await typeInPane(host, 1, "longwork\n");
+  await expect(agentStatus(host, 1)).toHaveText("作業中", { timeout: 5_000 });
+  // タブは参加者全員で共有する。新しいタブを開くと、全員の画面がタブ 2 に切り替わる
+  await host.getByRole("button", { name: "新しいタブ" }).click();
+  await expectPaneToShow(guest, 2, "Fake Shell ready");
+  await expect(pane(guest, 1)).toHaveCount(0);
+
+  await guest.getByRole("tab", { name: "タブ 1", exact: true }).click();
+  await expect(agentStatus(host, 1)).toHaveText("作業中");
+  await expect(agentStatus(guest, 1)).toHaveText("作業中");
+
+  await guest.getByRole("tab", { name: "タブ 2", exact: true }).click();
+  await expect(pane(guest, 1)).toHaveCount(0);
+  await expectPaneToShow(guest, 2, "Fake Shell ready");
+  // タブ 2 を表示している間に作業が終わる
+  await expect.poll(() => notificationTitles(host), { timeout: 15_000 }).toEqual(["ターミナル 1: 入力待ち"]);
+
+  await guest.getByRole("tab", { name: "タブ 1", exact: true }).click();
+  await expect(agentStatus(host, 1)).toHaveText("入力待ち");
+  await expect(agentStatus(guest, 1)).toHaveText("入力待ち");
+});
+
+test("表示していないタブのターミナルの作業が終わると通知が出て、クリックするとそのタブに切り替わる", async ({
+  browser,
+}) => {
+  accompany = await startAccompany(busyAgent, fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+
+  await typeInPane(page, 1, "work\n");
+  await expect(agentStatus(page, 1)).toHaveText("作業中", { timeout: 5_000 });
+  await page.getByRole("button", { name: "新しいタブ" }).click();
+  await expectPaneToShow(page, 2, "Fake Shell ready");
+
+  await expect.poll(() => notificationTitles(page), { timeout: 10_000 }).toEqual(["ターミナル 1: 入力待ち"]);
+
+  await page.evaluate(() => (window as any).notifications[0].onclick());
+  await expect(page.getByRole("tab", { name: "タブ 1", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(pane(page, 1)).toHaveAttribute("data-focused", "true");
+});
