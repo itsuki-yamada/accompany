@@ -41,12 +41,13 @@
 
 - きっかけは 3（main への push）にする。`.github/workflows/release.yml` は次の流れにする
   1. `e2e.yml` を `workflow_call` で呼び、リポジトリから起動する形と tarball から起動する形の両方で E2E を全件流す。通ったときだけ次へ進む
-  2. 先行版 `edge`（プレリリース）を、そのコミットで作り直す。タグ `edge` をそのコミットに付け直し、tarball を `accompany-<バージョン>-<短いコミット ID>.tgz` として置いてから、古い tarball を消す
-  3. `v<package.json のバージョン>` の Release がなければ、そのコミットにタグを作り、`accompany-<バージョン>.tgz` を置いた Release（Latest）を作る。リリースノートは使い方の一文と自動生成（直前の Latest からの差分）。Release があれば何もしない。タグだけあって Release がなければ、警告を出して何もしない
+  2. 先行版 `edge`（プレリリース）を、そのコミットで作り直す。tarball を `accompany-<バージョン>-<短いコミット ID>.tgz` として置く → ノートを直す → タグ `edge` をそのコミットに付け直す → 古い tarball を消す、の順にする（途中で失敗しても、edge のタグと中身が食い違いにくい）
+  3. `v<package.json のバージョン>` の Release がなければ、そのコミットにタグを作り、`accompany-<バージョン>.tgz` を置いた Release（Latest）を作る。リリースノートは使い方の一文と自動生成（直前の Latest からの差分）。Release があれば何もしない。タグだけあって Release がなければ、別のコミットを指している可能性があるので Release は作らず、エラーにしてジョブを失敗させる（通知で気づけるようにする）
 - プルリクの E2E は matrix（`source` / `tarball`）にする。`fail-fast: false` で、片方が落ちてももう片方の結果と HTML レポート（`playwright-report-source` / `playwright-report-tarball`）を残す。`tarball` では、`bun pm pack --destination "$RUNNER_TEMP/tarball-<run ID>-<attempt>"` で毎回新しい絶対パスに tarball を作り、`ACCOMPANY_CMD` を `bunx --package <絶対パス> accompany` にする。E2E を通した tarball は成果物 `accompany-tarball` にする
 - `release.yml` は workflow 単位の `concurrency`（`cancel-in-progress: false`）で、main への push による実行を 1 本ずつ流す
-- 権限はワークフロー全体を `permissions: {}` にし、ジョブごとに渡す。`contents: write` は Release を作るジョブだけ。サードパーティのアクションは増やさない（公式の `actions/download-artifact@v8` を足すだけ）
-- `workflow_dispatch` で、Release もタグも作らずに、tarball・E2E・「何をするか」の表示までを流せるようにする（`dry_run` の既定は true）
+- edge と正式な Release を作る手順は `.github/scripts/release.sh` にまとめ、`DRY_RUN=true` では書き込む操作を表示だけにする
+- 権限はワークフロー全体を `permissions: {}` にし、ジョブごとに渡す。`contents: write` は Release を作るジョブ（`release`）だけで、このジョブは `if: github.event_name == 'push' && github.ref == 'refs/heads/main'` で main への push のときだけ動く。サードパーティのアクションは増やさない（公式の `actions/download-artifact@v8` を足すだけ）。既存の `jdx/mise-action` はコミット SHA（v5.1.2）で固定する
+- `workflow_dispatch` は常に dry-run にする。`dry-run` ジョブ（`contents: read`）が、Release もタグも作らずに、tarball・E2E・「何をするか」の表示までを流す。dry-run を切り替える入力は設けない。切り替えられると、`--ref` に main 以外のブランチを指定して、マージしていないコードから edge や正式な Release を作れてしまい、main の実行と同時に走って edge の更新が入り混じるおそれもあるため
 - 確かめ方は 2 にする。`workflow_dispatch` は既定ブランチにあるワークフローしか起動できないため、プルリクの段階では、一時的に `pull_request` のきっかけを足したコミット（dry-run になる）で確かめ、確かめたら戻す。edge と正式な Release の実際の作成は、マージ後の最初の実行で確かめる。既存の `v0.1.0` / `v0.2.0` のタグと Release には触れない
 
 ## 理由
