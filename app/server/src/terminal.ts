@@ -51,6 +51,16 @@ export class TerminalSession {
         return false;
       });
     }
+    // RIS（ESC c）でカーソルも表示に戻る。xterm.js は RIS でタイトルの変更を知らせないので、
+    // コマンドが残したタイトルもここで消す（docs/adr/33-context-menu.md）
+    this.screen.parser.registerEscHandler({ final: "c" }, () => {
+      this.cursorHidden = false;
+      if (this.title !== "") {
+        this.title = "";
+        this.onTitleChange();
+      }
+      return false;
+    });
   }
 
   attach(listener: Listener): Participant {
@@ -97,6 +107,14 @@ export class TerminalSession {
 
   write(data: string) {
     this.proc?.terminal?.write(data);
+  }
+
+  // TUI が残したモード（マウスの報告など）を戻す。モードは参加者全員とサーバー側の画面が共有している状態なので、
+  // RIS（ESC c）を出力の流れに混ぜて、出力と同じ順番で全員とサーバー側の画面に届ける。コマンドには何も送らない
+  reset() {
+    const data = encoder.encode("\x1bc");
+    this.screen.write(data);
+    this.broadcast({ type: "output", data });
   }
 
   kill() {

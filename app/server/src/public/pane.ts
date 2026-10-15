@@ -3,6 +3,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
 import { acceptFileDrop } from "./file-drop";
 import { isSearchKey, SearchBar } from "./search";
+import { showContextMenu } from "./context-menu";
 
 const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 
@@ -28,6 +29,10 @@ export class Pane {
   private socket: WebSocket;
   private resizeObserver: ResizeObserver;
   private search = new SearchBar(this.terminal);
+  private notice = document.createElement("div");
+  private noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  // 開いている右クリックメニューを閉じる。ターミナルがなくなったら、メニューも閉じる
+  private closeMenu = () => {};
 
   constructor(id: string, actions: PaneActions) {
     this.element.className = "pane";
@@ -54,7 +59,10 @@ export class Pane {
     );
     const container = document.createElement("div");
     container.className = "pane-terminal";
-    this.element.append(bar, this.search.element, container);
+    this.notice.className = "pane-notice";
+    this.notice.setAttribute("role", "alert");
+    this.notice.hidden = true;
+    this.element.append(bar, this.search.element, container, this.notice);
 
     // 検索バーを開くキーは、xterm やブラウザ（ページ内検索）より先に拾う
     this.element.addEventListener(
@@ -106,6 +114,30 @@ export class Pane {
     // ドロップしたファイルのパスは、このターミナルの入力として貼り付ける
     acceptFileDrop(this.element, (text) => this.terminal.paste(text));
 
+    // 右クリックでは Accompany のメニューを出す。TUI がマウスの報告モードを有効にしていても、
+    // 右クリックはアプリに渡さない（xterm.js より先に受け取って止める）
+    container.addEventListener(
+      "mousedown",
+      (event) => {
+        if (event.button !== 2) return;
+        event.stopPropagation();
+        // キー入力の先を動かさない
+        event.preventDefault();
+      },
+      true,
+    );
+    container.addEventListener(
+      "contextmenu",
+      (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        // キーボードのコンテキストメニューキーで開いたときは、入力欄（カーソル）の位置に出す
+        const at = event.clientX || event.clientY ? event : this.terminal.textarea?.getBoundingClientRect();
+        this.openMenu(at?.x ?? 0, at?.y ?? 0, actions);
+      },
+      true,
+    );
+
     // 端末の大きさは参加者のうち一番小さい表示領域に合わせるため、自分の表示領域に収まる大きさをサーバーに伝え、
     // サーバーが決めた大きさで描く
     this.resizeObserver = new ResizeObserver(() => this.sendSize());
@@ -148,10 +180,58 @@ export class Pane {
   }
 
   dispose() {
+    clearTimeout(this.noticeTimer);
+    this.closeMenu();
     this.resizeObserver.disconnect();
     this.socket.close();
     this.terminal.dispose();
     this.element.remove();
+  }
+
+  private openMenu(x: number, y: number, actions: PaneActions) {
+    this.closeMenu = showContextMenu(
+      x,
+      y,
+      `${this.element.getAttribute("aria-label")} のメニュー`,
+      [
+        { label: "コピー", disabled: !this.terminal.hasSelection(), action: () => this.copy() },
+        { label: "ペースト", action: () => this.paste() },
+        { label: "すべて選択", action: () => this.terminal.selectAll() },
+        "separator",
+        // 参加者全員の画面とサーバー側の画面をリセットする（docs/adr/33-context-menu.md）
+        { label: "ターミナルのリセット", action: () => this.socket.send(JSON.stringify({ type: "reset" })) },
+        "separator",
+        { label: "右に分割", action: () => actions.split("row") },
+        { label: "下に分割", action: () => actions.split("column") },
+      ],
+      () => this.terminal.focus(),
+    );
+  }
+
+  private async copy() {
+    try {
+      await navigator.clipboard.writeText(this.terminal.getSelection());
+    } catch {
+      this.showNotice("クリップボードに書き込めませんでした");
+    }
+  }
+
+  // クリップボードの読み取りはブラウザの許可が要る。許可されないときは、許可なしで使えるキーボードでのペーストを案内する
+  private async paste() {
+    try {
+      this.terminal.paste(await navigator.clipboard.readText());
+    } catch {
+      this.showNotice(
+        "クリップボードを読み取れませんでした。キーボードでペーストしてください（Mac は Cmd+V、Windows・Linux は Ctrl+V）",
+      );
+    }
+  }
+
+  private showNotice(text: string) {
+    this.notice.textContent = text;
+    this.notice.hidden = false;
+    clearTimeout(this.noticeTimer);
+    this.noticeTimer = setTimeout(() => (this.notice.hidden = true), 5000);
   }
 
   private send(data: string) {

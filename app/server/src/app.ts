@@ -75,7 +75,7 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
     }),
   );
 
-  // ターミナルごとの入出力。出力はバイナリで、端末の大きさの変更は JSON で送る
+  // ターミナルごとの入出力とリセット。出力はバイナリで、端末の大きさの変更は JSON で送る
   app.get(
     "/ws/terminals/:id",
     async (c, next) => (workspace.terminal(c.req.param("id")) ? next() : c.text("Not Found", 404)),
@@ -94,6 +94,8 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
           const message = parseJson(event.data);
           if (message?.type === "input" && typeof message.data === "string") {
             session.write(message.data);
+          } else if (message?.type === "reset") {
+            session.reset();
           } else if (message?.type === "resize") {
             const size = parseSize(message);
             if (size) participant?.resize(size);
