@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, type Browser, type Locator } from "@playwright/test";
@@ -167,6 +167,53 @@ test("ファイル名にパスの区切りが含まれていても、保存先�
   // 保存先は一時ディレクトリの中に Accompany が作るディレクトリで、その外（一時ディレクトリの直下）には何も置かれない
   expect(readdirSync(tmp, { withFileTypes: true }).filter((e) => e.isFile())).toEqual([]);
   expect(existsSync(join(tmp, "escape.txt"))).toBe(false);
+});
+
+// Accompany が一時ディレクトリの中に作った保存先
+function uploadRoots() {
+  return readdirSync(tmp).filter((name) => name.startsWith("accompany-"));
+}
+
+test("長く起動している間に保存先が消えても、新しい保存先を作ってドロップを受け付ける", async ({ browser }) => {
+  accompany = await start();
+  const page = await openAsParticipant(browser, accompany.url);
+  const target = pane(page, 1).locator(".xterm-screen");
+  await dropFiles(target, [{ name: "before.txt", content: "before" }]);
+  await expect.poll(() => savedFiles("before.txt")).toHaveLength(1);
+  const [oldRoot] = uploadRoots();
+
+  // OS が一時ディレクトリを掃除したときのように、保存先を消す
+  rmSync(join(tmp, oldRoot!), { recursive: true });
+  await dropFiles(target, [{ name: "after.txt", content: "after" }]);
+
+  await expect.poll(() => savedFiles("after.txt")).toHaveLength(1);
+  const path = savedFile("after.txt");
+  expect(readFileSync(path, "utf8")).toBe("after");
+  await expectPaneToShow(page, 1, path);
+  expect(uploadRoots()).toHaveLength(1);
+  expect(uploadRoots()).not.toContain(oldRoot);
+});
+
+test("消えた保存先と同じ名前で別の場所へのシンボリックリンクが置かれても、そこには書き込まない", async ({ browser }) => {
+  accompany = await start();
+  const page = await openAsParticipant(browser, accompany.url);
+  const target = pane(page, 1).locator(".xterm-screen");
+  await dropFiles(target, [{ name: "before.txt", content: "before" }]);
+  await expect.poll(() => savedFiles("before.txt")).toHaveLength(1);
+  const [oldRoot] = uploadRoots();
+
+  // 共有の一時ディレクトリでは、ほかのユーザーが消えた保存先と同じ名前のリンクを先に作れる
+  const attacker = join(tmp, "attacker");
+  mkdirSync(attacker);
+  rmSync(join(tmp, oldRoot!), { recursive: true });
+  symlinkSync(attacker, join(tmp, oldRoot!));
+  await dropFiles(target, [{ name: "after.txt", content: "after" }]);
+
+  await expect.poll(() => savedFiles("after.txt")).toHaveLength(1);
+  const path = savedFile("after.txt");
+  await expectPaneToShow(page, 1, path);
+  expect(path.startsWith(join(tmp, oldRoot!))).toBe(false);
+  expect(readdirSync(attacker, { recursive: true })).toEqual([]);
 });
 
 test("Accompany を止めると、保存したファイルが消える", async ({ browser }) => {
