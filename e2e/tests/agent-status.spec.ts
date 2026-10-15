@@ -22,6 +22,7 @@ async function openAsParticipant(
   url: string,
   permission: Permission = "granted",
   initiallyHidden = false,
+  ready = "Busy Agent ready",
 ) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   await context.addInitScript(([initial, initiallyHidden]: [Permission, boolean]) => {
@@ -62,7 +63,7 @@ async function openAsParticipant(
   }, [permission, initiallyHidden] as [Permission, boolean]);
   const page = await context.newPage();
   await page.goto(url);
-  await expectPaneToShow(page, 1, "Busy Agent ready");
+  await expectPaneToShow(page, 1, ready);
   return page;
 }
 
@@ -265,4 +266,23 @@ test("表示していないタブのターミナルの作業が終わると通�
   await page.evaluate(() => (window as any).notifications[0].onclick());
   await expect(page.getByRole("tab", { name: "タブ 1", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(pane(page, 1)).toHaveAttribute("data-focused", "true");
+});
+
+test("矢印キーやファンクションキーだけでは、そのあと出力が続いても作業中にならない", async ({ browser }) => {
+  // アプリケーションカーソルモードにして画面を描き続ける TUI。矢印キーは ESC O A、F1 は ESC O P で届く
+  accompany = await startAccompany(["--", "bun", "e2e/fixtures/cursor-app.ts"]);
+  const page = await openAsParticipant(browser, accompany.url, "granted", false, "Cursor App ready");
+  await pane(page, 1).locator(".xterm-helper-textarea").focus();
+
+  for (const key of ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "F1", "ArrowUp"]) {
+    await page.keyboard.press(key);
+    await page.waitForTimeout(300);
+  }
+  // 数える入力なら、そのあとも出力が続くので 1 秒あまりで作業中になる。それを過ぎるまで待つ
+  await page.waitForTimeout(2_000);
+  expect(await statusHistory(page)).not.toContain("作業中");
+
+  // 文字を打てば、出力が続いているので作業中になる（この TUI で判定が働くことの確認）
+  await page.keyboard.type("a");
+  await expect(agentStatus(page, 1)).toHaveText("作業中", { timeout: 5_000 });
 });
