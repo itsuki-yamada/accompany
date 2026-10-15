@@ -15,6 +15,8 @@ const panes = new Map<string, Pane>();
 type Member = { id: number; name: string; color: string; terminal?: string };
 let you: number | undefined;
 let members: Member[] = [];
+// ターミナルごとの、コマンドが設定したタイトル
+let titles: Record<string, string> = {};
 
 const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 const socket = new WebSocket(`${protocol}//${location.host}/ws/workspace`);
@@ -31,6 +33,9 @@ socket.onmessage = (event) => {
   } else if (message.type === "presence") {
     members = message.members;
     showViewers();
+  } else if (message.type === "titles") {
+    titles = message.titles;
+    showTitles();
   } else if (message.type === "tabs") {
     if (dragging) deferredTabs = message;
     else renderTabs(message);
@@ -88,6 +93,7 @@ function render(layout: Layout) {
   root.replaceChildren(element);
   panes.forEach((pane) => pane.setClosable(ids.size > 1));
   showViewers();
+  showTitles();
   if (isFirstRender) panes.values().next().value?.focus();
 }
 
@@ -157,6 +163,10 @@ function showViewers() {
       .map((m) => ({ name: m.name, color: m.color, self: m.id === you }));
     pane.setViewers(viewers);
   }
+}
+
+function showTitles() {
+  panes.forEach((pane, id) => pane.setTitle(titles[id] ?? ""));
 }
 
 function terminalIds(node: Layout): string[] {

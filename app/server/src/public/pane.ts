@@ -21,6 +21,7 @@ export class Pane {
   readonly element = document.createElement("section");
   private closeButton: HTMLButtonElement;
   private viewers = document.createElement("span");
+  private program = document.createElement("span");
   // 検索のヒットの強調（decorations）に、xterm の試験的な API を使う
   private terminal = new Terminal({ allowProposedApi: true });
   private fit = new FitAddon();
@@ -37,10 +38,14 @@ export class Pane {
     const title = document.createElement("span");
     title.className = "pane-title";
     title.textContent = `ターミナル ${id}`;
+    // コマンドが設定したタイトル。長いものは CSS で省略し、全文はツールチップで出す
+    this.program.className = "pane-program";
+    this.program.hidden = true;
     this.viewers.className = "pane-viewers";
     this.viewers.setAttribute("role", "status");
     bar.append(
       title,
+      this.program,
       this.viewers,
       button("検索", "⌕", () => this.search.open()),
       button("右に分割", "⇥", () => actions.split("row")),
@@ -125,6 +130,13 @@ export class Pane {
     } else {
       delete this.element.dataset.focused;
     }
+  }
+
+  // コマンドが設定したタイトルを出す。空なら「ターミナル N」だけにする
+  setTitle(text: string) {
+    this.program.textContent = text;
+    this.program.title = text;
+    this.program.hidden = text === "";
   }
 
   setClosable(closable: boolean) {

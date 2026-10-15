@@ -167,14 +167,30 @@ body {
   flex: 0 0 auto;
 }
 
+/* コマンドが設定したタイトル。バーに収まらない分は省略し、全文はツールチップで見る */
+.pane-program {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #999;
+}
+
+.pane-program[hidden] {
+  display: none;
+}
+
+/* 長いタイトルがあっても、フォーカスしている人の表示は削らない */
 .pane-viewers {
-  flex: 1;
+  flex: 1 0 auto;
   display: flex;
   gap: 4px;
 }
 
 .viewer {
   padding: 0 6px;
+  white-space: nowrap;
   border-radius: 8px;
   font-size: 11px;
   line-height: 16px;
