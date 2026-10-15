@@ -1,6 +1,7 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
+import { acceptFileDrop } from "./file-drop";
 import { isSearchKey, SearchBar } from "./search";
 
 const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -97,6 +98,8 @@ export class Pane {
     this.terminal.textarea?.addEventListener("focus", actions.focused);
     // 検索バーに入力しているときも、このターミナルにフォーカスしているものとして表示する
     this.search.element.addEventListener("focusin", actions.focused);
+    // ドロップしたファイルのパスは、このターミナルの入力として貼り付ける
+    acceptFileDrop(this.element, (text) => this.terminal.paste(text));
 
     // 端末の大きさは参加者のうち一番小さい表示領域に合わせるため、自分の表示領域に収まる大きさをサーバーに伝え、
     // サーバーが決めた大きさで描く

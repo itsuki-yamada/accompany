@@ -1,7 +1,9 @@
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { upgradeWebSocket } from "hono/bun";
 import { createMiddleware } from "hono/factory";
 import type { Participant, Size } from "./terminal";
+import { maxUploadBytes, type Uploads } from "./uploads";
 import type { Workspace } from "./workspace";
 
 const loopbackHostnames = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -34,10 +36,11 @@ function parseJson(data: unknown) {
   }
 }
 
-export function createApp(workspace: Workspace) {
+export function createApp(workspace: Workspace, uploads: Uploads) {
   const app = new Hono();
 
   app.use("/ws/*", sameOriginOnly);
+  app.use("/api/*", sameOriginOnly);
 
   // タブと分割の配置、参加者ごとのフォーカス先を全員に配り、タブの追加・切り替え・閉じる、
   // 分割・閉じる・割合の変更・フォーカスの移動を受け付ける
@@ -99,6 +102,18 @@ export function createApp(workspace: Workspace) {
         onClose: () => participant?.detach(),
       };
     }),
+  );
+
+  // ターミナルにドロップされたファイルを保存し、保存先のパスを返す。パスはブラウザがターミナルに貼り付ける
+  app.post(
+    "/api/uploads",
+    bodyLimit({ maxSize: maxUploadBytes, onError: (c) => c.text("Payload Too Large", 413) }),
+    async (c) => {
+      const form = await c.req.formData().catch(() => undefined);
+      const files = form?.getAll("files").filter((f): f is File => f instanceof File) ?? [];
+      if (files.length === 0) return c.text("Bad Request", 400);
+      return c.json({ paths: await uploads.save(files) });
+    },
   );
 
   return app;
