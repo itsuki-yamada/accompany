@@ -226,5 +226,5 @@ test("Accompany を止めると、保存したファイルが消える", async (
   accompany = undefined;
 
   // bunx で起動すると、bunx 自身のインストール先なども同じ一時ディレクトリに作られるので、保存先だけを見る
-  expect(readdirSync(tmp).filter((name) => name.startsWith("accompany-"))).toEqual([]);
+  expect(uploadRoots()).toEqual([]);
 });
