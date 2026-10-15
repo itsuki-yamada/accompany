@@ -1,0 +1,214 @@
+import { expect, test, type Browser, type Page } from "@playwright/test";
+import { startAccompany, type Accompany } from "./accompany";
+import { boxOf, expectPaneToShow, pane, panes } from "./panes";
+import { terminalScreen } from "./terminal";
+
+// 分割や新しいタブで増えるターミナルは $SHELL を起動するので、入力をそのまま返す偽のシェルにする
+const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
+
+// ショートカットは macOS 向けの Cmd+Shift と、Windows / Linux 向けの Ctrl+Shift のどちらでも動く（docs/adr/31-shortcuts.md）。
+// Playwright は Linux（CI）でも Meta を付けたキーをページに送れる。ControlOrMeta は Linux では Ctrl になるので使わない
+const modifiers = ["Meta+Shift", "Control+Shift"] as const;
+
+let accompany: Accompany | undefined;
+
+test.afterEach(async () => {
+  await accompany?.stop();
+});
+
+async function openAsParticipant(browser: Browser, url: string) {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const page = await context.newPage();
+  await page.goto(url);
+  await expectPaneToShow(page, 1, "Fake Shell ready");
+  return page;
+}
+
+function input(page: Page, n: number) {
+  return pane(page, n).locator(".xterm-helper-textarea");
+}
+
+async function focusPane(page: Page, n: number) {
+  await input(page, n).focus();
+  await expect(pane(page, n)).toHaveAttribute("data-focused", "true");
+}
+
+// キー入力の先がそのターミナルにあり、全員の画面の表示（「あなた」）もそこにある
+async function expectFocusOn(page: Page, n: number) {
+  await expect(input(page, n)).toBeFocused();
+  await expect(pane(page, n)).toHaveAttribute("data-focused", "true");
+}
+
+function tab(page: Page, name: string) {
+  return page.getByRole("tab", { name, exact: true });
+}
+
+for (const modifier of modifiers) {
+  test(`${modifier}+R で、キー入力の先のターミナルを右に分割する`, async ({ browser }) => {
+    accompany = await startAccompany([], fakeShell);
+    const page = await openAsParticipant(browser, accompany.url);
+    await focusPane(page, 1);
+
+    await page.keyboard.press(`${modifier}+R`);
+
+    await expectPaneToShow(page, 2, "Fake Shell ready");
+    const [left, right] = [await boxOf(page, 1), await boxOf(page, 2)];
+    expect(right.x).toBeGreaterThanOrEqual(left.x + left.width - 1);
+    expect(Math.abs(right.y - left.y)).toBeLessThan(2);
+  });
+}
+
+test("Ctrl+Shift+D で、キー入力の先のターミナルを下に分割する", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+  await focusPane(page, 1);
+
+  await page.keyboard.press("Control+Shift+D");
+
+  await expectPaneToShow(page, 2, "Fake Shell ready");
+  const [top, bottom] = [await boxOf(page, 1), await boxOf(page, 2)];
+  expect(bottom.y).toBeGreaterThanOrEqual(top.y + top.height - 1);
+  expect(Math.abs(bottom.x - top.x)).toBeLessThan(2);
+});
+
+test("Cmd+Shift+X でキー入力の先のターミナルを閉じると、残りのターミナルにキー入力の先が移る", async ({
+  browser,
+}) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+  await focusPane(page, 1);
+  await page.keyboard.press("Control+Shift+R");
+  await expectPaneToShow(page, 2, "Fake Shell ready");
+  await focusPane(page, 2);
+
+  await page.keyboard.press("Meta+Shift+X");
+
+  await expect(pane(page, 2)).toHaveCount(0);
+  await expect(panes(page)).toHaveCount(1);
+  await expectFocusOn(page, 1);
+  await page.keyboard.type("still typing\n");
+  await expectPaneToShow(page, 1, "still typing");
+});
+
+test("Cmd+Shift+矢印 / Ctrl+Shift+矢印 で、隣のターミナルへフォーカスを移す", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+  // 1 が左、2 が右上、3 が右下
+  await focusPane(page, 1);
+  await page.keyboard.press("Control+Shift+R");
+  await expectPaneToShow(page, 2, "Fake Shell ready");
+  await focusPane(page, 1);
+
+  await page.keyboard.press("Meta+Shift+ArrowRight");
+  await expectFocusOn(page, 2);
+
+  await page.keyboard.press("Control+Shift+D");
+  await expectPaneToShow(page, 3, "Fake Shell ready");
+  await focusPane(page, 3);
+
+  await page.keyboard.press("Control+Shift+ArrowUp");
+  await expectFocusOn(page, 2);
+  await page.keyboard.press("Meta+Shift+ArrowDown");
+  await expectFocusOn(page, 3);
+  await page.keyboard.press("Control+Shift+ArrowLeft");
+  await expectFocusOn(page, 1);
+
+  // 端では、その向きに隣がないので動かない
+  await page.keyboard.press("Control+Shift+ArrowLeft");
+  await expectFocusOn(page, 1);
+  await page.keyboard.type("typed in left\n");
+  await expectPaneToShow(page, 1, "typed in left");
+});
+
+test("Ctrl+Shift+O で新しいタブを開き、Cmd+Shift+] / [ や Ctrl+Shift+] / [ で次・前のタブに切り替える", async ({
+  browser,
+}) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+  await focusPane(page, 1);
+
+  await page.keyboard.press("Control+Shift+O");
+  await expect(page.getByRole("tab")).toHaveText(["タブ 1", "タブ 2"]);
+  await expect(tab(page, "タブ 2")).toHaveAttribute("aria-selected", "true");
+  await expectPaneToShow(page, 2, "Fake Shell ready");
+  await expectFocusOn(page, 2);
+
+  await page.keyboard.press("Meta+Shift+O");
+  await expect(page.getByRole("tab")).toHaveText(["タブ 1", "タブ 2", "タブ 3"]);
+  await expect(tab(page, "タブ 3")).toHaveAttribute("aria-selected", "true");
+  await expectFocusOn(page, 3);
+
+  await page.keyboard.press("Control+Shift+BracketLeft");
+  await expect(tab(page, "タブ 2")).toHaveAttribute("aria-selected", "true");
+  await expectFocusOn(page, 2);
+
+  await page.keyboard.press("Meta+Shift+BracketRight");
+  await expect(tab(page, "タブ 3")).toHaveAttribute("aria-selected", "true");
+  await expectFocusOn(page, 3);
+
+  // 端では反対側に回る
+  await page.keyboard.press("Control+Shift+BracketRight");
+  await expect(tab(page, "タブ 1")).toHaveAttribute("aria-selected", "true");
+  await expectFocusOn(page, 1);
+
+  await page.keyboard.press("Meta+Shift+BracketLeft");
+  await expect(tab(page, "タブ 3")).toHaveAttribute("aria-selected", "true");
+  await expectFocusOn(page, 3);
+});
+
+test("ショートカットと同じ文字・矢印でも、Shift なしの Ctrl キーはこれまでどおりコマンドに届く", async ({ page }) => {
+  accompany = await startAccompany(["--", "bun", "e2e/fixtures/key-reporter.ts"]);
+  await page.goto(accompany.url);
+  await expect(terminalScreen(page)).toContainText("Key reporter ready");
+  await page.locator(".xterm-helper-textarea").focus();
+
+  const keys = [
+    { key: "Control+R", bytes: "12" },
+    { key: "Control+D", bytes: "04" },
+    { key: "Control+X", bytes: "18" },
+    { key: "Control+O", bytes: "0f" },
+    { key: "Control+ArrowRight", bytes: "1b 5b 31 3b 35 43" },
+  ];
+  for (const { key, bytes } of keys) {
+    await page.keyboard.press(key);
+    await expect(terminalScreen(page)).toContainText(`keys: ${bytes}`);
+  }
+  await expect(panes(page)).toHaveCount(1);
+  await expect(page.getByRole("tab")).toHaveCount(1);
+});
+
+test("ショートカットの一覧を、タブバーのボタンとツールチップで確かめられる", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+
+  // ボタンのツールチップに、macOS と Windows / Linux のキーを併記する
+  await expect(pane(page, 1).getByRole("button", { name: "右に分割" })).toHaveAttribute(
+    "title",
+    "右に分割（⌘⇧R / Ctrl+Shift+R）",
+  );
+  await expect(page.getByRole("button", { name: "新しいタブ" })).toHaveAttribute(
+    "title",
+    "新しいタブ（⌘⇧O / Ctrl+Shift+O）",
+  );
+
+  const list = page.getByRole("dialog", { name: "キーボードショートカット" });
+  await expect(list).toBeHidden();
+  await page.getByRole("button", { name: "キーボードショートカット" }).click();
+  await expect(list).toBeVisible();
+  for (const text of [
+    "右に分割",
+    "下に分割",
+    "ターミナルを閉じる",
+    "隣のターミナルへ移る",
+    "新しいタブ",
+    "次のタブ",
+    "前のタブ",
+    "⌘⇧R",
+    "Ctrl+Shift+]",
+  ]) {
+    await expect(list).toContainText(text);
+  }
+
+  await page.keyboard.press("Escape");
+  await expect(list).toBeHidden();
+});
