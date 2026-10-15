@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { startAccompany, type Accompany } from "./accompany";
-import { expectTerminalToShow, terminalScreen, typeInTerminal } from "./terminal";
+import { boxAndText, expectTerminalToShow, terminalScreen, typeInTerminal } from "./terminal";
 
 let accompany: Accompany | undefined;
 
@@ -53,7 +53,7 @@ test("ターミナルの文字を選択してコピーすると、選択した�
   // xterm は空白をノーブレークスペースで描き、行を描き直し続けるので、空白の種類を問わずに行を探し、
   // 位置を取ってマウスでトリプルクリックし、行を選択する
   const line = page.locator(".xterm-rows > div").filter({ hasText: /copy\sme\splease/ }).last();
-  const box = (await line.boundingBox())!;
+  const box = await boxAndText(line);
   await page.mouse.click(box.x + 20, box.y + box.height / 2, { clickCount: 3 });
 
   const copied = await page.locator(".xterm-helper-textarea").evaluate((textarea) => {
@@ -80,8 +80,7 @@ test("出力に含まれる URL をクリックすると、新しいタブで開
     .filter({ hasText: /https:\/\/example\.com\/accompany/ })
     .locator("span")
     .first();
-  const box = (await link.boundingBox())!;
-  const text = (await link.textContent()) ?? "";
+  const { text, ...box } = await boxAndText(link);
   const charWidth = box.width / text.length;
   const x = box.x + charWidth * (text.indexOf("https://") + 5);
   const [popup] = await Promise.all([
