@@ -90,6 +90,8 @@ function renderTabs({ tabs, active }: Tabs) {
   );
 
   const layout = tabs.find((t) => t.id === active)?.layout;
+  // 通知のクリックで切り替えを頼んだあと、ほかの人が別のタブに切り替えたときは、フォーカスする予定を取り消す
+  if (pendingFocus && !(layout && terminalIds(layout).includes(pendingFocus))) pendingFocus = undefined;
   if (layout) render(layout);
 }
 

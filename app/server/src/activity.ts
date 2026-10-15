@@ -12,8 +12,9 @@ const idleAfterMs = 2000;
 // フォーカス（CSI I / O）・マウスの報告は、このどれかだけでできている
 // - X10 形式のマウスの報告（CSI M のあとに 3 バイトの座標が続く）
 // - CSI
+// - SS3（アプリケーションカーソルモードの矢印キー ESC O A、F1〜F4 の ESC O P など）
 // - OSC・DCS・APC・PM・SOS（BEL か ST で終わる）
-const controlSequences = /\x1b\[M[\s\S]{3}|\x1b\[[0-?]*[ -\/]*[@-~]|\x1b[\]P_^X][\s\S]*?(?:\x07|\x1b\\)/g;
+const controlSequences = /\x1b\[M[\s\S]{3}|\x1b\[[0-?]*[ -\/]*[@-~]|\x1bO[\s\S]|\x1b[\]P_^X][\s\S]*?(?:\x07|\x1b\\)/g;
 
 // 参加者が打ったものか。表示できる文字か CR を含むものだけを数える
 function isTyped(data: string) {
@@ -27,6 +28,8 @@ export class ActivityMonitor {
   // 数える出力が出始めた時刻。出力が途切れたら消す
   private burstStart: number | undefined;
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
+  // ターミナルを閉じたあとに届いた出力で、タイマーを作り直さない
+  private disposed = false;
 
   constructor(private onChange: (status: AgentStatus) => void) {}
 
@@ -37,7 +40,7 @@ export class ActivityMonitor {
 
   output() {
     const now = Date.now();
-    if (now - this.lastInput < echoMs) return;
+    if (this.disposed || now - this.lastInput < echoMs) return;
     // 参加者の入力のあとに出始めた出力だけを数える。起動直後の描画や、入力と関係なく出る出力は数えない
     if (this.burstStart === undefined && now - this.lastInput > idleAfterMs) return;
     this.burstStart ??= now;
@@ -47,6 +50,7 @@ export class ActivityMonitor {
   }
 
   dispose() {
+    this.disposed = true;
     clearTimeout(this.idleTimer);
   }
 
