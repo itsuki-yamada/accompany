@@ -44,7 +44,8 @@ export class SearchBar {
       if (event.key === "Enter" && !event.isComposing) {
         event.preventDefault();
         this.find(event.shiftKey ? "previous" : "next");
-      } else if (event.key === "Escape") {
+      } else if (event.key === "Escape" && !event.isComposing) {
+        // 日本語入力で変換を取り消す Escape は IME に任せる
         event.preventDefault();
         this.close();
       }

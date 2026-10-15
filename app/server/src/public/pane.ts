@@ -95,6 +95,8 @@ export class Pane {
       return false;
     });
     this.terminal.textarea?.addEventListener("focus", actions.focused);
+    // 検索バーに入力しているときも、このターミナルにフォーカスしているものとして表示する
+    this.search.element.addEventListener("focusin", actions.focused);
 
     // 端末の大きさは参加者のうち一番小さい表示領域に合わせるため、自分の表示領域に収まる大きさをサーバーに伝え、
     // サーバーが決めた大きさで描く
