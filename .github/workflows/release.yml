@@ -6,8 +6,6 @@ on:
   push:
     branches:
       - main
-  # 検証用（あとで戻す）: プルリクでは dry-run になる
-  pull_request:
   # Release を作らずに、tarball と E2E と「何をするか」の表示までを試す
   workflow_dispatch:
     inputs:

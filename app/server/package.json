@@ -1,13 +1,13 @@
 {
   "name": "accompany",
-  "version": "0.2.1",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "bin": {
     "accompany": "src/cli.ts"
   },
   "files": [
-    "src/cli.ts"
+    "src"
   ],
   "dependencies": {
     "@xterm/addon-fit": "0.11.0",
