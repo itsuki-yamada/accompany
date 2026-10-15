@@ -75,6 +75,7 @@ export class Pane {
         if (!isSearchKey(event) && !shortcut) return;
         event.preventDefault();
         event.stopPropagation();
+        if (shortcut === "ignore") return;
         if (shortcut) actions.shortcut(shortcut);
         else this.search.open();
       },

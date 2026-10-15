@@ -10,34 +10,40 @@ export type Shortcut =
   | { type: "next-tab" }
   | { type: "previous-tab" };
 
-type Binding = { label: string; keys: string[]; shortcut: Shortcut };
+// code はキーの位置（event.code）。Latin 以外の配列でも効くように、event.key（入力される文字）ではなく位置で判定する。
+// key は画面に出す表記。repeat は、押し続けたときに繰り返してよいか（分割・閉じる・新しいタブは 1 回だけにする）
+type Binding = { label: string; code: string; key: string; repeat: boolean; shortcut: Shortcut };
 
-// keys は event.key を小文字にしたもの。] / [ は Shift で } / { になる配列があるので両方を受け付ける
+// 次／前のタブは ⌘⇧] / [ にしたかったが、macOS の Chrome が予約していてページに届かないので . / , にする
 const bindings: Binding[] = [
-  { label: "右に分割", keys: ["r"], shortcut: { type: "split", direction: "row" } },
-  { label: "下に分割", keys: ["d"], shortcut: { type: "split", direction: "column" } },
-  { label: "ターミナルを閉じる", keys: ["x"], shortcut: { type: "close" } },
-  { label: "隣のターミナルへ移る", keys: ["arrowleft"], shortcut: { type: "move-focus", direction: "left" } },
-  { label: "隣のターミナルへ移る", keys: ["arrowright"], shortcut: { type: "move-focus", direction: "right" } },
-  { label: "隣のターミナルへ移る", keys: ["arrowup"], shortcut: { type: "move-focus", direction: "up" } },
-  { label: "隣のターミナルへ移る", keys: ["arrowdown"], shortcut: { type: "move-focus", direction: "down" } },
-  { label: "新しいタブ", keys: ["o"], shortcut: { type: "new-tab" } },
-  { label: "次のタブ", keys: ["]", "}"], shortcut: { type: "next-tab" } },
-  { label: "前のタブ", keys: ["[", "{"], shortcut: { type: "previous-tab" } },
+  { label: "右に分割", code: "KeyR", key: "R", repeat: false, shortcut: { type: "split", direction: "row" } },
+  { label: "下に分割", code: "KeyD", key: "D", repeat: false, shortcut: { type: "split", direction: "column" } },
+  { label: "ターミナルを閉じる", code: "KeyX", key: "X", repeat: false, shortcut: { type: "close" } },
+  ...(["left", "right", "up", "down"] as const).map((direction) => ({
+    label: "隣のターミナルへ移る",
+    code: `Arrow${direction[0]!.toUpperCase()}${direction.slice(1)}`,
+    key: "←↑→↓",
+    repeat: true,
+    shortcut: { type: "move-focus", direction } as const,
+  })),
+  { label: "新しいタブ", code: "KeyO", key: "O", repeat: false, shortcut: { type: "new-tab" } },
+  { label: "次のタブ", code: "Period", key: ".", repeat: true, shortcut: { type: "next-tab" } },
+  { label: "前のタブ", code: "Comma", key: ",", repeat: true, shortcut: { type: "previous-tab" } },
 ];
 
-export function shortcutFor(event: KeyboardEvent): Shortcut | undefined {
+// ショートカットのキーなら、その操作を返す。押し続けて繰り返し届いた keydown のうち、繰り返さない操作は ignore にする
+// （キーは止めるが、操作はしない）
+export function shortcutFor(event: KeyboardEvent): Shortcut | "ignore" | undefined {
   // 日本語入力の変換中のキーは IME に任せる
   if (event.isComposing || !event.shiftKey || event.altKey || event.metaKey === event.ctrlKey) return;
-  const key = event.key.toLowerCase();
-  return bindings.find((b) => b.keys.includes(key))?.shortcut;
+  const binding = bindings.find((b) => b.code === event.code);
+  if (!binding) return;
+  return event.repeat && !binding.repeat ? "ignore" : binding.shortcut;
 }
 
 // 画面に出すキーの表記（例: ⌘⇧R / Ctrl+Shift+R）
-// 隣のターミナルへの移動は、4 つの向きをまとめて 1 行で出す
 function keysOf(binding: Binding) {
-  const key = binding.shortcut.type === "move-focus" ? "←↑→↓" : binding.keys[0]!.toUpperCase();
-  return { mac: `⌘⇧${key}`, other: `Ctrl+Shift+${key}` };
+  return { mac: `⌘⇧${binding.key}`, other: `Ctrl+Shift+${binding.key}` };
 }
 
 // ボタンのツールチップ（例: 右に分割（⌘⇧R / Ctrl+Shift+R））。text はツールチップに出す操作の名前
