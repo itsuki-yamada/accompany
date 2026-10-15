@@ -2,13 +2,22 @@ name: E2E
 
 on:
   pull_request:
+  # release.yml から呼び出し、リリースする tarball を同じ手順で確かめる
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
   e2e:
+    name: e2e (${{ matrix.target }})
     runs-on: ubuntu-latest
+    strategy:
+      # 片方が落ちても、もう片方の結果とレポートを残す
+      fail-fast: false
+      matrix:
+        # source: リポジトリから直接起動する / tarball: リリースする tarball から bunx で起動する
+        target: [source, tarball]
     steps:
       - uses: actions/checkout@v7
 
@@ -20,6 +29,16 @@ jobs:
           bun install --frozen-lockfile --cwd app/server
           bun install --frozen-lockfile --cwd e2e
 
+      # bunx は tarball のパスごとにインストール先を使い回し、相対パスでは失敗するため、新しい絶対パスに置く
+      - name: tarball を作り、E2E の起動コマンドを tarball にする
+        if: matrix.target == 'tarball'
+        working-directory: app/server
+        run: |
+          tarball=$(bun pm pack --destination "$RUNNER_TEMP/tarball-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --quiet)
+          echo "tarball: $tarball"
+          echo "ACCOMPANY_CMD=bunx --package $tarball accompany" >> "$GITHUB_ENV"
+          echo "TARBALL=$tarball" >> "$GITHUB_ENV"
+
       - name: Playwright の Chromium を入れる
         working-directory: e2e
         run: bunx playwright install --with-deps chromium
@@ -29,13 +48,23 @@ jobs:
         working-directory: e2e
         run: bun run test --grep-invert @wip
 
+      # E2E を通した tarball そのものを、release.yml が Release に添付する
+      - name: tarball をアップロードする
+        if: matrix.target == 'tarball'
+        uses: actions/upload-artifact@v7
+        with:
+          name: accompany-tarball
+          path: ${{ env.TARBALL }}
+          if-no-files-found: error
+          retention-days: 30
+
       # 失敗したときこそ証跡が必要なので、成否にかかわらずアップロードする
       - name: HTML レポートをアップロードする
         id: upload
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.target }}
           path: e2e/playwright-report/
           retention-days: 30
 
@@ -43,9 +72,10 @@ jobs:
         if: ${{ !cancelled() && steps.upload.outputs.artifact-url }}
         env:
           REPORT_URL: ${{ steps.upload.outputs.artifact-url }}
+          TARGET: ${{ matrix.target }}
         run: |
           {
-            echo "## E2E の証跡"
+            echo "## E2E の証跡（$TARGET）"
             echo
             echo "[Playwright の HTML レポート（スクリーンショット・動画・ログ）]($REPORT_URL)"
             echo

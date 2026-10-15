@@ -1,0 +1,121 @@
+name: Release
+
+# main にマージされるたびに、tarball の形で E2E を通したうえで、
+# 先行版 edge を作り直し、まだなければ package.json のバージョンの正式な Release を作る
+on:
+  push:
+    branches:
+      - main
+  # Release を作らずに、tarball と E2E と「何をするか」の表示までを試す
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Release を作らずに、何をするかだけを表示する
+        type: boolean
+        default: true
+
+# 同時に複数のマージが走っても、edge の更新が競合しないよう 1 本ずつ流す（待っている実行は最新のものだけが残る）
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && 'publish' || github.run_id }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  e2e:
+    uses: ./.github/workflows/e2e.yml
+    permissions:
+      contents: read
+
+  release:
+    name: Release を作る
+    needs: e2e
+    runs-on: ubuntu-latest
+    # Release とタグの作成にだけ書き込み権限を渡す
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      DRY_RUN: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+    steps:
+      - name: E2E を通した tarball を取得する
+        uses: actions/download-artifact@v8
+        with:
+          name: accompany-tarball
+          path: tarball
+
+      # bun pm pack の名前は accompany-<バージョン>.tgz
+      - name: バージョンと tarball の名前を決める
+        id: names
+        run: |
+          tarball=$(ls tarball/accompany-*.tgz)
+          version=$(basename "$tarball" .tgz)
+          version=${version#accompany-}
+          short_sha=${GITHUB_SHA::7}
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "edge_asset=accompany-$version-$short_sha.tgz" >> "$GITHUB_OUTPUT"
+          echo "release_asset=accompany-$version.tgz" >> "$GITHUB_OUTPUT"
+          echo "version: $version / commit: $short_sha / dry-run: $DRY_RUN"
+
+      # bunx は tarball のパスごとにインストール先を使い回すので、edge の tarball はコミットごとに名前を変える
+      - name: 先行版 edge をこのコミットで作り直す
+        env:
+          TARBALL: ${{ steps.names.outputs.tarball }}
+          VERSION: ${{ steps.names.outputs.version }}
+          ASSET: ${{ steps.names.outputs.edge_asset }}
+        run: |
+          run() { if [ "$DRY_RUN" = true ]; then echo "[dry-run] $*"; else "$@"; fi; }
+          cp "$TARBALL" "$RUNNER_TEMP/$ASSET"
+          notes="main の最新のコミット（$GITHUB_SHA）から作った先行版（バージョン $VERSION）。
+
+          使い方: $ASSET をダウンロードし、\`bunx --package <ダウンロードした tarball の絶対パス> accompany\` で起動する。"
+
+          # タグ edge をこのコミットに付け直す（なければ作る）
+          if gh api "repos/$GH_REPO/git/ref/tags/edge" > /dev/null 2>&1; then
+            run gh api -X PATCH "repos/$GH_REPO/git/refs/tags/edge" -f sha="$GITHUB_SHA" -F force=true
+          else
+            run gh api -X POST "repos/$GH_REPO/git/refs" -f ref=refs/tags/edge -f sha="$GITHUB_SHA"
+          fi
+
+          if gh release view edge > /dev/null 2>&1; then
+            old_assets=$(gh release view edge --json assets -q '.assets[].name')
+            run gh release upload edge "$RUNNER_TEMP/$ASSET" --clobber
+            run gh release edit edge --prerelease --title edge --notes "$notes"
+            # 新しい tarball を置いてから、古い tarball を消す
+            for name in $old_assets; do
+              if [ "$name" != "$ASSET" ]; then run gh release delete-asset edge "$name" --yes; fi
+            done
+          else
+            run gh release create edge "$RUNNER_TEMP/$ASSET" --prerelease --title edge --notes "$notes"
+          fi
+
+      # 既にある Release（v0.1.0、v0.2.0 など）やタグには触れない
+      - name: まだなければ、このバージョンの正式な Release を作る
+        env:
+          TARBALL: ${{ steps.names.outputs.tarball }}
+          VERSION: ${{ steps.names.outputs.version }}
+          ASSET: ${{ steps.names.outputs.release_asset }}
+        run: |
+          run() { if [ "$DRY_RUN" = true ]; then echo "[dry-run] $*"; else "$@"; fi; }
+          tag="v$VERSION"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "$tag の Release は既にあるので、何もしない"
+            exit 0
+          fi
+          if gh api "repos/$GH_REPO/git/ref/tags/$tag" > /dev/null 2>&1; then
+            echo "::warning::タグ $tag は既にあるが Release がない。別のコミットを指している可能性があるので、Release は作らない"
+            exit 0
+          fi
+          cp "$TARBALL" "$RUNNER_TEMP/$ASSET"
+          notes="使い方: $ASSET をダウンロードし、\`bunx --package <ダウンロードした tarball の絶対パス> accompany\` で起動する。"
+          # 変更点は、edge ではなく直前の正式な Release（Latest）からの差分にする
+          previous=$(gh release view --json tagName -q .tagName)
+          run gh release create "$tag" "$RUNNER_TEMP/$ASSET" \
+            --target "$GITHUB_SHA" \
+            --title "$tag" \
+            --notes "$notes" \
+            --generate-notes \
+            --notes-start-tag "$previous" \
+            --latest
