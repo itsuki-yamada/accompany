@@ -26,6 +26,8 @@ export function showContextMenu(x: number, y: number, items: MenuItem[], onClose
     button.textContent = item.label;
     // 選べない項目も、矢印キーで移れるようにフォーカスは受け付ける
     if (item.disabled) button.setAttribute("aria-disabled", "true");
+    // マウスで指した項目にフォーカスを移し、強調する項目を 1 つにする
+    button.addEventListener("mouseenter", () => button.focus());
     button.addEventListener("click", () => {
       if (item.disabled) return;
       close(true);
