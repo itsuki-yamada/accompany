@@ -39,7 +39,8 @@ export function createApp(workspace: Workspace) {
 
   app.use("/ws/*", sameOriginOnly);
 
-  // 分割の配置と、参加者ごとのフォーカス先を全員に配り、分割・閉じる・割合の変更・フォーカスの移動を受け付ける
+  // タブと分割の配置、参加者ごとのフォーカス先を全員に配り、タブの追加・切り替え・閉じる、
+  // 分割・閉じる・割合の変更・フォーカスの移動を受け付ける
   app.get(
     "/ws/workspace",
     upgradeWebSocket(() => {
@@ -56,6 +57,12 @@ export function createApp(workspace: Workspace) {
             workspace.close(String(message.terminal));
           } else if (message?.type === "resize-split" && typeof message.ratio === "number") {
             workspace.resizeSplit(String(message.split), message.ratio);
+          } else if (message?.type === "new-tab") {
+            workspace.newTab();
+          } else if (message?.type === "select-tab") {
+            workspace.selectTab(String(message.tab));
+          } else if (message?.type === "close-tab") {
+            workspace.closeTab(String(message.tab));
           } else if (message?.type === "focus") {
             member?.focus(String(message.terminal));
           }
