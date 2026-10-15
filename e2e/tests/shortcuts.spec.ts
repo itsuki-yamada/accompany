@@ -55,6 +55,10 @@ for (const modifier of modifiers) {
     const [left, right] = [await boxOf(page, 1), await boxOf(page, 2)];
     expect(right.x).toBeGreaterThanOrEqual(left.x + left.width - 1);
     expect(Math.abs(right.y - left.y)).toBeLessThan(2);
+    // 分割で配置が組み直されても、キー入力の先は元のターミナルに残り、続けて操作できる
+    await expectFocusOn(page, 1);
+    await page.keyboard.type("typed after split\n");
+    await expectPaneToShow(page, 1, "typed after split");
   });
 }
 
@@ -69,6 +73,7 @@ test("Ctrl+Shift+D で、キー入力の先のターミナルを下に分割す�
   const [top, bottom] = [await boxOf(page, 1), await boxOf(page, 2)];
   expect(bottom.y).toBeGreaterThanOrEqual(top.y + top.height - 1);
   expect(Math.abs(bottom.x - top.x)).toBeLessThan(2);
+  await expectFocusOn(page, 1);
 });
 
 test("Cmd+Shift+X でキー入力の先のターミナルを閉じると、残りのターミナルにキー入力の先が移る", async ({
@@ -93,18 +98,20 @@ test("Cmd+Shift+X でキー入力の先のターミナルを閉じると、残�
 test("Cmd+Shift+矢印 / Ctrl+Shift+矢印 で、隣のターミナルへフォーカスを移す", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
-  // 1 が左、2 が右上、3 が右下
+  // キーボードだけで、1 が左、2 が右上、3 が右下になるように分割していく
   await focusPane(page, 1);
   await page.keyboard.press("Control+Shift+R");
   await expectPaneToShow(page, 2, "Fake Shell ready");
-  await focusPane(page, 1);
+  await expectFocusOn(page, 1);
 
   await page.keyboard.press("Meta+Shift+ArrowRight");
   await expectFocusOn(page, 2);
 
   await page.keyboard.press("Control+Shift+D");
   await expectPaneToShow(page, 3, "Fake Shell ready");
-  await focusPane(page, 3);
+  await expectFocusOn(page, 2);
+  await page.keyboard.press("Control+Shift+ArrowDown");
+  await expectFocusOn(page, 3);
 
   await page.keyboard.press("Control+Shift+ArrowUp");
   await expectFocusOn(page, 2);
