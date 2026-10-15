@@ -1,6 +1,7 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
+import { isSearchKey, SearchBar } from "./search";
 
 const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 
@@ -19,10 +20,12 @@ export class Pane {
   readonly element = document.createElement("section");
   private closeButton: HTMLButtonElement;
   private viewers = document.createElement("span");
-  private terminal = new Terminal();
+  // 検索のヒットの強調（decorations）に、xterm の試験的な API を使う
+  private terminal = new Terminal({ allowProposedApi: true });
   private fit = new FitAddon();
   private socket: WebSocket;
   private resizeObserver: ResizeObserver;
+  private search = new SearchBar(this.terminal);
 
   constructor(id: string, actions: PaneActions) {
     this.element.className = "pane";
@@ -38,13 +41,26 @@ export class Pane {
     bar.append(
       title,
       this.viewers,
+      button("検索", "⌕", () => this.search.open()),
       button("右に分割", "⇥", () => actions.split("row")),
       button("下に分割", "⤓", () => actions.split("column")),
       (this.closeButton = button("閉じる", "×", actions.close)),
     );
     const container = document.createElement("div");
     container.className = "pane-terminal";
-    this.element.append(bar, container);
+    this.element.append(bar, this.search.element, container);
+
+    // 検索バーを開くキーは、xterm やブラウザ（ページ内検索）より先に拾う
+    this.element.addEventListener(
+      "keydown",
+      (event) => {
+        if (!isSearchKey(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        this.search.open();
+      },
+      { capture: true },
+    );
 
     this.terminal.loadAddon(this.fit);
     // 出力の URL をクリックで開く。開いたページから元のページを操作されないよう、opener を切って新しいタブで開く
@@ -79,6 +95,8 @@ export class Pane {
       return false;
     });
     this.terminal.textarea?.addEventListener("focus", actions.focused);
+    // 検索バーに入力しているときも、このターミナルにフォーカスしているものとして表示する
+    this.search.element.addEventListener("focusin", actions.focused);
 
     // 端末の大きさは参加者のうち一番小さい表示領域に合わせるため、自分の表示領域に収まる大きさをサーバーに伝え、
     // サーバーが決めた大きさで描く
