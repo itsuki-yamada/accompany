@@ -383,7 +383,8 @@ export class Pane {
   // 古い高さのスクロールバーがはみ出して、表示領域のスクロールが余分に出るので、計算し直させる（xterm の内部の API）
   private setFontSize(fontSize: number) {
     this.terminal.options.fontSize = fontSize;
-    (this.terminal as any)._core._viewport?.queueSync();
+    const viewport = (this.terminal as any)._core._viewport;
+    if (typeof viewport?.queueSync === "function") viewport.queueSync();
   }
 
   // 選んでいる文字（検索のヒット）が表示領域の外にあれば、表示領域の中央に来るようにスクロールする

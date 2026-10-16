@@ -3,7 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { upgradeWebSocket } from "hono/bun";
 import { createMiddleware } from "hono/factory";
 import { parseQuickCommand } from "./quick-commands";
-import type { Participant, Size } from "./terminal";
+import { clampSize, type Participant, type Size } from "./terminal";
 import { maxUploadBytes, type Uploads } from "./uploads";
 import type { Workspace } from "./workspace";
 
@@ -22,11 +22,11 @@ const sameOriginOnly = createMiddleware(async (c, next) => {
   await next();
 });
 
-// ブラウザから届く制御メッセージ。大きさは、端末として扱える範囲の整数だけを受け付ける
+// ブラウザから届く制御メッセージ。大きさは 1 以上の整数だけを受け付け、上限（maxSize）を超えるものは上限に丸める
 function parseSize(message: { cols?: unknown; rows?: unknown }): Size | undefined {
   const { cols, rows } = message;
-  const valid = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 1 && (n as number) <= 1000;
-  return valid(cols) && valid(rows) ? { cols, rows } : undefined;
+  const valid = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) >= 1;
+  return valid(cols) && valid(rows) ? clampSize({ cols, rows }) : undefined;
 }
 
 function parseJson(data: unknown) {

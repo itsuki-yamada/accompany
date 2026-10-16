@@ -5,6 +5,15 @@ import { ActivityMonitor, type AgentStatus } from "./activity";
 
 export type Size = { cols: number; rows: number };
 
+// 端末の大きさの上限。端末の大きさは参加者のうち一番大きいものに合わせるので、1 人から大きすぎる値が届くと
+// （改造したブラウザや、1 文字の大きさを小さく測る不具合など）、全員の端末とサーバー側の画面がその大きさになる。
+// フル HD を最小のフォント（8px）で埋めても収まる大きさで切り詰める（docs/adr/51-largest-size.md）
+export const maxSize: Size = { cols: 512, rows: 256 };
+
+export function clampSize({ cols, rows }: Size): Size {
+  return { cols: Math.min(cols, maxSize.cols), rows: Math.min(rows, maxSize.rows) };
+}
+
 // ブラウザに送るもの。出力と端末の大きさの変更は、この順番どおりに届ける
 export type Message = { type: "output"; data: Uint8Array } | { type: "resize"; size: Size };
 type Listener = (message: Message) => void;
