@@ -80,16 +80,17 @@ test("出力に含まれる URL をクリックすると、新しいタブで開
     .filter({ hasText: /https:\/\/example\.com\/accompany/ })
     .locator("span")
     .first();
-  const { text, ...box } = await boxAndText(link);
-  const charWidth = box.width / text.length;
-  const x = box.x + charWidth * (text.indexOf("https://") + 5);
-  const [popup] = await Promise.all([
-    page.waitForEvent("popup"),
-    (async () => {
-      await page.mouse.move(x, box.y + box.height / 2);
-      await page.mouse.click(x, box.y + box.height / 2);
-    })(),
-  ]);
+  // xterm はマウスが乗ってから少し遅れてリンクと判定する。また、開いた直後は端末の大きさが変わって行の位置が動く。
+  // そのため「行の位置を測る → マウスを置く → リンクと判定されたか確かめる」を、判定されるまで繰り返してからクリックする
+  let point = { x: 0, y: 0 };
+  await expect(async () => {
+    const { text, ...box } = await boxAndText(link);
+    const charWidth = box.width / text.length;
+    point = { x: box.x + charWidth * (text.indexOf("https://") + 5), y: box.y + box.height / 2 };
+    await page.mouse.move(point.x, point.y);
+    await expect(page.locator(".xterm-screen.xterm-cursor-pointer")).toBeVisible({ timeout: 500 });
+  }).toPass();
+  const [popup] = await Promise.all([page.waitForEvent("popup"), page.mouse.click(point.x, point.y)]);
 
   await expect(popup).toHaveURL("https://example.com/accompany");
 });
