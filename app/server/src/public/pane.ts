@@ -1,6 +1,7 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
+import { themeColors, type Appearance } from "./appearance";
 import { acceptFileDrop } from "./file-drop";
 import { isSearchKey, SearchBar } from "./search";
 import { showContextMenu } from "./context-menu";
@@ -35,18 +36,25 @@ export class Pane {
   private viewers = document.createElement("span");
   private program = document.createElement("span");
   private status = document.createElement("span");
-  // 検索のヒットの強調（decorations）に、xterm の試験的な API を使う
-  private terminal = new Terminal({ allowProposedApi: true });
+  private terminal: Terminal;
   private fit = new FitAddon();
   private socket: WebSocket;
   private resizeObserver: ResizeObserver;
-  private search = new SearchBar(this.terminal);
+  private search: SearchBar;
   private notice = document.createElement("div");
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
   // 開いている右クリックメニューを閉じる。ターミナルがなくなったら、メニューも閉じる
   private closeMenu = () => {};
 
-  constructor(id: string, actions: PaneActions) {
+  constructor(id: string, actions: PaneActions, appearance: Appearance) {
+    // 配色とフォントの大きさは、作るときから渡す（あとから変えると、そのぶん描き直しが増える）
+    this.terminal = new Terminal({
+      // 検索のヒットの強調（decorations）に、xterm の試験的な API を使う
+      allowProposedApi: true,
+      theme: themeColors(appearance),
+      fontSize: appearance.fontSize,
+    });
+    this.search = new SearchBar(this.terminal);
     this.element.className = "pane";
     this.element.setAttribute("aria-label", `ターミナル ${id}`);
 
@@ -98,6 +106,7 @@ export class Pane {
     );
 
     this.terminal.loadAddon(this.fit);
+    this.paintBackground(container, appearance);
     // 出力の URL をクリックで開く。開いたページから元のページを操作されないよう、opener を切って新しいタブで開く
     this.terminal.loadAddon(new WebLinksAddon());
     this.terminal.open(container);
@@ -197,6 +206,15 @@ export class Pane {
     this.status.dataset.status = status;
   }
 
+  // 配色とフォントの大きさを変える。フォントの大きさで表示領域に収まる列数・行数が変わるので、サーバーに伝え直す
+  setAppearance(appearance: Appearance) {
+    this.terminal.options.theme = themeColors(appearance);
+    this.terminal.options.fontSize = appearance.fontSize;
+    const container = this.terminal.element?.parentElement;
+    if (container) this.paintBackground(container, appearance);
+    this.sendSize();
+  }
+
   setClosable(closable: boolean) {
     this.closeButton.disabled = !closable;
   }
@@ -292,6 +310,11 @@ export class Pane {
     this.notice.hidden = false;
     clearTimeout(this.noticeTimer);
     this.noticeTimer = setTimeout(() => (this.notice.hidden = true), 5000);
+  }
+
+  // 端末の大きさに満たない余白も、ターミナルの背景色で塗る
+  private paintBackground(container: HTMLElement, appearance: Appearance) {
+    container.style.background = themeColors(appearance).background ?? "";
   }
 
   private send(data: string) {

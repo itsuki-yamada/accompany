@@ -548,3 +548,43 @@ body {
   margin-left: auto;
   color: #81c784;
 }
+
+/* 表示の設定（配色とフォントの大きさ）。タブバーのボタンで開き、Escape や外側のクリックで閉じる */
+.appearance-settings {
+  padding: 12px 16px;
+  font-size: 12px;
+  color: #ddd;
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 60%);
+}
+
+.appearance-settings h2 {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+
+.appearance-settings p {
+  margin: 0 0 8px;
+  color: #aaa;
+}
+
+.appearance-settings label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.appearance-settings select,
+.appearance-settings input {
+  width: 110px;
+  padding: 2px 4px;
+  border: 1px solid #555;
+  border-radius: 3px;
+  background: #111;
+  color: #eee;
+  font: inherit;
+}

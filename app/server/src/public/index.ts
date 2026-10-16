@@ -1,3 +1,4 @@
+import { appearanceSettings, loadAppearance, type Appearance } from "./appearance";
 import { notifyDone, requestPermissionOnFirstInteraction } from "./notify";
 import { Pane, type AgentStatus, type Viewer } from "./pane";
 import { QuickCommands } from "./quick-commands";
@@ -19,6 +20,14 @@ let current: Tabs | undefined;
 // ショートカットの一覧。タブバーのボタンで開く
 const shortcuts = shortcutList();
 document.body.append(shortcuts);
+
+// 配色とフォントの大きさは参加者ごと（docs/adr/36-appearance.md）。変えたら表示中の全ターミナルに反映する
+let appearance: Appearance = loadAppearance();
+const settings = appearanceSettings(appearance, (changed) => {
+  appearance = changed;
+  panes.forEach((pane) => pane.setAppearance(appearance));
+});
+document.body.append(settings);
 
 // 参加者とそのフォーカス先。自分が誰かはサーバーが最初に教えてくれる
 type Member = { id: number; name: string; color: string; terminal?: string };
@@ -88,10 +97,13 @@ function renderTabs({ tabs, active }: Tabs) {
   );
   const help = button("キーボードショートカット", "⌨", () => {});
   help.popoverTargetElement = shortcuts;
+  const appearanceButton = button("表示の設定", "⚙", () => {});
+  appearanceButton.popoverTargetElement = settings;
   tabBar.replaceChildren(
     tablist,
     button("新しいタブ", "+", () => send({ type: "new-tab" }), withKeys("新しいタブ")),
     help,
+    appearanceButton,
   );
 
   const layout = tabs.find((t) => t.id === active)?.layout;
@@ -162,7 +174,7 @@ function paneFor(id: string) {
       shortcut: (shortcut) => runShortcut(id, shortcut),
       commands: () => quickCommands.list,
       manageCommands: () => quickCommands.open(),
-    });
+    }, appearance);
     panes.set(id, pane);
   }
   return pane;
