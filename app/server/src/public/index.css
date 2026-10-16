@@ -395,3 +395,156 @@ body {
   color: #ffd54f;
   border-color: #ffd54f;
 }
+
+/* よく使うコマンドの登録・編集・削除の画面。ターミナルのバーの「コマンド」のメニューから開く */
+.quick-commands {
+  width: min(560px, calc(100vw - 32px));
+  padding: 12px 16px;
+  font-size: 12px;
+  color: #ddd;
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 60%);
+}
+
+.quick-commands::backdrop {
+  background: rgb(0 0 0 / 40%);
+}
+
+.quick-commands h2 {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+
+.quick-commands-note,
+.quick-commands-empty {
+  margin: 0 0 8px;
+  color: #aaa;
+}
+
+.quick-commands ul {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.quick-commands li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid #333;
+}
+
+.quick-command-name {
+  flex: 0 0 auto;
+  color: #fff;
+}
+
+.quick-command-run {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  color: #000;
+  background: #81c784;
+}
+
+/* 内容は 1 行目だけを出し（2 行目以降があれば … を付ける）、長いものは省略する。全文はツールチップで見る */
+.quick-command-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #999;
+}
+
+.quick-commands form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.quick-commands-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.quick-commands-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.quick-commands input[type="text"],
+.quick-commands textarea {
+  padding: 3px 6px;
+  border: 1px solid #555;
+  border-radius: 3px;
+  background: #111;
+  color: #eee;
+  font: 12px ui-monospace, monospace;
+}
+
+.quick-commands-actions,
+.quick-commands-footer {
+  display: flex;
+  gap: 6px;
+}
+
+.quick-commands-footer {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.quick-commands button {
+  padding: 2px 10px;
+  border: 1px solid #555;
+  border-radius: 3px;
+  background: #333;
+  color: #eee;
+  font: inherit;
+  cursor: pointer;
+}
+
+.quick-commands button[hidden] {
+  display: none;
+}
+
+.quick-commands-alert {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: #5a3a00;
+  color: #fff;
+}
+
+.quick-commands-alert[hidden] {
+  display: none;
+}
+
+/* よく使うコマンドのメニューの項目。名前の横に内容の 1 行目を薄く出し、Enter まで送るものは右端に ⏎ を出す */
+.context-menu [role="menuitem"]:has(.menu-detail, .menu-mark) {
+  display: flex;
+  gap: 12px;
+  max-width: min(480px, calc(100vw - 32px));
+}
+
+.menu-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #999;
+  font-family: ui-monospace, monospace;
+}
+
+.menu-mark {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #81c784;
+}

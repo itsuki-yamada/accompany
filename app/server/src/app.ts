@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { upgradeWebSocket } from "hono/bun";
 import { createMiddleware } from "hono/factory";
+import { parseQuickCommand } from "./quick-commands";
 import type { Participant, Size } from "./terminal";
 import { maxUploadBytes, type Uploads } from "./uploads";
 import type { Workspace } from "./workspace";
@@ -42,8 +43,8 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
   app.use("/ws/*", sameOriginOnly);
   app.use("/api/*", sameOriginOnly);
 
-  // タブと分割の配置、参加者ごとのフォーカス先を全員に配り、タブの追加・切り替え・閉じる、
-  // 分割・閉じる・割合の変更・フォーカスの移動を受け付ける
+  // タブと分割の配置、参加者ごとのフォーカス先、よく使うコマンドの一覧を全員に配り、タブの追加・切り替え・閉じる、
+  // 分割・閉じる・割合の変更・フォーカスの移動、よく使うコマンドの登録・編集・削除を受け付ける
   app.get(
     "/ws/workspace",
     upgradeWebSocket(() => {
@@ -68,6 +69,13 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
             workspace.closeTab(String(message.tab));
           } else if (message?.type === "focus") {
             member?.focus(String(message.terminal));
+          } else if (message?.type === "add-command" || message?.type === "update-command") {
+            const command = parseQuickCommand(message);
+            if (!command) return;
+            if (message.type === "add-command") workspace.addCommand(command);
+            else workspace.updateCommand(String(message.id), command);
+          } else if (message?.type === "remove-command") {
+            workspace.removeCommand(String(message.id));
           }
         },
         onClose: () => member?.leave(),

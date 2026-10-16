@@ -1,4 +1,5 @@
 import type { AgentStatus } from "./activity";
+import { maxQuickCommands, type QuickCommand, type QuickCommandInput } from "./quick-commands";
 import { TerminalSession } from "./terminal";
 
 // 画面の配置。分割の節は向き（row: 左右、column: 上下）と、1 つ目の子が占める割合を持つ
@@ -20,7 +21,9 @@ export type WorkspaceEvent =
   // ターミナルごとの、コマンドが設定したタイトル（ターミナルの ID → タイトル。空のものは含めない）
   | { type: "titles"; titles: Record<string, string> }
   // ターミナルごとのエージェントの状態
-  | { type: "status"; statuses: Record<string, AgentStatus> };
+  | { type: "status"; statuses: Record<string, AgentStatus> }
+  // 参加者全員で共有する、よく使うコマンドの一覧
+  | { type: "commands"; commands: QuickCommand[] };
 type Listener = (event: WorkspaceEvent) => void;
 
 const colors = ["#4fc3f7", "#ffb74d", "#81c784", "#f06292", "#ba68c8", "#fff176"];
@@ -35,6 +38,8 @@ export class Workspace {
   private nextSplitId = 1;
   private nextTabId = 1;
   private titlesQueued = false;
+  private nextCommandId = 1;
+  commands: QuickCommand[] = [];
   tabs: Tab[] = [];
   active: string;
 
@@ -59,6 +64,7 @@ export class Workspace {
     listener(this.tabsEvent());
     listener(this.titlesEvent());
     listener({ type: "status", statuses: this.statuses() });
+    listener(this.commandsEvent());
     this.notifyPresence();
     return {
       focus: (terminalId: string) => {
@@ -130,6 +136,26 @@ export class Workspace {
     if (!split) return;
     split.ratio = Math.min(0.9, Math.max(0.1, ratio));
     this.notify();
+  }
+
+  // よく使うコマンドの登録・編集・削除。変わるたびに一覧を全員に配る
+  addCommand(command: QuickCommandInput) {
+    if (this.commands.length >= maxQuickCommands) return;
+    this.commands.push({ id: String(this.nextCommandId++), ...command });
+    this.notifyCommands();
+  }
+
+  updateCommand(id: string, command: QuickCommandInput) {
+    const index = this.commands.findIndex((c) => c.id === id);
+    if (index < 0) return;
+    this.commands[index] = { id, ...command };
+    this.notifyCommands();
+  }
+
+  removeCommand(id: string) {
+    const before = this.commands.length;
+    this.commands = this.commands.filter((c) => c.id !== id);
+    if (this.commands.length !== before) this.notifyCommands();
   }
 
   killAll() {
@@ -208,6 +234,15 @@ export class Workspace {
   private notifyStatus() {
     const statuses = this.statuses();
     this.members.forEach((_, l) => l({ type: "status", statuses }));
+  }
+
+  private commandsEvent(): WorkspaceEvent {
+    return { type: "commands", commands: this.commands };
+  }
+
+  private notifyCommands() {
+    const event = this.commandsEvent();
+    this.members.forEach((_, l) => l(event));
   }
 
   private notifyPresence() {
