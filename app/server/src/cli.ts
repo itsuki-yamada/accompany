@@ -63,19 +63,18 @@ workspace.onChange = () => {
 // PTY のコマンドは別セッションで動くため、Accompany を止めるときに明示的に止める。
 // コマンドが終わるとそのターミナルが閉じて配置が変わるので、止める前の画面を先に保存する。
 // ドロップされたファイルも、Accompany を止めたら要らなくなるので消す。
-// 保存が長引いても Ctrl+C を重ねれば抜けられるよう、二度目のシグナルでは保存を待たずに止める
-function exit() {
-  workspace.killAll();
-  uploads.remove();
-  process.exit(0);
-}
+// bunx で起動すると、同じシグナルが bunx からも転送されて二度届くので、二度目以降は無視する。
+// 代わりに、保存が長引いても止まれるよう、保存を待つのは stopSaveTimeoutMs までにする
+const stopSaveTimeoutMs = 3000;
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
   process.on(signal, async () => {
-    if (stopping) return exit();
+    if (stopping) return;
     stopping = true;
     clearTimeout(saveTimer);
-    await save();
-    exit();
+    await Promise.race([save(), Bun.sleep(stopSaveTimeoutMs)]);
+    workspace.killAll();
+    uploads.remove();
+    process.exit(0);
   });
 }
 
