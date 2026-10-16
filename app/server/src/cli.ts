@@ -3,17 +3,23 @@ import { parseArgs } from "node:util";
 import { websocket } from "hono/bun";
 import { createApp } from "./app";
 import index from "./public/index.html";
+import { SessionStore, stateDir } from "./session-store";
 import { Uploads } from "./uploads";
 import { Workspace } from "./workspace";
 
-// accompany [--port <port>] [-- <command...>]
+// accompany [--port <port>] [--fresh] [-- <command...>]
+// --fresh: 前回の画面の配置とスクロールバックを戻さずに、新しく始める
 const { values, positionals } = parseArgs({
-  options: { port: { type: "string", default: "3000" } },
+  options: { port: { type: "string", default: "3000" }, fresh: { type: "boolean", default: false } },
   allowPositionals: true,
 });
 
 const shell = [process.env.SHELL ?? "/bin/sh"];
-const workspace = new Workspace(positionals.length > 0 ? positionals : shell, shell);
+// 画面の配置とスクロールバックは、起動したディレクトリごとに保存し、次に起動したときに戻す（docs/adr/34-session-restore.md）
+const cwd = process.cwd();
+const store = new SessionStore(stateDir(), cwd);
+const saved = values.fresh ? undefined : store.load();
+const workspace = new Workspace(positionals.length > 0 ? positionals : undefined, shell, saved);
 const uploads = new Uploads();
 const app = createApp(workspace, uploads);
 
@@ -29,10 +35,43 @@ const server = Bun.serve({
   websocket,
 });
 
+// 保存できないことが続いても（書き込めない保存先など）、警告は保存できるようになるまで 1 回だけ出す
+let saveFailed = false;
+async function save() {
+  try {
+    store.save(await workspace.snapshot(cwd));
+    saveFailed = false;
+  } catch (error) {
+    if (!saveFailed) console.warn(`Accompany: 画面を保存できませんでした: ${error}`);
+    saveFailed = true;
+  }
+}
+
+// 変化のたびに書くと出力の多いコマンドで書き込みが続くので、変化があってから少し間を置いて、まとめて書く。
+// 止める操作を経ずに落ちたときは、この間に起きた変化だけが失われる
+const saveDelayMs = 1000;
+let saveTimer: Timer | undefined;
+let stopping = false;
+workspace.onChange = () => {
+  if (saveTimer || stopping) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = undefined;
+    void save();
+  }, saveDelayMs);
+};
+
 // PTY のコマンドは別セッションで動くため、Accompany を止めるときに明示的に止める。
-// ドロップされたファイルも、Accompany を止めたら要らなくなるので消す
+// コマンドが終わるとそのターミナルが閉じて配置が変わるので、止める前の画面を先に保存する。
+// ドロップされたファイルも、Accompany を止めたら要らなくなるので消す。
+// bunx で起動すると、同じシグナルが bunx からも転送されて二度届くので、二度目以降は無視する。
+// 代わりに、保存が長引いても止まれるよう、保存を待つのは stopSaveTimeoutMs までにする
+const stopSaveTimeoutMs = 3000;
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-  process.on(signal, () => {
+  process.on(signal, async () => {
+    if (stopping) return;
+    stopping = true;
+    clearTimeout(saveTimer);
+    await Promise.race([save(), Bun.sleep(stopSaveTimeoutMs)]);
     workspace.killAll();
     uploads.remove();
     process.exit(0);
@@ -41,3 +80,4 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
 
 // localhost は環境によって ::1 に解決されるため、待ち受けているアドレスをそのまま表示する
 console.log(`Accompany: http://${server.hostname}:${server.port}`);
+if (saved) console.log(`前回の画面を戻しました（新しく始めるときは --fresh を付けて起動する）: ${store.file}`);

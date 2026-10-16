@@ -17,6 +17,12 @@ export type Participant = {
 
 const encoder = new TextEncoder();
 
+// 戻したスクロールバックと、新しく起動したコマンドの出力の境目に出す区切り（docs/adr/34-session-restore.md）
+export const restartedMark = "── Accompany を再起動しました ──";
+
+// 再起動の前のサーバー側の画面。大きさは、書き出したときの端末の大きさ
+export type Restored = Size & { scrollback: string };
+
 // サーバー上でコマンドを PTY 付きで動かし、入出力をつながっているブラウザと共有する
 export class TerminalSession {
   private proc: Subprocess | undefined;
@@ -32,6 +38,7 @@ export class TerminalSession {
   // コマンドが OSC 0 / OSC 2 で設定したタイトル。ブラウザに出す前に sanitizeTitle で整える
   title = "";
   private activity: ActivityMonitor;
+  private onOutput: () => void;
 
   constructor(
     private command: string[],
@@ -41,9 +48,21 @@ export class TerminalSession {
     private onTitleChange: () => void = () => {},
     // エージェントの状態（作業中・入力待ち）が変わったときに呼ぶ
     onStatus: (status: AgentStatus) => void = () => {},
+    {
+      // 再起動の前の画面。コマンドを起動する前にサーバー側の画面に書き、その下に区切りを出す
+      restored,
+      // コマンドが出力したときに呼ぶ（保存のきっかけにする）
+      onOutput = () => {},
+    }: { restored?: Restored; onOutput?: () => void } = {},
   ) {
+    this.onOutput = onOutput;
     this.activity = new ActivityMonitor(onStatus);
     this.screen.loadAddon(this.serializer);
+    if (restored) {
+      this.size = { cols: restored.cols, rows: restored.rows };
+      this.screen.resize(restored.cols, restored.rows);
+      this.screen.write(`${restored.scrollback}\x1b[0m\r\n\x1b[2m${restartedMark}\x1b[0m\r\n`);
+    }
     this.screen.onTitleChange((title) => {
       const sanitized = sanitizeTitle(title);
       if (sanitized === this.title) return;
@@ -92,6 +111,7 @@ export class TerminalSession {
             this.screen.write(data);
             this.activity.output();
             this.broadcast({ type: "output", data });
+            this.onOutput();
           },
         },
       });
@@ -122,6 +142,19 @@ export class TerminalSession {
     const data = encoder.encode("\x1bc");
     this.screen.write(data);
     this.broadcast({ type: "output", data });
+  }
+
+  // 保存するために、ここまでの出力を反映し終えた画面を書き出す。新しく起動するコマンドのために、
+  // 代替画面（全画面の TUI が使う）とモードは含めない
+  snapshot(): Promise<Restored> {
+    return new Promise((resolve) =>
+      this.screen.write("", () =>
+        resolve({
+          ...this.size,
+          scrollback: this.serializer.serialize({ excludeAltBuffer: true, excludeModes: true }),
+        }),
+      ),
+    );
   }
 
   get status() {

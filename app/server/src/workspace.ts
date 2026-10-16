@@ -1,6 +1,7 @@
 import type { AgentStatus } from "./activity";
 import { maxQuickCommands, type QuickCommand, type QuickCommandInput } from "./quick-commands";
-import { TerminalSession } from "./terminal";
+import type { SavedSession, SavedTerminal } from "./session-store";
+import { type Restored, TerminalSession } from "./terminal";
 
 // 画面の配置。分割の節は向き（row: 左右、column: 上下）と、1 つ目の子が占める割合を持つ
 export type Layout =
@@ -39,16 +40,70 @@ export class Workspace {
   private nextTabId = 1;
   private titlesQueued = false;
   private nextCommandId = 1;
+  // 起動時のコマンドを動かしているターミナル
+  private initialTerminal: string | undefined;
   commands: QuickCommand[] = [];
   tabs: Tab[] = [];
   active: string;
+  // 保存すべき変化（配置・出力・よく使うコマンド）があったときに呼ぶ
+  onChange: () => void = () => {};
 
-  // 最初のターミナルは起動時のコマンド、分割や新しいタブで増やしたターミナルはシェルを起動する
+  // 最初のターミナルは起動時のコマンド、分割や新しいタブで増やしたターミナルはシェルを起動する。
+  // 保存したもの（saved）があれば、配置とスクロールバックを戻す。戻したターミナルはシェルを新しく起動し、
+  // 起動時のコマンドを動かしていたターミナルだけは、今回の起動時のコマンドを動かす。
+  // 起動時のコマンドが指定されていて（initialCommand）、そのターミナルを閉じていたときは、新しいタブで動かす。
+  // initialCommand を省略したときは、起動時のコマンドもシェルにする
   constructor(
-    initialCommand: string[],
+    initialCommand: string[] | undefined,
     private shellCommand: string[],
+    saved?: SavedSession,
   ) {
-    this.active = this.createTab(initialCommand).id;
+    if (!saved) {
+      const tab = this.createTab(initialCommand ?? shellCommand);
+      this.active = tab.id;
+      this.initialTerminal = terminalIds(tab.layout)[0];
+      return;
+    }
+    for (const { id, layout } of saved.tabs) {
+      for (const node of walk(layout)) {
+        if (node.type === "split") continue;
+        const restored: SavedTerminal = saved.terminals[node.id]!;
+        if (restored.initial) this.initialTerminal = node.id;
+        this.addTerminal(node.id, restored.initial ? (initialCommand ?? shellCommand) : shellCommand, restored);
+      }
+      this.tabs.push({ id, name: `タブ ${id}`, layout });
+    }
+    this.active = saved.active;
+    this.commands = saved.commands;
+    const next = (ids: string[]) => Math.max(0, ...ids.map((id) => Number(id.replace(/^split-/, "")))) + 1;
+    this.nextId = next([...this.terminals.keys()]);
+    this.nextTabId = next(this.tabs.map((t) => t.id));
+    this.nextSplitId = next(this.tabs.flatMap((t) => [...walk(t.layout)].filter((n) => n.type === "split").map((n) => n.id)));
+    this.nextCommandId = next(this.commands.map((c) => c.id));
+    // 指定した起動時のコマンドがどこでも動かないと、起動時の引数が無視されたように見える（docs/adr/34-session-restore.md）
+    if (initialCommand && !this.initialTerminal) {
+      const tab = this.createTab(initialCommand);
+      this.active = tab.id;
+      this.initialTerminal = terminalIds(tab.layout)[0];
+    }
+  }
+
+  // 保存するために、配置とターミナルごとの画面、よく使うコマンドを書き出す
+  async snapshot(cwd: string): Promise<SavedSession> {
+    const terminals: Record<string, SavedTerminal> = {};
+    await Promise.all(
+      [...this.terminals].map(async ([id, t]) => {
+        terminals[id] = { ...(await t.snapshot()), initial: id === this.initialTerminal };
+      }),
+    );
+    return {
+      version: 1,
+      cwd,
+      tabs: this.tabs.map(({ id, layout }) => ({ id, layout })),
+      active: this.active,
+      terminals,
+      commands: this.commands,
+    };
   }
 
   terminal(id: string) {
@@ -171,6 +226,11 @@ export class Workspace {
 
   private createTerminal(command: string[]): Layout {
     const id = String(this.nextId++);
+    this.addTerminal(id, command);
+    return { type: "terminal", id };
+  }
+
+  private addTerminal(id: string, command: string[], restored?: Restored) {
     this.terminals.set(
       id,
       new TerminalSession(
@@ -178,9 +238,9 @@ export class Workspace {
         () => this.close(id),
         () => this.notifyTitles(),
         () => this.notifyStatus(),
+        { restored, onOutput: () => this.onChange() },
       ),
     );
-    return { type: "terminal", id };
   }
 
   private tabOfTerminal(terminalId: string) {
@@ -205,6 +265,7 @@ export class Workspace {
   private notify() {
     const event = this.tabsEvent();
     this.members.forEach((_, l) => l(event));
+    this.onChange();
   }
 
   private titlesEvent(): WorkspaceEvent {
@@ -243,6 +304,7 @@ export class Workspace {
   private notifyCommands() {
     const event = this.commandsEvent();
     this.members.forEach((_, l) => l(event));
+    this.onChange();
   }
 
   private notifyPresence() {
