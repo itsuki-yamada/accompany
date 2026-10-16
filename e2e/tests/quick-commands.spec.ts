@@ -227,9 +227,10 @@ test("書式文字（ゼロ幅文字・タグ文字など）は、名前から�
   const page = await open(browser, accompany.url, "Paste reporter ready");
   // ゼロ幅スペース・ワードジョイナー・BOM・ゼロ幅接合子・タグ文字（画面に出ないが LLM には読める）
   const hidden = "​⁠﻿‍\u{e0041}\u{e0042}";
-  await register(page, { name: `見え${hidden}ない`, content: `a${hidden}b` });
-
   await openEditor(page);
+  await fillForm(page, { name: `見え${hidden}ない`, content: `a${hidden}b` });
+  await editor(page).getByRole("button", { name: "登録" }).click();
+
   await expect(editor(page).locator(".quick-command-name")).toHaveText("見えない");
   await editor(page).getByRole("button", { name: "閉じる" }).click();
   await choose(page, "見えない");

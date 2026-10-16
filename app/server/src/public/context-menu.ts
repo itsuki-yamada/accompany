@@ -1,4 +1,16 @@
-export type MenuItem = { label: string; disabled?: boolean; action: () => void } | "separator";
+// detail は名前の横に薄く出す補足、mark は右端に出す印、title はツールチップ。
+// detail や mark を出すときは、読み上げ用の名前を ariaLabel で渡す
+export type MenuItem =
+  | {
+      label: string;
+      detail?: string;
+      mark?: string;
+      title?: string;
+      ariaLabel?: string;
+      disabled?: boolean;
+      action: () => void;
+    }
+  | "separator";
 
 // 開いているメニューは画面に 1 つだけ
 let closeCurrent: (() => void) | undefined;
@@ -26,6 +38,10 @@ export function showContextMenu(x: number, y: number, label: string, items: Menu
     button.setAttribute("role", "menuitem");
     button.tabIndex = -1;
     button.textContent = item.label;
+    if (item.detail) button.append(span("menu-detail", item.detail));
+    if (item.mark) button.append(span("menu-mark", item.mark));
+    if (item.title) button.title = item.title;
+    if (item.ariaLabel) button.setAttribute("aria-label", item.ariaLabel);
     // 選べない項目も、矢印キーで移れるようにフォーカスは受け付ける
     if (item.disabled) button.setAttribute("aria-disabled", "true");
     // マウスで指した項目にフォーカスを移し、強調する項目を 1 つにする
@@ -78,4 +94,11 @@ export function showContextMenu(x: number, y: number, label: string, items: Menu
   menu.style.top = `${Math.max(0, Math.min(y, innerHeight - height))}px`;
   buttons[0]?.focus();
   return () => close(false);
+}
+
+function span(className: string, text: string) {
+  const element = document.createElement("span");
+  element.className = className;
+  element.textContent = text;
+  return element;
 }

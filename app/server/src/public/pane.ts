@@ -4,7 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import { acceptFileDrop } from "./file-drop";
 import { isSearchKey, SearchBar } from "./search";
 import { showContextMenu } from "./context-menu";
-import type { QuickCommand } from "./quick-commands";
+import { firstLine, type QuickCommand } from "./quick-commands";
 import { shortcutFor, withKeys, type Shortcut } from "./shortcuts";
 
 const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -244,7 +244,15 @@ export class Pane {
       `${this.element.getAttribute("aria-label")} のコマンド`,
       [
         ...(commands.length > 0
-          ? commands.map((command) => ({ label: command.name, action: () => this.runCommand(command) }))
+          ? commands.map((command) => ({
+              label: command.name,
+              // 名前と内容が食い違っていても、押す前に何が送られるかを確かめられるように、内容の 1 行目と印を出す
+              detail: firstLine(command.content),
+              mark: command.run ? "⏎" : undefined,
+              title: `${command.content}\n\n${command.run ? "選ぶと Enter まで送る（すぐ実行）" : "選ぶと入力だけする"}`,
+              ariaLabel: `${command.name}、${firstLine(command.content)}${command.run ? "、Enter まで送る" : ""}`,
+              action: () => this.runCommand(command),
+            }))
           : [{ label: "登録したコマンドはありません", disabled: true, action: () => {} }]),
         "separator",
         { label: "コマンドを管理…", action: actions.manageCommands },

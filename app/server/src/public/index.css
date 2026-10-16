@@ -451,7 +451,7 @@ body {
   background: #81c784;
 }
 
-/* 内容は 1 行目だけを出し、長いものは省略する */
+/* 内容は 1 行目だけを出し（2 行目以降があれば … を付ける）、長いものは省略する。全文はツールチップで見る */
 .quick-command-content {
   flex: 1 1 auto;
   min-width: 0;
@@ -512,4 +512,39 @@ body {
 
 .quick-commands button[hidden] {
   display: none;
+}
+
+.quick-commands-alert {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: #5a3a00;
+  color: #fff;
+}
+
+.quick-commands-alert[hidden] {
+  display: none;
+}
+
+/* よく使うコマンドのメニューの項目。名前の横に内容の 1 行目を薄く出し、Enter まで送るものは右端に ⏎ を出す */
+.context-menu [role="menuitem"]:has(.menu-detail, .menu-mark) {
+  display: flex;
+  gap: 12px;
+  max-width: min(480px, calc(100vw - 32px));
+}
+
+.menu-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #999;
+  font-family: ui-monospace, monospace;
+}
+
+.menu-mark {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #81c784;
 }
