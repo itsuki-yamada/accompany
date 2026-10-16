@@ -40,7 +40,8 @@ Accompany の開発タスクは GitHub Issue と GitHub Project で管理する�
   | In review | `5ae73607` |
   | Done | `a259fb47` |
 
-- ストーリーを Done にする、または Issue を close する前に人間の確認を取る
+- ストーリーのプルリクが main にマージされたら、そのストーリーを Done にして Issue を close してよい
+- それ以外（プルリクを伴わないストーリー、Not planned で閉じる場合など）で Done にする、または Issue を close する前に人間の確認を取る
 
 ## gh コマンドでの操作例
 
