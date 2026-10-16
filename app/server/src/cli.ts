@@ -19,7 +19,7 @@ const shell = [process.env.SHELL ?? "/bin/sh"];
 const cwd = process.cwd();
 const store = new SessionStore(stateDir(), cwd);
 const saved = values.fresh ? undefined : store.load();
-const workspace = new Workspace(positionals.length > 0 ? positionals : shell, shell, saved);
+const workspace = new Workspace(positionals.length > 0 ? positionals : undefined, shell, saved);
 const uploads = new Uploads();
 const app = createApp(workspace, uploads);
 
@@ -35,11 +35,15 @@ const server = Bun.serve({
   websocket,
 });
 
+// 保存できないことが続いても（書き込めない保存先など）、警告は保存できるようになるまで 1 回だけ出す
+let saveFailed = false;
 async function save() {
   try {
     store.save(await workspace.snapshot(cwd));
+    saveFailed = false;
   } catch (error) {
-    console.warn(`Accompany: 画面を保存できませんでした: ${error}`);
+    if (!saveFailed) console.warn(`Accompany: 画面を保存できませんでした: ${error}`);
+    saveFailed = true;
   }
 }
 
@@ -58,16 +62,20 @@ workspace.onChange = () => {
 
 // PTY のコマンドは別セッションで動くため、Accompany を止めるときに明示的に止める。
 // コマンドが終わるとそのターミナルが閉じて配置が変わるので、止める前の画面を先に保存する。
-// ドロップされたファイルも、Accompany を止めたら要らなくなるので消す
+// ドロップされたファイルも、Accompany を止めたら要らなくなるので消す。
+// 保存が長引いても Ctrl+C を重ねれば抜けられるよう、二度目のシグナルでは保存を待たずに止める
+function exit() {
+  workspace.killAll();
+  uploads.remove();
+  process.exit(0);
+}
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
   process.on(signal, async () => {
-    if (stopping) return;
+    if (stopping) return exit();
     stopping = true;
     clearTimeout(saveTimer);
     await save();
-    workspace.killAll();
-    uploads.remove();
-    process.exit(0);
+    exit();
   });
 }
 

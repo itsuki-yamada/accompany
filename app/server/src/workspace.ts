@@ -50,14 +50,16 @@ export class Workspace {
 
   // 最初のターミナルは起動時のコマンド、分割や新しいタブで増やしたターミナルはシェルを起動する。
   // 保存したもの（saved）があれば、配置とスクロールバックを戻す。戻したターミナルはシェルを新しく起動し、
-  // 起動時のコマンドを動かしていたターミナルだけは、今回の起動時のコマンドを動かす
+  // 起動時のコマンドを動かしていたターミナルだけは、今回の起動時のコマンドを動かす。
+  // 起動時のコマンドが指定されていて（initialCommand）、そのターミナルを閉じていたときは、新しいタブで動かす。
+  // initialCommand を省略したときは、起動時のコマンドもシェルにする
   constructor(
-    initialCommand: string[],
+    initialCommand: string[] | undefined,
     private shellCommand: string[],
     saved?: SavedSession,
   ) {
     if (!saved) {
-      const tab = this.createTab(initialCommand);
+      const tab = this.createTab(initialCommand ?? shellCommand);
       this.active = tab.id;
       this.initialTerminal = terminalIds(tab.layout)[0];
       return;
@@ -67,7 +69,7 @@ export class Workspace {
         if (node.type === "split") continue;
         const restored: SavedTerminal = saved.terminals[node.id]!;
         if (restored.initial) this.initialTerminal = node.id;
-        this.addTerminal(node.id, restored.initial ? initialCommand : shellCommand, restored);
+        this.addTerminal(node.id, restored.initial ? (initialCommand ?? shellCommand) : shellCommand, restored);
       }
       this.tabs.push({ id, name: `タブ ${id}`, layout });
     }
@@ -78,6 +80,12 @@ export class Workspace {
     this.nextTabId = next(this.tabs.map((t) => t.id));
     this.nextSplitId = next(this.tabs.flatMap((t) => [...walk(t.layout)].filter((n) => n.type === "split").map((n) => n.id)));
     this.nextCommandId = next(this.commands.map((c) => c.id));
+    // 指定した起動時のコマンドがどこでも動かないと、起動時の引数が無視されたように見える（docs/adr/34-session-restore.md）
+    if (initialCommand && !this.initialTerminal) {
+      const tab = this.createTab(initialCommand);
+      this.active = tab.id;
+      this.initialTerminal = terminalIds(tab.layout)[0];
+    }
   }
 
   // 保存するために、配置とターミナルごとの画面、よく使うコマンドを書き出す
