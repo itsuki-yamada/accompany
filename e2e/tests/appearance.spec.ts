@@ -159,30 +159,35 @@ test("保存した設定が読めないときは、既定の見え方で開く",
   expect(await fontSizeOf(page)).toBe(defaults.fontSize);
 });
 
-test("フォントを大きくすると、端末の列数・行数が小さくなり、ほかの参加者にも反映される", async ({ browser }) => {
+test("フォントを大きくすると、自分の表示領域に収まる列数・行数が小さくなる。ほかの参加者のほうが多く収まるなら、その大きさのまま、大きくした人はスクロールして見る", async ({
+  browser,
+}) => {
   accompany = await startAccompany(sizeReporter);
   const host = await openAsParticipant(browser, accompany.url);
   await expect.poll(async () => (await commandSize(host))?.cols).not.toBe(80);
-  const guest = await openAsParticipant(browser, accompany.url);
   const before = (await commandSize(host))!;
-  await expect.poll(() => commandSize(guest)).toEqual(before);
 
+  // 1 人のときは、大きくした人の表示領域に合わせて端末が小さくなる
   await setFontSize(host, 30);
 
-  await expect.poll(async () => (await commandSize(guest))?.cols).toBeLessThan(before.cols);
-  const after = (await commandSize(guest))!;
+  await expect.poll(async () => (await commandSize(host))?.cols).toBeLessThan(before.cols);
+  const after = (await commandSize(host))!;
   expect(after.rows).toBeLessThan(before.rows);
-  await expect.poll(() => commandSize(host)).toEqual(after);
-  // ほかの参加者も、小さくなった端末を描いている（フォントの大きさは変わらない）
-  await expect(guest.locator(".xterm-rows > div")).toHaveCount(after.rows);
-  expect(await fontSizeOf(guest)).not.toBe("30px");
-  // 大きくした人の画面からも、端末がはみ出していない
+  // 大きくした人の画面から、端末がはみ出していない
   const box = (await host.locator(".xterm-screen").boundingBox())!;
   expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
   expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
 
-  // 元の大きさに戻すと、端末の大きさも戻る
-  await setFontSize(host, Number.parseInt(await fontSizeOf(guest)));
+  // フォントが既定の大きさの参加者が入ると、その人の表示領域（一番大きい）に合わせた大きさになる
+  const guest = await openAsParticipant(browser, accompany.url);
 
+  await expect.poll(() => commandSize(host)).toEqual(before);
   await expect.poll(() => commandSize(guest)).toEqual(before);
+  await expect(host.locator(".xterm-rows > div")).toHaveCount(before.rows);
+  // フォントの大きさはそれぞれのまま。大きくした人は、はみ出した部分をスクロールして見る
+  expect(await fontSizeOf(host)).toBe("30px");
+  expect(await fontSizeOf(guest)).not.toBe("30px");
+  await expect
+    .poll(() => host.locator(".pane-terminal").evaluate((e) => e.scrollWidth > e.clientWidth))
+    .toBe(true);
 });

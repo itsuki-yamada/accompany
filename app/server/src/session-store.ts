@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync }
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { parseQuickCommand, type QuickCommand } from "./quick-commands";
-import type { Size } from "./terminal";
+import { clampSize, type Size } from "./terminal";
 import type { Layout } from "./workspace";
 
 // 再起動しても戻す、画面の配置とターミナルごとのスクロールバック、よく使うコマンド（docs/adr/34-session-restore.md）
@@ -104,7 +104,7 @@ export function parseSavedSession(data: unknown): SavedSession | undefined {
   for (const id of [...seen].filter(isNumericId)) {
     const t = savedTerminals[id];
     terminals[id] = {
-      ...(isObject(t) && isSize(t) ? { cols: t.cols, rows: t.rows } : { cols: 80, rows: 24 }),
+      ...(isObject(t) && isSize(t) ? clampSize({ cols: t.cols, rows: t.rows }) : { cols: 80, rows: 24 }),
       scrollback: isObject(t) && typeof t.scrollback === "string" ? t.scrollback : "",
       initial: isObject(t) && t.initial === true,
     };
@@ -153,6 +153,7 @@ function isNumericId(value: unknown): value is string {
 }
 
 function isSize(value: Record<string, unknown>): value is Record<string, unknown> & Size {
-  const valid = (n: unknown) => Number.isInteger(n) && (n as number) >= 1 && (n as number) <= 1000;
+  // 上限（maxSize）を超えるものは、捨てずに上限に丸めて使う
+  const valid = (n: unknown) => Number.isSafeInteger(n) && (n as number) >= 1;
   return valid(value.cols) && valid(value.rows);
 }

@@ -5,12 +5,21 @@ import { ActivityMonitor, type AgentStatus } from "./activity";
 
 export type Size = { cols: number; rows: number };
 
+// 端末の大きさの上限。端末の大きさは参加者のうち一番大きいものに合わせるので、1 人から大きすぎる値が届くと
+// （改造したブラウザや、1 文字の大きさを小さく測る不具合など）、全員の端末とサーバー側の画面がその大きさになる。
+// フル HD を最小のフォント（8px）で埋めても収まる大きさで切り詰める（docs/adr/51-largest-size.md）
+export const maxSize: Size = { cols: 512, rows: 256 };
+
+export function clampSize({ cols, rows }: Size): Size {
+  return { cols: Math.min(cols, maxSize.cols), rows: Math.min(rows, maxSize.rows) };
+}
+
 // ブラウザに送るもの。出力と端末の大きさの変更は、この順番どおりに届ける
 export type Message = { type: "output"; data: Uint8Array } | { type: "resize"; size: Size };
 type Listener = (message: Message) => void;
 
 export type Participant = {
-  // 参加者のブラウザの画面に収まる大きさを伝える
+  // 参加者のブラウザの表示領域（フル HD までとみなす）に収まる大きさを伝える
   resize: (size: Size) => void;
   detach: () => void;
 };
@@ -27,7 +36,8 @@ export type Restored = Size & { scrollback: string };
 export class TerminalSession {
   private proc: Subprocess | undefined;
   private listeners = new Set<Listener>();
-  // 端末の大きさは、参加者のうち一番小さい画面に合わせる
+  // 端末の大きさは、参加者のうち一番大きい表示領域に合わせる。表示領域の小さい参加者は、
+  // はみ出した部分をスクロールするか、縮小して見る（docs/adr/51-largest-size.md）
   private size: Size = { cols: 80, rows: 24 };
   private requestedSizes = new Map<Listener, Size>();
   // 途中から参加したブラウザに現在の画面を送るため、PTY の出力をサーバー側の端末にも反映しておく
@@ -121,12 +131,12 @@ export class TerminalSession {
     return {
       resize: (size) => {
         this.requestedSizes.set(receive, size);
-        this.fitToSmallest();
+        this.fitToLargest();
       },
       detach: () => {
         this.listeners.delete(receive);
         this.requestedSizes.delete(receive);
-        this.fitToSmallest();
+        this.fitToLargest();
       },
     };
   }
@@ -166,12 +176,12 @@ export class TerminalSession {
     this.proc?.kill();
   }
 
-  private fitToSmallest() {
+  private fitToLargest() {
     const sizes = [...this.requestedSizes.values()];
     if (sizes.length === 0) return;
     const size = {
-      cols: Math.min(...sizes.map((s) => s.cols)),
-      rows: Math.min(...sizes.map((s) => s.rows)),
+      cols: Math.max(...sizes.map((s) => s.cols)),
+      rows: Math.max(...sizes.map((s) => s.rows)),
     };
     if (size.cols === this.size.cols && size.rows === this.size.rows) return;
     this.size = size;
