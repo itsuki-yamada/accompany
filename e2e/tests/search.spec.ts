@@ -239,7 +239,7 @@ test("検索は参加者ごとの操作で、ほかの参加者の画面には�
   await expect(screen(bob)).not.toContainText("Needle in the scrollback");
 });
 
-// 端末の大きさは参加者のうち一番小さい表示領域に合わせるので、検索バーでターミナルの表示領域が狭まると、
+// 端末の大きさは参加者の表示領域から決める（一番大きいものに合わせる）ので、検索バーでターミナルの表示領域が狭まると、
 // ほかの参加者の端末も小さくなってしまう
 test("検索バーを開いても、端末の大きさは変わらない", async ({ page }) => {
   accompany = await startAccompany(["--", "bun", "e2e/fixtures/size-reporter.ts"]);
