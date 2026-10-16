@@ -28,7 +28,11 @@ export class SearchBar {
   private caseSensitive: HTMLButtonElement;
   private regex: HTMLButtonElement;
 
-  constructor(private terminal: Terminal) {
+  // onFound: ヒットを選んだとき。ヒットが表示領域の外にあれば、スクロールして見せる
+  constructor(
+    private terminal: Terminal,
+    private onFound: () => void = () => {},
+  ) {
     terminal.loadAddon(this.addon);
 
     this.element.className = "search-bar";
@@ -110,8 +114,9 @@ export class SearchBar {
       decorations,
     };
     try {
-      if (direction === "next") this.addon.findNext(term, options);
-      else this.addon.findPrevious(term, options);
+      const found =
+        direction === "next" ? this.addon.findNext(term, options) : this.addon.findPrevious(term, options);
+      if (found) this.onFound();
     } catch (error) {
       if (!options.regex) throw error;
       // 書きかけの正規表現（例: 閉じていない括弧）

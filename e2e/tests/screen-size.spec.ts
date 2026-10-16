@@ -50,9 +50,12 @@ function parse(size: string) {
   return { cols: cols!, rows: rows! };
 }
 
-// ターミナルの表示領域が、はみ出した端末をスクロールして見せているか
-function scrollable(page: Page) {
-  return page.locator(".pane-terminal").evaluate((e) => e.scrollWidth > e.clientWidth && e.scrollHeight > e.clientHeight);
+// ターミナルの表示領域が、はみ出した端末をスクロールして見せているか（both: 縦横の両方。any: どちらか）
+function scrollable(page: Page, how: "both" | "any" = "both") {
+  return page.locator(".pane-terminal").evaluate((e, how) => {
+    const [x, y] = [e.scrollWidth > e.clientWidth, e.scrollHeight > e.clientHeight];
+    return how === "both" ? x && y : x || y;
+  }, how);
 }
 
 async function scrollTo(page: Page, where: "start" | "end") {
@@ -236,10 +239,11 @@ test("「画面に収める（縮小）」にすると、端末の大きさは�
 }) => {
   const { host, guest, size } = await openLargeAndSmall(browser);
   const fontSize = await fontSizeOf(guest);
+  await scrollTo(guest, "end");
 
   await chooseOverflow(guest, "画面に収める（縮小）");
 
-  await expect.poll(() => scrollable(guest)).toBe(false);
+  await expect.poll(() => scrollable(guest, "any")).toBe(false);
   await expectTerminalToFitIn(guest);
   expect(Number.parseFloat(await fontSizeOf(guest))).toBeLessThan(Number.parseFloat(fontSize));
   expect(await isVisible(guest, await cornerPoint(guest, corner.length - 1))).toBe(true);

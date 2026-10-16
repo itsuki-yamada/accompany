@@ -1,8 +1,12 @@
 import type { ITheme } from "@xterm/xterm";
 
-// ターミナルの見え方（配色とフォントの大きさ）。参加者ごとの設定で、このブラウザに保存する（docs/adr/36-appearance.md）
-export type Appearance = { theme: ThemeName; fontSize: number };
+// ターミナルの見え方（配色、フォントの大きさ、端末が表示領域より大きいときの見せ方）。
+// 参加者ごとの設定で、このブラウザに保存する（docs/adr/36-appearance.md、docs/adr/51-largest-size.md）
+export type Appearance = { theme: ThemeName; fontSize: number; overflow: Overflow };
 type ThemeName = keyof typeof themes;
+// scroll: 文字の大きさはそのままで、はみ出した部分をスクロールして見る。fit: 縮小して表示領域に収める
+type Overflow = keyof typeof overflows;
+const overflows = { scroll: "スクロールして見る", fit: "画面に収める（縮小）" };
 
 const themes = {
   dark: {
@@ -66,7 +70,7 @@ const themes = {
 } satisfies Record<string, { label: string; colors: ITheme }>;
 
 // xterm.js の既定（15px）に合わせる
-const defaults: Appearance = { theme: "dark", fontSize: 15 };
+const defaults: Appearance = { theme: "dark", fontSize: 15, overflow: "scroll" };
 const minFontSize = 8;
 const maxFontSize = 32;
 const storageKey = "accompany.appearance";
@@ -82,6 +86,7 @@ export function loadAppearance(): Appearance {
     return {
       theme: Object.hasOwn(themes, saved.theme) ? saved.theme : defaults.theme,
       fontSize: validFontSize(saved.fontSize) ? saved.fontSize : defaults.fontSize,
+      overflow: Object.hasOwn(overflows, saved.overflow) ? saved.overflow : defaults.overflow,
     };
   } catch {
     return { ...defaults };
@@ -121,16 +126,10 @@ export function appearanceSettings(initial: Appearance, onChange: (appearance: A
   const note = document.createElement("p");
   note.textContent = "自分の画面だけに使い、このブラウザに保存します";
 
-  const theme = document.createElement("select");
-  theme.append(
-    ...Object.entries(themes).map(([name, { label }]) => {
-      const option = document.createElement("option");
-      option.value = name;
-      option.textContent = label;
-      return option;
-    }),
+  const theme = select(
+    Object.fromEntries(Object.entries(themes).map(([name, { label }]) => [name, label])),
+    appearance.theme,
   );
-  theme.value = appearance.theme;
   theme.addEventListener("change", () => update({ theme: theme.value as ThemeName }));
 
   const fontSize = document.createElement("input");
@@ -147,13 +146,31 @@ export function appearanceSettings(initial: Appearance, onChange: (appearance: A
   // 範囲外のまま離れたら、使っている値に戻す
   fontSize.addEventListener("change", () => (fontSize.value = String(appearance.fontSize)));
 
+  const overflow = select(overflows, appearance.overflow);
+  overflow.addEventListener("change", () => update({ overflow: overflow.value as Overflow }));
+
   dialog.append(
     heading,
     note,
     field("配色", theme),
     field(`フォントの大きさ（${minFontSize}〜${maxFontSize}）`, fontSize, "フォントの大きさ"),
+    field("端末が画面より大きいとき", overflow),
   );
   return dialog;
+}
+
+function select(options: Record<string, string>, value: string) {
+  const element = document.createElement("select");
+  element.append(
+    ...Object.entries(options).map(([name, label]) => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = label;
+      return option;
+    }),
+  );
+  element.value = value;
+  return element;
 }
 
 function field(text: string, control: HTMLElement, name = text) {

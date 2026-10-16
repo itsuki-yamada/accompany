@@ -1,4 +1,3 @@
-import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
 import { themeColors, type Appearance } from "./appearance";
@@ -29,6 +28,14 @@ const statusLabels: Record<AgentStatus, string> = { working: "作業中", idle: 
 // このターミナルにフォーカスしている参加者
 export type Viewer = { name: string; color: string; self: boolean };
 
+// 端末の大きさを決めるとき、各参加者の表示領域はこの大きさ（フル HD）までとみなす（docs/adr/51-largest-size.md）
+const maxArea = { width: 1920, height: 1080 };
+// xterm のスクロールバックのスクロールバーの幅（@xterm/addon-fit と同じ値）
+const scrollbarWidth = 14;
+// 画面に収めるために縮小するとき、フォントの大きさをどこまで小さくするか
+const minFitFontSize = 2;
+type CellSize = { width: number; height: number };
+
 // 1 つのターミナルの表示。配置が変わっても同じ要素と接続を使い回す
 export class Pane {
   readonly element = document.createElement("section");
@@ -37,7 +44,10 @@ export class Pane {
   private program = document.createElement("span");
   private status = document.createElement("span");
   private terminal: Terminal;
-  private fit = new FitAddon();
+  private container = document.createElement("div");
+  private appearance: Appearance;
+  // 設定したフォントの大きさでの 1 文字の幅と高さ。縮小して表示している間も、伝える大きさはこれで計算する
+  private cell: CellSize | undefined;
   private socket: WebSocket;
   private resizeObserver: ResizeObserver;
   private search: SearchBar;
@@ -47,6 +57,7 @@ export class Pane {
   private closeMenu = () => {};
 
   constructor(id: string, actions: PaneActions, appearance: Appearance) {
+    this.appearance = appearance;
     // 配色とフォントの大きさは、作るときから渡す（あとから変えると、そのぶん描き直しが増える）
     this.terminal = new Terminal({
       // 検索のヒットの強調（decorations）に、xterm の試験的な API を使う
@@ -54,7 +65,7 @@ export class Pane {
       theme: themeColors(appearance),
       fontSize: appearance.fontSize,
     });
-    this.search = new SearchBar(this.terminal);
+    this.search = new SearchBar(this.terminal, () => this.revealSelection());
     this.element.className = "pane";
     this.element.setAttribute("aria-label", `ターミナル ${id}`);
 
@@ -83,8 +94,9 @@ export class Pane {
       button("下に分割", "⤓", () => actions.split("column"), withKeys("下に分割")),
       (this.closeButton = button("閉じる", "×", actions.close, withKeys("ターミナルを閉じる", "閉じる"))),
     );
-    const container = document.createElement("div");
+    const container = this.container;
     container.className = "pane-terminal";
+    container.dataset.overflow = appearance.overflow;
     this.notice.className = "pane-notice";
     this.notice.setAttribute("role", "alert");
     this.notice.hidden = true;
@@ -105,7 +117,6 @@ export class Pane {
       { capture: true },
     );
 
-    this.terminal.loadAddon(this.fit);
     this.paintBackground(container, appearance);
     // 出力の URL をクリックで開く。開いたページから元のページを操作されないよう、opener を切って新しいタブで開く
     this.terminal.loadAddon(new WebLinksAddon());
@@ -117,7 +128,10 @@ export class Pane {
     this.socket.onmessage = (event) => {
       if (typeof event.data === "string") {
         const message = JSON.parse(event.data);
-        if (message.type === "resize") this.terminal.resize(message.cols, message.rows);
+        if (message.type === "resize") {
+          this.terminal.resize(message.cols, message.rows);
+          this.fitToArea();
+        }
       } else {
         this.terminal.write(new Uint8Array(event.data));
       }
@@ -168,9 +182,12 @@ export class Pane {
       true,
     );
 
-    // 端末の大きさは参加者のうち一番小さい表示領域に合わせるため、自分の表示領域に収まる大きさをサーバーに伝え、
-    // サーバーが決めた大きさで描く
-    this.resizeObserver = new ResizeObserver(() => this.sendSize());
+    // 端末の大きさは参加者のうち一番大きい表示領域に合わせるため、自分の表示領域に収まる大きさをサーバーに伝え、
+    // サーバーが決めた大きさで描く。表示領域に収まらない部分は、スクロールするか縮小して見る
+    this.resizeObserver = new ResizeObserver(() => {
+      this.sendSize();
+      this.fitToArea();
+    });
     this.resizeObserver.observe(container);
   }
 
@@ -206,13 +223,16 @@ export class Pane {
     this.status.dataset.status = status;
   }
 
-  // 配色とフォントの大きさを変える。フォントの大きさで表示領域に収まる列数・行数が変わるので、サーバーに伝え直す
+  // 配色とフォントの大きさ、はみ出したときの見せ方を変える。フォントの大きさで表示領域に収まる列数・行数が変わるので、
+  // 設定した大きさで測り直してサーバーに伝え直す
   setAppearance(appearance: Appearance) {
+    this.appearance = appearance;
     this.terminal.options.theme = themeColors(appearance);
-    this.terminal.options.fontSize = appearance.fontSize;
-    const container = this.terminal.element?.parentElement;
-    if (container) this.paintBackground(container, appearance);
+    this.setFontSize(appearance.fontSize);
+    this.container.dataset.overflow = appearance.overflow;
+    this.paintBackground(this.container, appearance);
     this.sendSize();
+    this.fitToArea();
   }
 
   setClosable(closable: boolean) {
@@ -321,12 +341,91 @@ export class Pane {
     this.socket.send(JSON.stringify({ type: "input", data }));
   }
 
+  // 自分の表示領域（フル HD まで）に、設定したフォントの大きさで収まる列数・行数を伝える
   private sendSize() {
-    const size = this.fit.proposeDimensions();
-    if (size && size.cols > 0 && size.rows > 0 && this.socket.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify({ type: "resize", cols: size.cols, rows: size.rows }));
+    if (this.terminal.options.fontSize === this.appearance.fontSize) this.cell = cellSize(this.terminal) ?? this.cell;
+    const area = this.area();
+    if (!this.cell || !area || this.socket.readyState !== WebSocket.OPEN) return;
+    const cols = Math.max(2, Math.floor((Math.min(area.width, maxArea.width) - scrollbarWidth) / this.cell.width));
+    const rows = Math.max(1, Math.floor(Math.min(area.height, maxArea.height) / this.cell.height));
+    this.socket.send(JSON.stringify({ type: "resize", cols, rows }));
+  }
+
+  // 「画面に収める（縮小）」のときは、端末全体が表示領域に収まるまでフォントを小さくして描く。
+  // CSS の transform で縮めると、xterm がマウスの位置から文字の位置を求める計算がずれるので、フォントの大きさで縮める
+  private fitToArea() {
+    const configured = this.appearance.fontSize;
+    const area = this.area();
+    if (this.appearance.overflow !== "fit" || !this.cell || !area) {
+      if (this.terminal.options.fontSize !== configured) this.setFontSize(configured);
+      return;
+    }
+    const { cols, rows } = this.terminal;
+    const scale = Math.min(
+      1,
+      (area.width - scrollbarWidth) / (cols * this.cell.width),
+      area.height / (rows * this.cell.height),
+    );
+    let fontSize = Math.max(minFitFontSize, Math.floor(configured * scale * 2) / 2);
+    this.setFontSize(fontSize);
+    // 1 文字の幅はフォントの大きさにぴったり比例しないので、はみ出していれば少しずつ小さくする
+    const fits = () => {
+      const cell = cellSize(this.terminal);
+      return !cell || (cols * cell.width + scrollbarWidth <= area.width && rows * cell.height <= area.height);
+    };
+    while (!fits() && fontSize > minFitFontSize) {
+      fontSize = Math.max(minFitFontSize, fontSize - 0.5);
+      this.setFontSize(fontSize);
     }
   }
+
+  // xterm（6.0）は、フォントの大きさを変えただけではスクロールバックのスクロールバーの高さを計算し直さない。
+  // 古い高さのスクロールバーがはみ出して、表示領域のスクロールが余分に出るので、計算し直させる（xterm の内部の API）
+  private setFontSize(fontSize: number) {
+    this.terminal.options.fontSize = fontSize;
+    (this.terminal as any)._core._viewport?.queueSync();
+  }
+
+  // 選んでいる文字（検索のヒット）が表示領域の外にあれば、表示領域の中央に来るようにスクロールする
+  private revealSelection() {
+    const selection = this.terminal.getSelectionPosition();
+    const cell = cellSize(this.terminal);
+    const screen = this.terminal.element?.querySelector(".xterm-screen");
+    if (!selection || !cell || !screen) return;
+    const origin = screen.getBoundingClientRect();
+    const area = this.container.getBoundingClientRect();
+    const row = selection.start.y - this.terminal.buffer.active.viewportY;
+    const target = {
+      left: origin.left + selection.start.x * cell.width,
+      right: origin.left + selection.end.x * cell.width,
+      top: origin.top + row * cell.height,
+      bottom: origin.top + (row + 1) * cell.height,
+    };
+    const visible = {
+      left: area.left,
+      right: area.left + this.container.clientWidth,
+      top: area.top,
+      bottom: area.top + this.container.clientHeight,
+    };
+    if (target.left < visible.left || target.right > visible.right) {
+      this.container.scrollLeft += (target.left + target.right - visible.left - visible.right) / 2;
+    }
+    if (target.top < visible.top || target.bottom > visible.bottom) {
+      this.container.scrollTop += (target.top + target.bottom - visible.top - visible.bottom) / 2;
+    }
+  }
+
+  // 自分の表示領域の大きさ。スクロールバーが出ていても変わらないよう、スクロールバーを含めた大きさを使う
+  private area() {
+    const { offsetWidth: width, offsetHeight: height } = this.container;
+    return width > 0 && height > 0 ? { width, height } : undefined;
+  }
+}
+
+// 1 文字の幅と高さ。@xterm/addon-fit と同じく、xterm の内部の値を使う
+function cellSize(terminal: Terminal): CellSize | undefined {
+  const { width, height } = (terminal as any)._core._renderService.dimensions.css.cell;
+  return width > 0 && height > 0 ? { width, height } : undefined;
 }
 
 function button(label: string, text: string, onClick: (event: MouseEvent) => void, title = label) {
