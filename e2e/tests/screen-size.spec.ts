@@ -234,6 +234,26 @@ test("フル HD より大きい画面では、端末はフル HD の大きさま
   expect(await scrollable(page)).toBe(false);
 });
 
+test("参加者が大きすぎる大きさを伝えても、端末は 512 列・256 行までにする", async ({ browser }) => {
+  accompany = await startAccompany(cornerReporter);
+  const page = await openAsParticipant(browser, accompany.url, large);
+  await expect.poll(() => commandSize(page)).not.toBe("80x24");
+
+  // 改造したブラウザや、1 文字の大きさを小さく測る不具合などで、大きすぎる値が届いたとき
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        const socket = new WebSocket(`ws://${location.host}/ws/terminals/1`);
+        socket.onopen = () => {
+          socket.send(JSON.stringify({ type: "resize", cols: 600, rows: 300 }));
+          resolve();
+        };
+      }),
+  );
+
+  await expect.poll(() => commandSize(page)).toBe("512x256");
+});
+
 test("「画面に収める（縮小）」にすると、端末の大きさは変えずに、自分の画面だけ縮小して全体を表示する", async ({
   browser,
 }) => {
