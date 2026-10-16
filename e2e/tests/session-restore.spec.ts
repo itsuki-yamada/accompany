@@ -129,6 +129,47 @@ test("起動時のコマンドを動かしていたターミナルでは、起�
   await expect(screenText(page, 2)).not.toContainText("Fake Agent ready");
 });
 
+test("起動時のコマンドを動かしていたターミナルを閉じていたときは、起動し直すと新しいタブで起動時のコマンドが動く", async ({
+  browser,
+}) => {
+  const fakeAgent = ["--", "bun", "e2e/fixtures/fake-agent.ts"];
+  accompany = await start(fakeAgent);
+  let page = await open(browser, accompany.url);
+  await expectPaneToShow(page, 1, "Fake Agent ready");
+  await pane(page, 1).getByRole("button", { name: "右に分割" }).click();
+  await expectPaneToShow(page, 2, "Fake Shell ready");
+  await pane(page, 1).getByRole("button", { name: "閉じる" }).click();
+  await expect(panes(page)).toHaveCount(1);
+  await accompany.stop();
+
+  accompany = await start(fakeAgent);
+  page = await open(browser, accompany.url);
+
+  await expect(tabs(page)).toHaveText(["タブ 1", "タブ 2"]);
+  await expect(tab(page, "タブ 2")).toHaveAttribute("aria-selected", "true");
+  await expectPaneToShow(page, 3, "Fake Agent ready");
+  await expect(screenText(page, 3)).not.toContainText(restartedMark);
+  await tab(page, "タブ 1").click();
+  await expect(screenText(page, 2)).toHaveText(/── Accompany を再起動しました ──.*Fake Shell ready/);
+});
+
+test("起動時のコマンドを省略したときは、そのターミナルを閉じていても新しいタブは増えない", async ({ browser }) => {
+  accompany = await start();
+  let page = await open(browser, accompany.url);
+  await expectPaneToShow(page, 1, "Fake Shell ready");
+  await pane(page, 1).getByRole("button", { name: "右に分割" }).click();
+  await expectPaneToShow(page, 2, "Fake Shell ready");
+  await pane(page, 1).getByRole("button", { name: "閉じる" }).click();
+  await expect(panes(page)).toHaveCount(1);
+  await accompany.stop();
+
+  accompany = await start();
+  page = await open(browser, accompany.url);
+
+  await expect(screenText(page, 2)).toHaveText(/── Accompany を再起動しました ──.*Fake Shell ready/);
+  await expect(tabs(page)).toHaveText(["タブ 1"]);
+});
+
 test("止める操作を経ずに落ちても、少し前までの配置とスクロールバックが戻る", async ({ browser }) => {
   accompany = await start();
   let page = await open(browser, accompany.url);
