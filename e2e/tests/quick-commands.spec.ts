@@ -199,3 +199,104 @@ test("改行とタブ以外の制御文字は、登録するときに取り除�
 
   await expectPaneToShow(page, 1, 'received: "\\u001b[200~a[31mb\\tc\\u001b[201~"');
 });
+
+test("一覧には名前と一緒に内容の 1 行目と「Enter まで送る」の印が出て、全文はツールチップで見られる", async ({
+  browser,
+}) => {
+  accompany = await startAccompany(fakeAgent);
+  const page = await open(browser, accompany.url, "Fake Agent ready");
+  await register(page, { name: "テスト", content: "rm -rf ~\necho done", run: true });
+  await register(page, { name: "ビルド", content: "npm run build" });
+
+  await openCommandMenu(page);
+
+  // 名前と内容が食い違っていても、押す前に何が送られるかが分かる
+  const test = commandMenu(page).getByRole("menuitem", { name: "テスト" });
+  await expect(test).toContainText("rm -rf ~");
+  await expect(test).not.toContainText("echo done");
+  await expect(test).toContainText("⏎");
+  await expect(test).toHaveAttribute("title", /rm -rf ~\necho done/);
+  await expect(test).toHaveAttribute("title", /Enter まで送る/);
+  const build = commandMenu(page).getByRole("menuitem", { name: "ビルド" });
+  await expect(build).toContainText("npm run build");
+  await expect(build).not.toContainText("⏎");
+});
+
+test("書式文字（ゼロ幅文字・タグ文字など）は、名前からも内容からも取り除く", async ({ browser }) => {
+  accompany = await startAccompany(pasteReporter);
+  const page = await open(browser, accompany.url, "Paste reporter ready");
+  // ゼロ幅スペース・ワードジョイナー・BOM・ゼロ幅接合子・タグ文字（画面に出ないが LLM には読める）
+  const hidden = "​⁠﻿‍\u{e0041}\u{e0042}";
+  await register(page, { name: `見え${hidden}ない`, content: `a${hidden}b` });
+
+  await openEditor(page);
+  await expect(editor(page).locator(".quick-command-name")).toHaveText("見えない");
+  await editor(page).getByRole("button", { name: "閉じる" }).click();
+  await choose(page, "見えない");
+
+  await expectPaneToShow(page, 1, 'received: "\\u001b[200~ab\\u001b[201~"');
+});
+
+test("末尾の改行は取り除き、入力するだけのコマンドで Enter として働かない", async ({ browser }) => {
+  accompany = await startAccompany(fakeAgent);
+  const page = await open(browser, accompany.url, "Fake Agent ready");
+  await register(page, { name: "テスト", content: "npm test\n\n" });
+
+  await choose(page, "テスト");
+
+  await expectPaneToShow(page, 1, "npm test");
+  await page.waitForTimeout(500);
+  await expect(terminalScreen(page)).not.toContainText("Agent received");
+});
+
+test("長さの上限で切り詰めた末尾が改行になっても、Enter として働かない", async ({ browser }) => {
+  accompany = await startAccompany(pasteReporter);
+  const page = await open(browser, accompany.url, "Paste reporter ready");
+  // 上限（10000 文字）で切ると、末尾が改行になる
+  await register(page, { name: "長い", content: `${"a".repeat(9999)}\nb` });
+
+  await choose(page, "長い");
+
+  await expectPaneToShow(page, 1, 'aaa\\u001b[201~"');
+});
+
+test("内容が空になるものは登録できず、画面で知らせる", async ({ browser }) => {
+  accompany = await startAccompany(fakeAgent);
+  const page = await open(browser, accompany.url, "Fake Agent ready");
+  await openEditor(page);
+
+  await fillForm(page, { name: "空", content: "​\u001b" });
+  await editor(page).getByRole("button", { name: "登録" }).click();
+
+  await expect(editor(page).getByRole("alert")).toContainText("内容が空");
+  await expect(editor(page).getByRole("listitem")).toHaveCount(0);
+});
+
+test("管理画面で削除したあとは、次の項目、なければフォームにフォーカスが移る", async ({ browser }) => {
+  accompany = await startAccompany(fakeAgent);
+  const page = await open(browser, accompany.url, "Fake Agent ready");
+  await register(page, { name: "一つ目", content: "one" });
+  await register(page, { name: "二つ目", content: "two" });
+  await openEditor(page);
+
+  await registered(page, "一つ目").getByRole("button", { name: "一つ目 を削除" }).click();
+  await expect(editor(page).getByRole("button", { name: "二つ目 を削除" })).toBeFocused();
+
+  await page.keyboard.press("Enter");
+  await expect(editor(page).getByRole("listitem")).toHaveCount(0);
+  await expect(editor(page).getByRole("textbox", { name: "名前" })).toBeFocused();
+});
+
+test("ほかの参加者の変更で一覧を組み直しても、フォーカスしていた項目に戻る", async ({ browser }) => {
+  accompany = await startAccompany(fakeAgent);
+  const host = await open(browser, accompany.url, "Fake Agent ready");
+  const guest = await open(browser, accompany.url, "Fake Agent ready");
+  await register(host, { name: "テスト", content: "npm test" });
+  await openEditor(host);
+  await registered(host, "テスト").getByRole("button", { name: "テスト を編集" }).focus();
+
+  await register(guest, { name: "ビルド", content: "npm run build" });
+
+  await expect(registered(host, "ビルド")).toBeVisible();
+  await expect(editor(host).getByRole("button", { name: "テスト を編集" })).toBeFocused();
+});
