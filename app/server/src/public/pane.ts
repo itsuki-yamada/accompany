@@ -131,9 +131,13 @@ export class Pane {
     this.terminal.open(container);
     // Claude Code などマウスの報告モードを使うアプリは、クリックを受け取るとその位置のリンクを自分でも開くので、
     // リンクの上での押下はアプリに報告しない（ブラウザとアプリの両方で開いて二重になる）。
-    // xterm はリンクの押下を画面の要素で、アプリへの報告を外側の要素で受け取るので、その間で止める
+    // xterm はリンクの押下を画面の要素で、アプリへの報告を外側の要素で受け取るので、その間で止める。
+    // 外側の要素で xterm が行うことのうち、キー入力の先をこのターミナルに保つことは、ここで代わりに行う
     this.terminal.element?.querySelector(".xterm-screen")?.addEventListener("mousedown", (event) => {
-      if (overLink && this.terminal.modes.mouseTrackingMode !== "none") event.stopPropagation();
+      if (!overLink || this.terminal.modes.mouseTrackingMode === "none") return;
+      event.stopPropagation();
+      event.preventDefault();
+      this.terminal.focus();
     });
 
     this.socket = new WebSocket(`${protocol}//${location.host}/ws/terminals/${id}`);
@@ -437,7 +441,6 @@ export class Pane {
   }
 }
 
-// 1 文字の幅と高さ。@xterm/addon-fit と同じく、xterm の内部の値を使う
 // 出力の URL を新しいタブで開く。開いたページから元のページを操作されないよう、opener を切る
 function openLink(_event: MouseEvent, uri: string) {
   const opened = window.open();
@@ -446,6 +449,7 @@ function openLink(_event: MouseEvent, uri: string) {
   opened.location.href = uri;
 }
 
+// 1 文字の幅と高さ。@xterm/addon-fit と同じく、xterm の内部の値を使う
 function cellSize(terminal: Terminal): CellSize | undefined {
   const { width, height } = (terminal as any)._core._renderService.dimensions.css.cell;
   return width > 0 && height > 0 ? { width, height } : undefined;
