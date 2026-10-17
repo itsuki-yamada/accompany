@@ -441,12 +441,20 @@ export class Pane {
   }
 }
 
-// 出力の URL を新しいタブで開く。開いたページから元のページを操作されないよう、opener を切る
+// 出力の URL を新しいタブで開く。開いたページから元のページを操作されないよう、opener を切る。
+// javascript: などでスクリプトが動かないよう、xterm.js の絞り込みとは別に、http・https の URL だけを開く（docs/adr/61-link-scheme-check.md）
 function openLink(_event: MouseEvent, uri: string) {
+  let url: URL;
+  try {
+    url = new URL(uri);
+  } catch {
+    return;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return;
   const opened = window.open();
   if (!opened) return;
   opened.opener = null;
-  opened.location.href = uri;
+  opened.location.href = url.href;
 }
 
 // 1 文字の幅と高さ。@xterm/addon-fit と同じく、xterm の内部の値を使う
