@@ -58,12 +58,21 @@ export class Pane {
 
   constructor(id: string, actions: PaneActions, appearance: Appearance) {
     this.appearance = appearance;
+    // 出力の URL（OSC 8 のハイパーリンクと、ただの文字列の URL）は、どちらも同じように確認なしで新しいタブに開く。
+    // マウスがリンクの上にあるかを覚えておき、リンクのクリックをアプリに渡さないために使う（docs/adr/59-single-link-open.md）
+    let overLink = false;
+    const links = {
+      activate: openLink,
+      hover: () => (overLink = true),
+      leave: () => (overLink = false),
+    };
     // 配色とフォントの大きさは、作るときから渡す（あとから変えると、そのぶん描き直しが増える）
     this.terminal = new Terminal({
       // 検索のヒットの強調（decorations）に、xterm の試験的な API を使う
       allowProposedApi: true,
       theme: themeColors(appearance),
       fontSize: appearance.fontSize,
+      linkHandler: links,
     });
     this.search = new SearchBar(this.terminal, () => this.revealSelection());
     this.element.className = "pane";
@@ -118,9 +127,18 @@ export class Pane {
     );
 
     this.paintBackground(container, appearance);
-    // 出力の URL をクリックで開く。開いたページから元のページを操作されないよう、opener を切って新しいタブで開く
-    this.terminal.loadAddon(new WebLinksAddon());
+    this.terminal.loadAddon(new WebLinksAddon(links.activate, { hover: links.hover, leave: links.leave }));
     this.terminal.open(container);
+    // Claude Code などマウスの報告モードを使うアプリは、クリックを受け取るとその位置のリンクを自分でも開くので、
+    // リンクの上での押下はアプリに報告しない（ブラウザとアプリの両方で開いて二重になる）。
+    // xterm はリンクの押下を画面の要素で、アプリへの報告を外側の要素で受け取るので、その間で止める。
+    // 外側の要素で xterm が行うことのうち、キー入力の先をこのターミナルに保つことは、ここで代わりに行う
+    this.terminal.element?.querySelector(".xterm-screen")?.addEventListener("mousedown", (event) => {
+      if (!overLink || this.terminal.modes.mouseTrackingMode === "none") return;
+      event.stopPropagation();
+      event.preventDefault();
+      this.terminal.focus();
+    });
 
     this.socket = new WebSocket(`${protocol}//${location.host}/ws/terminals/${id}`);
     this.socket.binaryType = "arraybuffer";
@@ -421,6 +439,14 @@ export class Pane {
     const { offsetWidth: width, offsetHeight: height } = this.container;
     return width > 0 && height > 0 ? { width, height } : undefined;
   }
+}
+
+// 出力の URL を新しいタブで開く。開いたページから元のページを操作されないよう、opener を切る
+function openLink(_event: MouseEvent, uri: string) {
+  const opened = window.open();
+  if (!opened) return;
+  opened.opener = null;
+  opened.location.href = uri;
 }
 
 // 1 文字の幅と高さ。@xterm/addon-fit と同じく、xterm の内部の値を使う
