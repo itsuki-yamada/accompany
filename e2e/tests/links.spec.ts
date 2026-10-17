@@ -145,3 +145,42 @@ test("マウスの報告モードを有効にしたアプリで、リンクを�
   await page.keyboard.type("a");
   await expectPaneToShow(page, 1, "keys: 61");
 });
+
+// http・https 以外のリンクは xterm.js が先に捨てるので、いまは openLink に届かない（allowNonHttpProtocols を使っていない）。
+// 設定の変更や xterm.js の更新で届くようになっても開かないことを確かめるため、ページの読み込み前に、
+// xterm.js から linkHandler.allowNonHttpProtocols が有効に見えるようにする（本番の設定は変えない。docs/adr/61-link-scheme-check.md）
+test("http・https 以外の URL や、URL として解釈できない文字列のリンクをクリックしても、何も開かず、スクリプトも動かない", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(Object.prototype, "allowNonHttpProtocols", { get: () => true, configurable: true });
+  });
+  const dialogs: string[] = [];
+  page.on("dialog", (dialog) => {
+    dialogs.push(dialog.message());
+    void dialog.dismiss();
+  });
+  await open(page, ["--unsafe"]);
+
+  for (const [line, text] of [
+    [/JS:/, "javascript-link"],
+    [/Data:/, "data-link"],
+    [/File:/, "file-link"],
+    [/NoScheme:/, "no-scheme-link"],
+  ] as const) {
+    const opened: Page[] = [];
+    const onPage = (p: Page) => opened.push(p);
+    page.context().on("page", onPage);
+    // xterm.js がリンクとして扱っている（カーソルが指になる）ことは、clickUrl の中で確かめる
+    await clickUrl(page, line, text);
+    await page.waitForTimeout(1000);
+    page.context().off("page", onPage);
+    expect.soft(opened.map((p) => p.url()), text).toEqual([]);
+  }
+
+  expect.soft(await page.evaluate(() => localStorage.getItem("pwned"))).toBeNull();
+  expect(dialogs).toEqual([]);
+
+  // http・https のリンクは、同じ状態でもこれまでどおり開く
+  const url = "http://link.test/osc8";
+  const opened = await openedPages(page, () => clickUrl(page, /OSC 8:/, url), url);
+  expect(opened).toHaveLength(1);
+});
