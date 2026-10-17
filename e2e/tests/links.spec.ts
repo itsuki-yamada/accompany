@@ -132,3 +132,16 @@ test("マウスの報告モードを有効にしたアプリでも、リンク�
   const shown = (await pane(page, 1).locator(".xterm-rows").textContent()) ?? "";
   expect(shown.match(/1b 5b 3c/g)).toHaveLength(2);
 });
+
+test("マウスの報告モードを有効にしたアプリで、リンクをクリックして開いたタブを閉じたあとも、キー入力がアプリに届く", async ({ page }) => {
+  await open(page, ["--mouse"]);
+
+  const url = "http://link.test/plain";
+  const opened = await openedPages(page, () => clickUrl(page, /Plain:/, url), url);
+  for (const p of opened) await p.close();
+  await page.bringToFront();
+
+  await expect(pane(page, 1).locator(".xterm-helper-textarea")).toBeFocused();
+  await page.keyboard.type("a");
+  await expectPaneToShow(page, 1, "keys: 61");
+});
