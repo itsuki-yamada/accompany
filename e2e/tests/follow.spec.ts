@@ -173,3 +173,88 @@ test("フォローは自分の画面だけに効き、フォローされてい�
   await expectFocusedOn(guest, 3);
   await expectFocusedOn(third, 1);
 });
+
+test("相手と別のターミナルのバーで検索を開くと、フォローをやめ、相手が動いても入力中の検索欄から動かない", async ({
+  browser,
+}) => {
+  const { host, guest } = await startSession(browser);
+  await clickPane(host, 2);
+  await followButton(guest, 2, "参加者 1").click();
+  await expectFocusedOn(guest, 2);
+
+  await pane(guest, 1).getByRole("button", { name: "検索" }).click();
+  const searchInput = pane(guest, 1).getByRole("textbox", { name: "検索する文字" });
+  await expect(searchInput).toBeFocused();
+  await expect(followIndicator(guest)).toHaveCount(0);
+
+  await clickPane(host, 3);
+  await expect(pane(guest, 3).getByRole("status").getByText("参加者 1", { exact: true })).toBeVisible();
+  await expect(searchInput).toBeFocused();
+});
+
+test("相手と別のターミナルで右クリックメニューを開くと、フォローをやめる", async ({ browser }) => {
+  const { host, guest } = await startSession(browser);
+  await clickPane(host, 2);
+  await followButton(guest, 2, "参加者 1").click();
+  await expectFocusedOn(guest, 2);
+
+  await pane(guest, 1).locator(".xterm-screen").click({ button: "right" });
+  await expect(guest.getByRole("menu")).toBeVisible();
+  await expect(followIndicator(guest)).toHaveCount(0);
+  await guest.keyboard.press("Escape");
+
+  await clickPane(host, 3);
+  await expect(pane(guest, 3).getByRole("status").getByText("参加者 1", { exact: true })).toBeVisible();
+  await expect(pane(guest, 3)).not.toHaveAttribute("data-focused", "true");
+});
+
+test("タブの切り替えより先に相手のフォーカス先が届いても、切り替えたあとにそのターミナルへ移る", async ({
+  browser,
+}) => {
+  const { host, guest } = await startSession(browser);
+  // タブ 2 にターミナル 4・5 を並べ、host はターミナル 5 にいる
+  await host.getByRole("button", { name: "新しいタブ" }).click();
+  await expectPaneToShow(host, 4, "Fake Shell ready");
+  await pane(host, 4).getByRole("button", { name: "右に分割" }).click();
+  await expectPaneToShow(host, 5, "Fake Shell ready");
+  await clickPane(host, 5);
+
+  // 配置用の WebSocket を中継するページで開き直し、host がタブ 1 のターミナル 3 にフォーカスしたことが届くまで、
+  // タブの切り替えを止めておく（行き違いを起こす）。切り替えを届けたあとは参加者のフォーカス先を届けず、
+  // 配置を組み立てたときにフォーカスを移すことを確かめる
+  const page = await guest.context().newPage();
+  let holding = false;
+  let released = false;
+  let held: (string | Buffer)[] = [];
+  await page.routeWebSocket(/\/ws\/workspace$/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((message) => server.send(message));
+    server.onMessage((message) => {
+      const event = JSON.parse(message.toString());
+      if (holding && event.type === "tabs") return void held.push(message);
+      if (released && event.type === "presence") return;
+      ws.send(message);
+      const hostOn =
+        event.type === "presence" ? event.members.find((m: { id: number }) => m.id === 1)?.terminal : undefined;
+      if (holding && hostOn === "3") {
+        holding = false;
+        released = true;
+        held.forEach((m) => ws.send(m));
+        held = [];
+      }
+    });
+  });
+  await guest.close();
+  await page.goto(accompany!.url);
+  await expectPaneToShow(page, 4, "Fake Shell ready");
+  await followButton(page, 5, "参加者 1").click();
+  await expectFocusedOn(page, 5);
+
+  holding = true;
+  await host.getByRole("tab", { name: "タブ 1", exact: true }).click();
+  await clickPane(host, 3);
+
+  // 枠の色は自分のフォーカス先が presence で戻ってきてから付くので、ここではキー入力の先だけを確かめる
+  await expect(pane(page, 3).locator(".xterm-helper-textarea")).toBeFocused();
+  await expect(followIndicator(page)).toContainText("参加者 1 をフォロー中");
+});
