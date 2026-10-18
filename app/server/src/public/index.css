@@ -687,7 +687,7 @@ body {
 #sidebar {
   display: flex;
   flex-direction: column;
-  width: 220px;
+  width: 240px;
   overflow-y: auto;
   background: #111;
   border-right: 1px solid #333;
