@@ -16,6 +16,8 @@ const tabBar = document.getElementById("tabs")!;
 const panes = new Map<string, Pane>();
 // 最後に届いたタブの並びと表示中のタブ。次／前のタブへの切り替えや、通知をクリックしたときにそのターミナルのタブを探すのに使う
 let current: Tabs | undefined;
+// 自分の画面だけで拡大表示しているターミナル。サーバーには伝えない（docs/adr/68-zoom.md）
+let zoomed: string | undefined;
 
 // ショートカットの一覧。タブバーのボタンで開く
 const shortcuts = shortcutList();
@@ -141,6 +143,9 @@ function render(layout: Layout) {
   element.style.flex = "1 1 0";
   root.replaceChildren(element);
   panes.forEach((pane) => pane.setClosable(ids.size > 1));
+  // 拡大中のターミナルが閉じられた・タブが切り替わった・分割が 1 つになったときは、拡大を解除する
+  if (zoomed && (!ids.has(zoomed) || ids.size < 2)) zoomed = undefined;
+  showZoom();
   showViewers();
   showTitles();
   showStatuses();
@@ -168,8 +173,9 @@ function paneFor(id: string) {
   let pane = panes.get(id);
   if (!pane) {
     pane = new Pane(id, {
-      split: (direction) => send({ type: "split", terminal: id, direction }),
+      split: (direction) => split(id, direction),
       close: () => send({ type: "close", terminal: id }),
+      zoom: () => toggleZoom(id),
       focused: () => send({ type: "focus", terminal: id }),
       shortcut: (shortcut) => runShortcut(id, shortcut),
       commands: () => quickCommands.list,
@@ -218,10 +224,14 @@ function divider(split: HTMLElement, node: Extract<Layout, { type: "split" }>, f
 function runShortcut(terminal: string, shortcut: Shortcut) {
   switch (shortcut.type) {
     case "split":
-      return send({ type: "split", terminal, direction: shortcut.direction });
+      return split(terminal, shortcut.direction);
     case "close":
       return send({ type: "close", terminal });
+    case "zoom":
+      return toggleZoom(terminal);
     case "move-focus":
+      // 拡大中は隣のターミナルが隠れているので、解除してから移る（tmux と同じ）
+      setZoom(undefined);
       return neighborOf(terminal, shortcut.direction)?.focus();
     case "new-tab":
       return send({ type: "new-tab" });
@@ -234,6 +244,35 @@ function runShortcut(terminal: string, shortcut: Shortcut) {
       const index = (tabs.findIndex((t) => t.id === active) + step + tabs.length) % tabs.length;
       return send({ type: "select-tab", tab: tabs[index]!.id });
     }
+  }
+}
+
+// 分割で増えたターミナルが隠れないよう、拡大中なら解除してから分割する（tmux と同じ）
+function split(terminal: string, direction: "row" | "column") {
+  setZoom(undefined);
+  send({ type: "split", terminal, direction });
+}
+
+// 拡大表示を切り替える。分割していなければ何もしない。キー入力の先は、切り替えたターミナルに置く
+function toggleZoom(terminal: string) {
+  if (zoomed === terminal) setZoom(undefined);
+  else if (panes.size > 1) setZoom(terminal);
+  panes.get(terminal)?.focus();
+}
+
+function setZoom(terminal: string | undefined) {
+  if (zoomed === terminal) return;
+  zoomed = terminal;
+  showZoom();
+}
+
+// 拡大中は、そのターミナルだけをタブの表示領域いっぱいに出す。ほかのターミナルは CSS で隠すだけで、
+// 接続と xterm はそのまま残す（作り直すと、画面の復元と描き直しが起きる）
+function showZoom() {
+  root.toggleAttribute("data-zoomed", zoomed !== undefined);
+  for (const [id, pane] of panes) {
+    pane.element.toggleAttribute("data-zoomed", id === zoomed);
+    pane.setZoom(id === zoomed, panes.size - 1);
   }
 }
 
@@ -306,7 +345,10 @@ function notifyFinished(previous: Record<string, AgentStatus>, next: Record<stri
 // ほかのタブのターミナルなら、そのタブに切り替えてからフォーカスする
 function focusTerminal(id: string) {
   const pane = panes.get(id);
-  if (pane) return pane.focus();
+  if (pane) {
+    if (zoomed !== id) setZoom(undefined);
+    return pane.focus();
+  }
   const tab = current?.tabs.find((t) => terminalIds(t.layout).includes(id));
   if (!tab) return;
   pendingFocus = id;

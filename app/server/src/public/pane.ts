@@ -12,6 +12,8 @@ const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 export type PaneActions = {
   split: (direction: "row" | "column") => void;
   close: () => void;
+  // このターミナルの拡大表示を切り替える。拡大は自分の画面だけの表示で、サーバーには伝えない（docs/adr/68-zoom.md）
+  zoom: () => void;
   // キー入力の先がこのターミナルに移ったとき
   focused: () => void;
   // このターミナルにキー入力しているときに押されたキーボードショートカット
@@ -40,6 +42,11 @@ type CellSize = { width: number; height: number };
 export class Pane {
   readonly element = document.createElement("section");
   private closeButton: HTMLButtonElement;
+  private zoomButton: HTMLButtonElement;
+  private zoomLabel = document.createElement("span");
+  // 拡大表示しているか。拡大中は、端末の大きさを元の分割での表示領域（splitArea）で計算して伝える
+  private zoomed = false;
+  private splitArea: { width: number; height: number } | undefined;
   private viewers = document.createElement("span");
   private program = document.createElement("span");
   private status = document.createElement("span");
@@ -92,15 +99,20 @@ export class Pane {
     this.status.setAttribute("role", "status");
     this.status.setAttribute("aria-label", "エージェントの状態");
     this.setStatus("idle");
+    this.zoomLabel.className = "pane-zoomed";
+    this.zoomLabel.setAttribute("role", "status");
+    this.zoomLabel.hidden = true;
     bar.append(
       title,
       this.program,
       this.status,
       this.viewers,
+      this.zoomLabel,
       button("コマンド", "❯", (event) => this.openCommands(event.currentTarget as HTMLElement, actions)),
       button("検索", "⌕", () => this.search.open()),
       button("右に分割", "⇥", () => actions.split("row"), withKeys("右に分割")),
       button("下に分割", "⤓", () => actions.split("column"), withKeys("下に分割")),
+      (this.zoomButton = button("拡大表示", "⤢", actions.zoom, withKeys("拡大表示の切り替え", "拡大表示"))),
       (this.closeButton = button("閉じる", "×", actions.close, withKeys("ターミナルを閉じる", "閉じる"))),
     );
     const container = this.container;
@@ -257,6 +269,16 @@ export class Pane {
     this.closeButton.disabled = !closable;
   }
 
+  // 拡大表示しているかと、隠しているほかのターミナルの数を出す。分割していなければ拡大できない
+  setZoom(zoomed: boolean, hidden: number) {
+    this.zoomed = zoomed;
+    this.zoomButton.setAttribute("aria-pressed", String(zoomed));
+    this.zoomButton.disabled = !zoomed && hidden === 0;
+    this.zoomLabel.hidden = !zoomed;
+    this.zoomLabel.textContent = `拡大中（ほか ${hidden} 個を非表示）`;
+    this.zoomLabel.title = withKeys("拡大表示の切り替え", "もう一度押すと元の分割に戻る");
+  }
+
   focus() {
     this.terminal.focus();
   }
@@ -282,6 +304,13 @@ export class Pane {
         "separator",
         // 参加者全員の画面とサーバー側の画面をリセットする（docs/adr/33-context-menu.md）
         { label: "ターミナルのリセット", action: () => this.socket.send(JSON.stringify({ type: "reset" })) },
+        "separator",
+        // 自分の画面だけの表示の切り替え（docs/adr/68-zoom.md）
+        {
+          label: this.zoomed ? "拡大を解除" : "拡大表示",
+          disabled: this.zoomButton.disabled,
+          action: actions.zoom,
+        },
         "separator",
         { label: "右に分割", action: () => actions.split("row") },
         { label: "下に分割", action: () => actions.split("column") },
@@ -359,10 +388,13 @@ export class Pane {
     this.socket.send(JSON.stringify({ type: "input", data }));
   }
 
-  // 自分の表示領域（フル HD まで）に、設定したフォントの大きさで収まる列数・行数を伝える
+  // 自分の表示領域（フル HD まで）に、設定したフォントの大きさで収まる列数・行数を伝える。
+  // 拡大中は、拡大で広がった表示領域ではなく、元の分割での表示領域で計算する。広がった表示領域を伝えると、
+  // 自分が一番大きい表示領域のとき、ほかの参加者の端末まで大きくなる（docs/adr/68-zoom.md）
   private sendSize() {
     if (this.terminal.options.fontSize === this.appearance.fontSize) this.cell = cellSize(this.terminal) ?? this.cell;
-    const area = this.area();
+    if (!this.zoomed) this.splitArea = this.area() ?? this.splitArea;
+    const area = this.zoomed ? this.splitArea : this.area();
     if (!this.cell || !area || this.socket.readyState !== WebSocket.OPEN) return;
     const cols = Math.max(2, Math.floor((Math.min(area.width, maxArea.width) - scrollbarWidth) / this.cell.width));
     const rows = Math.max(1, Math.floor(Math.min(area.height, maxArea.height) / this.cell.height));

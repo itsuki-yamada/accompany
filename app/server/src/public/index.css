@@ -607,3 +607,21 @@ body {
   color: #eee;
   font: inherit;
 }
+
+/* 拡大表示（docs/adr/68-zoom.md）。拡大中のターミナルと、それを含む分割だけを残してほかを隠し、
+   残ったものをタブの表示領域いっぱいに広げる。隠したターミナルの接続と xterm はそのまま残す */
+#workspace[data-zoomed] .split > :not(.pane[data-zoomed], :has(.pane[data-zoomed])) {
+  display: none;
+}
+
+#workspace[data-zoomed] .split > * {
+  flex: 1 1 0 !important;
+}
+
+.pane-zoomed {
+  padding: 0 6px;
+  border-radius: 3px;
+  background: #4fc3f7;
+  color: #000;
+  white-space: nowrap;
+}

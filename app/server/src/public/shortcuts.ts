@@ -8,7 +8,8 @@ export type Shortcut =
   | { type: "move-focus"; direction: Direction }
   | { type: "new-tab" }
   | { type: "next-tab" }
-  | { type: "previous-tab" };
+  | { type: "previous-tab" }
+  | { type: "zoom" };
 
 // code はキーの位置（event.code）。Latin 以外の配列でも効くように、event.key（入力される文字）ではなく位置で判定する。
 // key は画面に出す表記。repeat は、押し続けたときに繰り返してよいか（分割・閉じる・新しいタブは 1 回だけにする）
@@ -29,6 +30,8 @@ const bindings: Binding[] = [
   { label: "新しいタブ", code: "KeyO", key: "O", repeat: false, shortcut: { type: "new-tab" } },
   { label: "次のタブ", code: "Period", key: ".", repeat: true, shortcut: { type: "next-tab" } },
   { label: "前のタブ", code: "Comma", key: ",", repeat: true, shortcut: { type: "previous-tab" } },
+  // tmux のズーム（prefix z）にならう（docs/adr/68-zoom.md）
+  { label: "拡大表示の切り替え", code: "KeyZ", key: "Z", repeat: false, shortcut: { type: "zoom" } },
 ];
 
 // ショートカットのキーなら、その操作を返す。押し続けて繰り返し届いた keydown のうち、繰り返さない操作は ignore にする

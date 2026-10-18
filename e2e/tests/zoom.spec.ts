@@ -57,13 +57,26 @@ async function expectToFillWorkspace(page: Page, n: number) {
   expect(box.height).toBeGreaterThan(area.height - 2);
 }
 
+// 隠れているターミナルも含めて探す（getByRole は隠れている要素を探さない）
+function anyPane(page: Page, n: number) {
+  return page.locator(`.pane[aria-label="ターミナル ${n}"]`);
+}
+
+function allPanes(page: Page) {
+  return page.locator(".pane");
+}
+
 function zoomIndicator(page: Page, n: number) {
   return pane(page, n).getByText("拡大中");
 }
 
 async function expectZoomed(page: Page, n: number, hidden: number[]) {
   await expect(zoomIndicator(page, n)).toBeVisible();
-  for (const m of hidden) await expect(pane(page, m)).toBeHidden();
+  // 隠れているだけで、ターミナルはなくなっていない
+  for (const m of hidden) {
+    await expect(anyPane(page, m)).toHaveCount(1);
+    await expect(anyPane(page, m)).toBeHidden();
+  }
   await expectToFillWorkspace(page, n);
 }
 
@@ -166,10 +179,14 @@ test("拡大はその参加者の画面だけに効き、ほかの参加者の�
   await splitRight(host);
   await expect(panes(guest)).toHaveCount(2);
   await expect.poll(() => commandSize(guest, 2)).not.toBe("");
-  // 2 人の表示領域から決まった大きさに落ち着くのを待つ
+  // 2 人の表示領域から決まった大きさに落ち着くのを待つ。左右に半分ずつ分けたので、2 つのターミナルは同じ大きさになる
   const sameSizes = async () =>
-    (await commandSize(host, 1)) === (await commandSize(guest, 1)) &&
-    (await commandSize(host, 2)) === (await commandSize(guest, 2));
+    new Set([
+      await commandSize(host, 1),
+      await commandSize(host, 2),
+      await commandSize(guest, 1),
+      await commandSize(guest, 2),
+    ]).size === 1;
   await expect.poll(sameSizes).toBe(true);
   const sizes = [await commandSize(guest, 1), await commandSize(guest, 2)];
   const guestBoxes = [await boxOf(guest, 1), await boxOf(guest, 2)];
@@ -211,17 +228,17 @@ test("拡大中のターミナルがほかの参加者に閉じられると、�
 
   // ほかのターミナルが閉じられても、拡大したまま
   await pane(host, 2).getByRole("button", { name: "閉じる" }).click();
-  await expect(panes(host)).toHaveCount(2);
+  await expect(allPanes(guest)).toHaveCount(2);
   await expectZoomed(guest, 3, [1]);
 
   // ほかの参加者が分割しても、拡大したまま。増えたターミナルは隠れている
   await pane(host, 1).getByRole("button", { name: "下に分割" }).click();
-  await expect(panes(guest)).toHaveCount(3);
+  await expect(allPanes(guest)).toHaveCount(3);
   await expectZoomed(guest, 3, [1, 4]);
 
   // 拡大中のターミナルが閉じられると、拡大を解除する
   await pane(host, 3).getByRole("button", { name: "閉じる" }).click();
-  await expect(panes(guest)).toHaveCount(2);
+  await expect(allPanes(guest)).toHaveCount(2);
   await expectNotZoomed(guest, [1, 4]);
   await expect.poll(async () => (await boxOf(guest, 1)).height).toBeGreaterThan(0);
 });
