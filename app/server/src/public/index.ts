@@ -50,6 +50,15 @@ let members: Member[] = [];
 let titles: Record<string, string> = {};
 // ターミナルごとのエージェントの状態。サーバーが判定して全員に配る
 let statuses: Record<string, AgentStatus> = {};
+// フォローしている参加者と、フォローで最後にフォーカスを移したターミナル。各参加者のブラウザだけの状態（docs/adr/69-follow.md）
+let following: number | undefined;
+let followed: string | undefined;
+// フォロー中であることと、誰をフォローしているか。タブバーに出す
+const followIndicator = document.createElement("div");
+followIndicator.className = "follow-indicator";
+followIndicator.setAttribute("role", "status");
+followIndicator.setAttribute("aria-label", "フォロー");
+followIndicator.hidden = true;
 
 requestPermissionOnFirstInteraction();
 
@@ -71,7 +80,8 @@ socket.onmessage = (event) => {
     you = message.you;
   } else if (message.type === "presence") {
     members = message.members;
-    showViewers();
+    showFollowing();
+    followFocus();
   } else if (message.type === "titles") {
     titles = message.titles;
     showTitles();
@@ -114,6 +124,7 @@ function renderTabs({ tabs, active }: Tabs) {
   appearanceButton.popoverTargetElement = settings;
   tabBar.replaceChildren(
     tablist,
+    followIndicator,
     button("新しいタブ", "+", () => send({ type: "new-tab" }), withKeys("新しいタブ")),
     help,
     appearanceButton,
@@ -166,6 +177,8 @@ function render(layout: Layout) {
   } else if (isFirstRender) panes.values().next().value?.focus();
   else if (lostFocus) nearestPane(lostFocus)?.focus();
   else if (active instanceof HTMLElement && active !== document.activeElement && root.contains(active)) active.focus();
+  // フォローしている相手のフォーカス先が、配置より先に届いていたとき
+  followFocus();
 }
 
 function build(node: Layout): HTMLElement {
@@ -196,6 +209,7 @@ function paneFor(id: string) {
       shortcut: (shortcut) => runShortcut(id, shortcut),
       commands: () => quickCommands.list,
       manageCommands: () => quickCommands.open(),
+      follow: (member) => (following === member ? stopFollowing() : startFollowing(member)),
     }, appearance);
     panes.set(id, pane);
   }
@@ -248,7 +262,10 @@ function runShortcut(terminal: string, shortcut: Shortcut) {
     case "move-focus": {
       // 拡大中も、隠れているターミナルへ移れる。移った先が枠に収まらなければ、そのターミナルを拡大する
       const next = neighborOf(terminal, shortcut.direction);
-      if (next) focusPane(next);
+      if (next) {
+        stopFollowing();
+        focusPane(next);
+      }
       return;
     }
     case "new-tab":
@@ -376,7 +393,7 @@ function showViewers() {
   for (const [id, pane] of panes) {
     const viewers: Viewer[] = members
       .filter((m) => m.terminal === id)
-      .map((m) => ({ name: m.name, color: m.color, self: m.id === you }));
+      .map((m) => ({ id: m.id, name: m.name, color: m.color, self: m.id === you, following: m.id === following }));
     pane.setViewers(viewers);
   }
 }
@@ -402,6 +419,7 @@ function notifyFinished(previous: Record<string, AgentStatus>, next: Record<stri
 
 // ほかのタブのターミナルなら、そのタブに切り替えてからフォーカスする
 function focusTerminal(id: string) {
+  stopFollowing();
   const pane = panes.get(id);
   if (pane) return focusPane(id);
   const tab = current?.tabs.find((t) => terminalIds(t.layout).includes(id));
@@ -409,6 +427,66 @@ function focusTerminal(id: string) {
   pendingFocus = id;
   send({ type: "select-tab", tab: tab.id });
 }
+
+// フォローする。相手がいまフォーカスしているターミナルに、すぐ自分のフォーカスも移す
+function startFollowing(member: number) {
+  following = member;
+  followed = undefined;
+  showFollowing();
+  followFocus();
+}
+
+function stopFollowing() {
+  if (following === undefined) return;
+  following = undefined;
+  followed = undefined;
+  showFollowing();
+}
+
+// フォロー中の表示を更新する。フォローしている相手が抜けていたら、フォローをやめる
+function showFollowing() {
+  const member = members.find((m) => m.id === following);
+  if (!member) following = followed = undefined;
+  followIndicator.hidden = !member;
+  if (member) {
+    const label = document.createElement("span");
+    label.textContent = `${member.name} をフォロー中`;
+    followIndicator.style.setProperty("--follow-color", member.color);
+    followIndicator.replaceChildren(label, button("フォローをやめる", "×", stopFollowing));
+    root.dataset.following = "true";
+    root.style.setProperty("--follow-color", member.color);
+  } else {
+    followIndicator.replaceChildren();
+    delete root.dataset.following;
+  }
+  showViewers();
+}
+
+// フォローしている相手のフォーカス先が変わったら、自分のフォーカスも移す。移したことは、ふだんどおり focus として
+// サーバーに伝わる。相手のフォーカス先が表示中のタブにないとき（タブの切り替えと行き違ったときなど）は、
+// 配置が届いて組み立てたときに移す。タブの切り替えは全員で共有しているので、フォローのためには切り替えない
+function followFocus() {
+  const target = members.find((m) => m.id === following)?.terminal;
+  if (!target || target === followed) return;
+  const pane = panes.get(target);
+  if (!pane) return;
+  followed = target;
+  pane.focus();
+}
+
+// 自分で相手と別のターミナルをクリックしたら、フォローをやめる。バーのボタン（フォローのボタンなど）は除く
+root.addEventListener(
+  "pointerdown",
+  (event) => {
+    if (following === undefined || event.button !== 0 || !(event.target instanceof Element)) return;
+    if (event.target.closest(".pane-bar")) return;
+    const target = members.find((m) => m.id === following)?.terminal;
+    for (const [id, pane] of panes) {
+      if (id !== target && pane.element.contains(event.target)) return stopFollowing();
+    }
+  },
+  { capture: true },
+);
 
 function terminalIds(node: Layout): string[] {
   return node.type === "terminal" ? [node.id] : node.children.flatMap(terminalIds);

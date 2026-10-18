@@ -23,14 +23,16 @@ export type PaneActions = {
   // 参加者全員で共有している、よく使うコマンドの一覧と、その登録・編集・削除の画面を開く
   commands: () => QuickCommand[];
   manageCommands: () => void;
+  // ほかの参加者をフォローする（フォロー中ならやめる）
+  follow: (member: number) => void;
 };
 
 // このターミナルで動いているエージェントの状態。サーバーが判定して全員に配る
 export type AgentStatus = "working" | "idle";
 const statusLabels: Record<AgentStatus, string> = { working: "作業中", idle: "入力待ち" };
 
-// このターミナルにフォーカスしている参加者
-export type Viewer = { name: string; color: string; self: boolean };
+// このターミナルにフォーカスしている参加者。following は、自分がその人をフォローしているか
+export type Viewer = { id: number; name: string; color: string; self: boolean; following: boolean };
 
 // 端末の大きさを決めるとき、各参加者の表示領域はこの大きさ（フル HD）までとみなす（docs/adr/51-largest-size.md）
 const maxArea = { width: 1920, height: 1080 };
@@ -51,6 +53,7 @@ export class Pane {
   private viewers = document.createElement("span");
   private program = document.createElement("span");
   private status = document.createElement("span");
+  private actions: PaneActions;
   private terminal: Terminal;
   private container = document.createElement("div");
   private appearance: Appearance;
@@ -66,6 +69,7 @@ export class Pane {
 
   constructor(id: string, actions: PaneActions, appearance: Appearance) {
     this.appearance = appearance;
+    this.actions = actions;
     // 出力の URL（OSC 8 のハイパーリンクと、ただの文字列の URL）は、どちらも同じように確認なしで新しいタブに開く。
     // マウスがリンクの上にあるかを覚えておき、リンクのクリックをアプリに渡さないために使う（docs/adr/59-single-link-open.md）
     let overLink = false;
@@ -224,13 +228,24 @@ export class Pane {
     this.resizeObserver.observe(container);
   }
 
-  // フォーカスしている参加者を、バーに名前で出す。自分がフォーカスしていれば枠を自分の色で強調する
+  // フォーカスしている参加者を、バーに名前で出す。自分がフォーカスしていれば枠を自分の色で強調する。
+  // ほかの参加者の名前は、押すとその人をフォローするボタンにする（docs/adr/69-follow.md）
   setViewers(viewers: Viewer[]) {
     this.viewers.replaceChildren(
       ...viewers.map((viewer) => {
-        const badge = document.createElement("span");
+        const badge = viewer.self
+          ? document.createElement("span")
+          : button(
+              `${viewer.name} をフォロー`,
+              viewer.name,
+              () => this.actions.follow(viewer.id),
+              viewer.following
+                ? `${viewer.name} のフォローをやめる`
+                : `${viewer.name} をフォローする（その人のフォーカスに追従する）`,
+            );
         badge.className = "viewer";
-        badge.textContent = viewer.self ? "あなた" : viewer.name;
+        if (viewer.self) badge.textContent = "あなた";
+        else badge.setAttribute("aria-pressed", String(viewer.following));
         badge.style.setProperty("--viewer-color", viewer.color);
         return badge;
       }),
