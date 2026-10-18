@@ -20,7 +20,7 @@ async function openAsParticipant(browser: Browser, url: string) {
   return page;
 }
 
-// 表示の設定は、タブバーのボタンで開く
+// 表示の設定は、ツールバーのボタンで開く
 async function openSettings(page: Page) {
   const dialog = page.getByRole("dialog", { name: "表示の設定" });
   if (!(await dialog.isVisible())) await page.getByRole("button", { name: "表示の設定" }).click();
