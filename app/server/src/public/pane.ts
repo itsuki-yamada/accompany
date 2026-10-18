@@ -51,6 +51,7 @@ export class Pane {
   // 拡大中に、分割での元の位置を取っておく要素。拡大中は、端末の大きさと枠に収まるかを、この要素の大きさで決める
   private placeholder: HTMLElement | undefined;
   private viewers = document.createElement("span");
+  private viewersKey = "";
   private program = document.createElement("span");
   private status = document.createElement("span");
   private actions: PaneActions;
@@ -231,6 +232,10 @@ export class Pane {
   // フォーカスしている参加者を、バーに名前で出す。自分がフォーカスしていれば枠を自分の色で強調する。
   // ほかの参加者の名前は、押すとその人をフォローするボタンにする（docs/adr/69-follow.md）
   setViewers(viewers: Viewer[]) {
+    // 参加者の情報は誰かが動くたびに届く。変わっていなければ作り直さない（フォローのボタンを押している途中などに失わないため）
+    const key = JSON.stringify(viewers);
+    if (key === this.viewersKey) return;
+    this.viewersKey = key;
     this.viewers.replaceChildren(
       ...viewers.map((viewer) => {
         const badge = viewer.self

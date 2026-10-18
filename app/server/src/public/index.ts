@@ -50,15 +50,17 @@ let members: Member[] = [];
 let titles: Record<string, string> = {};
 // ターミナルごとのエージェントの状態。サーバーが判定して全員に配る
 let statuses: Record<string, AgentStatus> = {};
-// フォローしている参加者と、フォローで最後にフォーカスを移したターミナル。各参加者のブラウザだけの状態（docs/adr/69-follow.md）
+// フォローしている参加者。各参加者のブラウザだけの状態（docs/adr/69-follow.md）
 let following: number | undefined;
-let followed: string | undefined;
-// フォロー中であることと、誰をフォローしているか。タブバーに出す
+// フォロー中であることと、誰をフォローしているか。タブバーに出す。参加者の情報が届くたびに作り直すと、
+// 「フォローをやめる」のボタンを押している途中やキーボードフォーカスが失われるので、同じ要素を使い回す
 const followIndicator = document.createElement("div");
 followIndicator.className = "follow-indicator";
 followIndicator.setAttribute("role", "status");
 followIndicator.setAttribute("aria-label", "フォロー");
 followIndicator.hidden = true;
+const followLabel = document.createElement("span");
+followIndicator.append(followLabel, button("フォローをやめる", "×", () => stopFollowing()));
 
 requestPermissionOnFirstInteraction();
 
@@ -431,55 +433,53 @@ function focusTerminal(id: string) {
 // フォローする。相手がいまフォーカスしているターミナルに、すぐ自分のフォーカスも移す
 function startFollowing(member: number) {
   following = member;
-  followed = undefined;
   showFollowing();
-  followFocus();
+  followFocus(true);
 }
 
 function stopFollowing() {
   if (following === undefined) return;
   following = undefined;
-  followed = undefined;
   showFollowing();
 }
 
 // フォロー中の表示を更新する。フォローしている相手が抜けていたら、フォローをやめる
 function showFollowing() {
   const member = members.find((m) => m.id === following);
-  if (!member) following = followed = undefined;
+  if (!member) following = undefined;
   followIndicator.hidden = !member;
   if (member) {
-    const label = document.createElement("span");
-    label.textContent = `${member.name} をフォロー中`;
+    followLabel.textContent = `${member.name} をフォロー中`;
     followIndicator.style.setProperty("--follow-color", member.color);
-    followIndicator.replaceChildren(label, button("フォローをやめる", "×", stopFollowing));
     root.dataset.following = "true";
     root.style.setProperty("--follow-color", member.color);
   } else {
-    followIndicator.replaceChildren();
     delete root.dataset.following;
   }
   showViewers();
 }
 
-// フォローしている相手のフォーカス先が変わったら、自分のフォーカスも移す。移したことは、ふだんどおり focus として
-// サーバーに伝わる。相手のフォーカス先が表示中のタブにないとき（タブの切り替えと行き違ったときなど）は、
-// 配置が届いて組み立てたときに移す。タブの切り替えは全員で共有しているので、フォローのためには切り替えない
-function followFocus() {
+// 自分のフォーカスが、フォローしている相手のフォーカス先のターミナルになければ移す。移したことは、ふだんどおり
+// focus としてサーバーに伝わる。相手のフォーカス先が表示中のタブにないとき（タブの切り替えと行き違ったときなど）は、
+// 配置が届いて組み立てたときに移す。タブの切り替えは全員で共有しているので、フォローのためには切り替えない。
+// タブバーや設定の画面など、配置の外を操作しているときは、フォーカスを持っていかない（force はフォローを始めたとき）
+function followFocus(force = false) {
   const target = members.find((m) => m.id === following)?.terminal;
-  if (!target || target === followed) return;
-  const pane = panes.get(target);
+  const pane = target ? panes.get(target) : undefined;
   if (!pane) return;
-  followed = target;
+  const active = document.activeElement;
+  if (!force && active && active !== document.body && !root.contains(active)) return;
+  if (!force && pane.element.contains(active)) return;
   pane.focus();
 }
 
-// 自分で相手と別のターミナルをクリックしたら、フォローをやめる。バーのボタン（フォローのボタンなど）は除く
+// 自分で相手と別のターミナルを操作したら（クリック、右クリック、バーのボタンなど）、フォローをやめる。
+// ほかの参加者の名前（フォローのボタン）は除く
 root.addEventListener(
   "pointerdown",
   (event) => {
-    if (following === undefined || event.button !== 0 || !(event.target instanceof Element)) return;
-    if (event.target.closest(".pane-bar")) return;
+    if (following === undefined || !(event.target instanceof Element)) return;
+    if (event.target.closest(".viewer")) return;
     const target = members.find((m) => m.id === following)?.terminal;
     for (const [id, pane] of panes) {
       if (id !== target && pane.element.contains(event.target)) return stopFollowing();
