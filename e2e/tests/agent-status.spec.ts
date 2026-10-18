@@ -1,10 +1,15 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
+import { fileURLToPath } from "node:url";
 import { startAccompany, type Accompany } from "./accompany";
 import { expectPaneToShow, pane, typeInPane } from "./panes";
 
-// 出力を出してから止まる偽のエージェント。分割で増やしたターミナルは偽のシェルにする
-const busyAgent = ["--", "bun", "e2e/fixtures/busy-agent.ts"];
+// 出力を出してから止まる偽のエージェント。エージェントとみなす名前（claude）で起動する。
+// 分割で増やしたターミナルは偽のシェルにする
+const busyAgent = ["--", "e2e/fixtures/agents/claude"];
 const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
+// 本物のシェル。偽のエージェントを claude という名前で起動できるようにする
+const agentsDir = fileURLToPath(new URL("../fixtures/agents", import.meta.url));
+const realShell = { SHELL: "/bin/sh", PATH: `${agentsDir}:${process.env.PATH}` };
 
 let accompany: Accompany | undefined;
 
@@ -83,28 +88,28 @@ function setHidden(page: Page, hidden: boolean) {
   return page.evaluate((value) => (window as any).setHidden(value), hidden);
 }
 
-// 作業中を経て入力待ちに戻るまで待つ
+// 作業中を経て指示待ちに戻るまで待つ
 async function workUntilDone(page: Page, n: number) {
   await expect(agentStatus(page, n)).toHaveText("作業中", { timeout: 5_000 });
-  await expect(agentStatus(page, n)).toHaveText("入力待ち", { timeout: 10_000 });
+  await expect(agentStatus(page, n)).toHaveText("指示待ち", { timeout: 10_000 });
 }
 
-test("エージェントが出力を出している間は「作業中」、止まると「入力待ち」と、参加者全員のバーに出る", async ({
+test("エージェントが出力を出している間は「作業中」、止まると「指示待ち」と、参加者全員のバーに出る", async ({
   browser,
 }) => {
   accompany = await startAccompany(busyAgent);
   const host = await openAsParticipant(browser, accompany.url);
   const guest = await openAsParticipant(browser, accompany.url);
-  await expect(agentStatus(host, 1)).toHaveText("入力待ち");
-  await expect(agentStatus(guest, 1)).toHaveText("入力待ち");
+  await expect(agentStatus(host, 1)).toHaveText("指示待ち");
+  await expect(agentStatus(guest, 1)).toHaveText("指示待ち");
 
   await typeInPane(host, 1, "work\n");
 
   await expect(agentStatus(host, 1)).toHaveText("作業中", { timeout: 5_000 });
   await expect(agentStatus(guest, 1)).toHaveText("作業中", { timeout: 5_000 });
   await expectPaneToShow(guest, 1, "done");
-  await expect(agentStatus(host, 1)).toHaveText("入力待ち", { timeout: 10_000 });
-  await expect(agentStatus(guest, 1)).toHaveText("入力待ち", { timeout: 10_000 });
+  await expect(agentStatus(host, 1)).toHaveText("指示待ち", { timeout: 10_000 });
+  await expect(agentStatus(guest, 1)).toHaveText("指示待ち", { timeout: 10_000 });
 });
 
 test("ページが見えていないときに作業が終わると、ブラウザの通知が出る", async ({ browser }) => {
@@ -115,7 +120,7 @@ test("ページが見えていないときに作業が終わると、ブラウ�
   await expect(agentStatus(page, 1)).toHaveText("作業中", { timeout: 5_000 });
   await setHidden(page, true);
 
-  await expect.poll(() => notificationTitles(page), { timeout: 10_000 }).toEqual(["ターミナル 1: 入力待ち"]);
+  await expect.poll(() => notificationTitles(page), { timeout: 10_000 }).toEqual(["ターミナル 1: 指示待ち"]);
 });
 
 test("別のターミナルにフォーカスしているときに作業が終わると通知が出て、クリックするとそのターミナルに移る", async ({
@@ -131,7 +136,7 @@ test("別のターミナルにフォーカスしているときに作業が終�
   await pane(page, 2).locator(".xterm-screen").click();
   await expect(pane(page, 2)).toHaveAttribute("data-focused", "true");
 
-  await expect.poll(() => notificationTitles(page), { timeout: 10_000 }).toEqual(["ターミナル 1: 入力待ち"]);
+  await expect.poll(() => notificationTitles(page), { timeout: 10_000 }).toEqual(["ターミナル 1: 指示待ち"]);
 
   await page.evaluate(() => (window as any).notifications[0].onclick());
   await expect(pane(page, 1)).toHaveAttribute("data-focused", "true");
@@ -144,7 +149,7 @@ test("フォーカスして見ているターミナルの作業が終わって�
   await typeInPane(page, 1, "work\n");
   await workUntilDone(page, 1);
 
-  // 通知が出るなら入力待ちになった直後なので、少し待ってから確かめる
+  // 通知が出るなら指示待ちになった直後なので、少し待ってから確かめる
   await page.waitForTimeout(500);
   expect(await notificationTitles(page)).toEqual([]);
 });
@@ -156,9 +161,9 @@ test("ページを開いただけでは、起動直後の問い合わせへの�
   // 偽のエージェントは起動直後に端末へ問い合わせ、ブラウザの端末が自動で応答する。そのあと 1.8 秒出力し続ける
   const page = await openAsParticipant(browser, accompany.url, "granted", true);
 
-  // 入力待ちと判定されるまでの時間（2 秒）を過ぎるまで待つ
+  // 指示待ちと判定されるまでの時間（2 秒）を過ぎるまで待つ
   await page.waitForTimeout(2_500);
-  await expect(agentStatus(page, 1)).toHaveText("入力待ち");
+  await expect(agentStatus(page, 1)).toHaveText("指示待ち");
   expect(await statusHistory(page)).not.toContain("作業中");
   expect(await notificationTitles(page)).toEqual([]);
 });
@@ -215,7 +220,7 @@ test("通知が許可されていなければ、作業が終わっても通知�
   await typeInPane(page, 1, "work\n");
   await expect(agentStatus(page, 1)).toHaveText("作業中", { timeout: 5_000 });
   await setHidden(page, true);
-  await expect(agentStatus(page, 1)).toHaveText("入力待ち", { timeout: 10_000 });
+  await expect(agentStatus(page, 1)).toHaveText("指示待ち", { timeout: 10_000 });
 
   await page.waitForTimeout(500);
   expect(await notificationTitles(page)).toEqual([]);
@@ -243,11 +248,11 @@ test("表示していない Workspace のターミナルの状態も配られ、
   await expect(pane(guest, 1)).toHaveCount(0);
   await expectPaneToShow(guest, 2, "Fake Shell ready");
   // Workspace 2 を表示している間に作業が終わる
-  await expect.poll(() => notificationTitles(host), { timeout: 15_000 }).toEqual(["ターミナル 1: 入力待ち"]);
+  await expect.poll(() => notificationTitles(host), { timeout: 15_000 }).toEqual(["ターミナル 1: 指示待ち"]);
 
   await guest.getByRole("tab", { name: "Workspace 1", exact: true }).click();
-  await expect(agentStatus(host, 1)).toHaveText("入力待ち");
-  await expect(agentStatus(guest, 1)).toHaveText("入力待ち");
+  await expect(agentStatus(host, 1)).toHaveText("指示待ち");
+  await expect(agentStatus(guest, 1)).toHaveText("指示待ち");
 });
 
 test("表示していない Workspace のターミナルの作業が終わると通知が出て、クリックするとその Workspace に切り替わる", async ({
@@ -261,7 +266,7 @@ test("表示していない Workspace のターミナルの作業が終わると
   await page.getByRole("button", { name: "新しい Workspace" }).click();
   await expectPaneToShow(page, 2, "Fake Shell ready");
 
-  await expect.poll(() => notificationTitles(page), { timeout: 10_000 }).toEqual(["ターミナル 1: 入力待ち"]);
+  await expect.poll(() => notificationTitles(page), { timeout: 10_000 }).toEqual(["ターミナル 1: 指示待ち"]);
 
   await page.evaluate(() => (window as any).notifications[0].onclick());
   await expect(page.getByRole("tab", { name: "Workspace 1", exact: true })).toHaveAttribute("aria-selected", "true");
@@ -270,7 +275,7 @@ test("表示していない Workspace のターミナルの作業が終わると
 
 test("矢印キーやファンクションキーだけでは、そのあと出力が続いても作業中にならない", async ({ browser }) => {
   // アプリケーションカーソルモードにして画面を描き続ける TUI。矢印キーは ESC O A、F1 は ESC O P で届く
-  accompany = await startAccompany(["--", "bun", "e2e/fixtures/cursor-app.ts"]);
+  accompany = await startAccompany(["--", "e2e/fixtures/agents/claude", "e2e/fixtures/cursor-app.ts"]);
   const page = await openAsParticipant(browser, accompany.url, "granted", false, "Cursor App ready");
   await pane(page, 1).locator(".xterm-helper-textarea").focus();
 
@@ -285,4 +290,77 @@ test("矢印キーやファンクションキーだけでは、そのあと出�
   // 文字を打てば、出力が続いているので作業中になる（この TUI で判定が働くことの確認）
   await page.keyboard.type("a");
   await expect(agentStatus(page, 1)).toHaveText("作業中", { timeout: 5_000 });
+});
+
+test("シェルから起動したエージェントを見分けて状態を出し、起動直後の描画では作業中にならない", async ({ browser }) => {
+  accompany = await startAccompany([], realShell);
+  const page = await openAsParticipant(browser, accompany.url, "granted", true, "$");
+  // エージェントが動いていないシェルには、状態を出さない
+  await expect(agentStatus(page, 1)).toBeHidden();
+  await expect(pane(page, 1)).not.toHaveAttribute("data-agent");
+
+  // 偽のエージェントは、起動直後に 1.8 秒出力し続ける（Claude Code の起動の描画の代わり）
+  await typeInPane(page, 1, "claude\n");
+  await expect(agentStatus(page, 1)).toHaveText("指示待ち", { timeout: 5_000 });
+  await expect(pane(page, 1)).toHaveAttribute("data-agent", "true");
+  await expectPaneToShow(page, 1, "Busy Agent ready");
+  // 指示待ちと判定されるまでの時間（2 秒）を過ぎるまで待つ
+  await page.waitForTimeout(2_500);
+  expect(await statusHistory(page)).not.toContain("作業中");
+  expect(await notificationTitles(page)).toEqual([]);
+
+  // 指示を出せば、作業中を経て指示待ちになり、通知が出る
+  await typeInPane(page, 1, "work\n");
+  await workUntilDone(page, 1);
+  await expect.poll(() => notificationTitles(page)).toEqual(["ターミナル 1: 指示待ち"]);
+
+  // エージェントを終えてシェルに戻ると、状態を出さなくなる
+  await page.keyboard.press("Control+c");
+  await expect(agentStatus(page, 1)).toBeHidden({ timeout: 5_000 });
+  await expect(pane(page, 1)).not.toHaveAttribute("data-agent");
+});
+
+test("シェルで動かしたふつうのコマンドは、出力が続いて止まっても状態を出さず、通知もしない", async ({ browser }) => {
+  accompany = await startAccompany([], realShell);
+  const page = await openAsParticipant(browser, accompany.url, "granted", true, "$");
+
+  // エージェントとみなさない名前で、同じ偽のコマンドを動かす
+  await typeInPane(page, 1, "bun e2e/fixtures/busy-agent.ts\n");
+  await expectPaneToShow(page, 1, "Busy Agent ready");
+  await typeInPane(page, 1, "work\n");
+  await expectPaneToShow(page, 1, "done");
+  await page.waitForTimeout(2_500);
+
+  await expect(agentStatus(page, 1)).toBeHidden();
+  await expect(pane(page, 1)).not.toHaveAttribute("data-agent");
+  expect(await statusHistory(page)).toEqual([]);
+  expect(await notificationTitles(page)).toEqual([]);
+});
+
+test("エージェントが動いているターミナルは、フォーカスの枠とは別の表示で目立たせる", async ({ browser }) => {
+  accompany = await startAccompany(busyAgent, fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+  await pane(page, 1).getByRole("button", { name: "右に分割" }).click();
+  await expectPaneToShow(page, 2, "Fake Shell ready");
+  await expect(pane(page, 1)).toHaveAttribute("data-agent", "true");
+  await expect(pane(page, 2)).not.toHaveAttribute("data-agent");
+  await expect(agentStatus(page, 2)).toBeHidden();
+
+  // フォーカスしていないエージェントのターミナルは、フォーカスの枠は出さずに、バーの見た目で目立たせる
+  await pane(page, 2).locator(".xterm-screen").click();
+  await expect(pane(page, 2)).toHaveAttribute("data-focused", "true");
+  const style = (n: number) =>
+    pane(page, n).evaluate((element) => {
+      const bar = getComputedStyle(element.querySelector(".pane-bar")!);
+      return { border: getComputedStyle(element).borderTopColor, bar: bar.backgroundColor + bar.boxShadow };
+    });
+  const agent = await style(1);
+  const shell = await style(2);
+  expect(agent.border).toBe("rgba(0, 0, 0, 0)");
+  expect(agent.bar).not.toBe(shell.bar);
+
+  // フォーカスしても、エージェントの表示は残る
+  await pane(page, 1).locator(".xterm-screen").click();
+  await expect(pane(page, 1)).toHaveAttribute("data-focused", "true");
+  expect((await style(1)).bar).toBe(agent.bar);
 });

@@ -1,0 +1,7 @@
+#!/usr/bin/env bun
+// E2E で、エージェントとみなす名前（claude）で起動する偽のエージェント（docs/adr/70-agent-detection.md）。
+// ターミナルの前面のプロセスの引数が「bun …/agents/claude」になるので、エージェントが動いているとみなされる。
+// 動きは引数に渡した偽のコマンドと同じ。省略したら busy-agent.ts と同じ動きをする
+import { resolve } from "node:path";
+
+await import(process.argv[2] ? resolve(process.argv[2]) : "../busy-agent.ts");
