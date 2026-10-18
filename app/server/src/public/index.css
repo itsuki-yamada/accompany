@@ -433,7 +433,27 @@ body {
   border-bottom: 1px solid #444;
 }
 
-/* エージェントの状態（作業中・入力待ち） */
+/* エージェントが動いているターミナル。フォーカスの枠（外枠を参加者の色にする）と区別できるよう、
+   参加者に割り当てない色で、バーの背景と下の線を変える（docs/adr/70-agent-detection.md） */
+.pane[data-agent="true"] {
+  --agent-color: #64ffda;
+}
+
+.pane[data-agent="true"] .pane-bar {
+  background: #10302b;
+  box-shadow: inset 0 -2px 0 var(--agent-color);
+}
+
+/* エージェントの状態（作業中・指示待ち）。エージェントが動いていなければ出さない */
+.pane-status[hidden] {
+  display: none;
+}
+
+.pane-status[data-status="idle"] {
+  color: var(--agent-color);
+  border-color: var(--agent-color);
+}
+
 .pane-status {
   flex: 0 0 auto;
   padding: 0 6px;

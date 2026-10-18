@@ -333,7 +333,8 @@ test("シェルで動かしたふつうのコマンドは、出力が続いて�
 
   await expect(agentStatus(page, 1)).toBeHidden();
   await expect(pane(page, 1)).not.toHaveAttribute("data-agent");
-  expect(await statusHistory(page)).toEqual([]);
+  // 状態を一度も出していない（出していない状態の表示は空のまま）
+  expect((await statusHistory(page)).filter((s) => s !== "")).toEqual([]);
   expect(await notificationTitles(page)).toEqual([]);
 });
 

@@ -21,7 +21,7 @@ export type WorkspaceEvent =
   | { type: "presence"; members: Member[] }
   // ターミナルごとの、コマンドが設定したタイトル（ターミナルの ID → タイトル。空のものは含めない）
   | { type: "titles"; titles: Record<string, string> }
-  // ターミナルごとのエージェントの状態
+  // ターミナルごとのエージェントの状態。エージェントが前面で動いているターミナルだけを含める
   | { type: "status"; statuses: Record<string, AgentStatus> }
   // 参加者全員で共有する、よく使うコマンドの一覧
   | { type: "commands"; commands: QuickCommand[] };
@@ -289,7 +289,11 @@ export class Workspace {
   }
 
   private statuses() {
-    return Object.fromEntries([...this.terminals].map(([id, t]) => [id, t.status]));
+    const statuses: Record<string, AgentStatus> = {};
+    this.terminals.forEach((terminal, id) => {
+      if (terminal.status) statuses[id] = terminal.status;
+    });
+    return statuses;
   }
 
   private notifyStatus() {

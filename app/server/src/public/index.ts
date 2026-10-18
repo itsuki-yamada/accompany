@@ -49,7 +49,7 @@ let you: number | undefined;
 let members: Member[] = [];
 // ターミナルごとの、コマンドが設定したタイトル
 let titles: Record<string, string> = {};
-// ターミナルごとのエージェントの状態。サーバーが判定して全員に配る
+// ターミナルごとのエージェントの状態。サーバーが判定して全員に配る。エージェントが動いていないターミナルは含まない
 let statuses: Record<string, AgentStatus> = {};
 // フォローしている参加者。各参加者のブラウザだけの状態（docs/adr/69-follow.md）
 let following: number | undefined;
@@ -409,17 +409,17 @@ function showTitles() {
 }
 
 function showStatuses() {
-  for (const [id, pane] of panes) pane.setStatus(statuses[id] ?? "idle");
+  for (const [id, pane] of panes) pane.setStatus(statuses[id]);
 }
 
-// 作業中から入力待ちに変わったターミナルを、見ていなければ通知する。
+// 作業中から指示待ちに変わったターミナルを、見ていなければ通知する。
 // 見ている = ページが見えていて、そのターミナルが表示中のタブにあり、自分がそのターミナルにフォーカスしている
 function notifyFinished(previous: Record<string, AgentStatus>, next: Record<string, AgentStatus>) {
   const focused = members.find((m) => m.id === you)?.terminal;
   for (const [id, status] of Object.entries(next)) {
     if (previous[id] !== "working" || status !== "idle") continue;
     if (!document.hidden && panes.has(id) && focused === id) continue;
-    notifyDone(`ターミナル ${id}: 入力待ち`, () => focusTerminal(id));
+    notifyDone(`ターミナル ${id}: 指示待ち`, () => focusTerminal(id));
   }
 }
 

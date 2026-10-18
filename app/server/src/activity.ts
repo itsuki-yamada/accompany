@@ -1,11 +1,12 @@
-// ターミナルで動いているエージェントの状態。判定の規則は docs/adr/28-agent-status.md
+// ターミナルで動いているエージェントの状態。判定の規則は docs/adr/28-agent-status.md。
+// エージェントが前面にいるときだけ判定する（docs/adr/70-agent-detection.md）
 export type AgentStatus = "working" | "idle";
 
 // 入力からこの時間内の出力は、入力の表示（エコー）とみなして数えない
 const echoMs = 200;
 // 数える出力がこの時間続いたら作業中
 const workingAfterMs = 1000;
-// 出力がこの時間途切れたら入力待ち。入力からこの時間内に出力が出始めなければ、その入力では判定しない
+// 出力がこの時間途切れたら指示待ち。入力からこの時間内に出力が出始めなければ、その入力では判定しない
 const idleAfterMs = 2000;
 
 // 端末の制御シーケンス。ブラウザの端末が問い合わせに自動で返す応答（OSC 11、DA など）や、
@@ -21,7 +22,7 @@ function isTyped(data: string) {
   return /[\r\x20-\x7e\u00a0-\uffff]/.test(data.replace(controlSequences, ""));
 }
 
-// PTY の入出力の続き方から、エージェントが作業中か入力待ちかを判定する
+// PTY の入出力の続き方から、エージェントが作業中か指示待ちかを判定する
 export class ActivityMonitor {
   status: AgentStatus = "idle";
   private lastInput = 0;
@@ -47,6 +48,15 @@ export class ActivityMonitor {
     clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => this.settle(), idleAfterMs);
     if (this.status === "idle" && now - this.burstStart >= workingAfterMs) this.set("working");
+  }
+
+  // エージェントが前面になったときに、それまでの入出力を忘れて指示待ちから判定し直す。
+  // シェルから起動したときの、起動の描画（とそのきっかけの Enter）を作業と数えないため。状態の変化は知らせない
+  reset() {
+    clearTimeout(this.idleTimer);
+    this.lastInput = 0;
+    this.burstStart = undefined;
+    this.status = "idle";
   }
 
   dispose() {

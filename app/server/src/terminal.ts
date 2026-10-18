@@ -2,6 +2,7 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import { Terminal } from "@xterm/headless";
 import type { Subprocess } from "bun";
 import { ActivityMonitor, type AgentStatus } from "./activity";
+import { type Foreground, foregroundOf } from "./agent-detect";
 
 export type Size = { cols: number; rows: number };
 
@@ -29,6 +30,9 @@ const encoder = new TextEncoder();
 // 戻したスクロールバックと、新しく起動したコマンドの出力の境目に出す区切り（docs/adr/34-session-restore.md）
 export const restartedMark = "── Accompany を再起動しました ──";
 
+// 入出力があってから、この時間を置いて前面のプロセスを調べる。出力のたびには調べない（docs/adr/70-agent-detection.md）
+const detectDelayMs = 500;
+
 // 再起動の前のサーバー側の画面。大きさは、書き出したときの端末の大きさ
 export type Restored = Size & { scrollback: string };
 
@@ -49,6 +53,13 @@ export class TerminalSession {
   title = "";
   private activity: ActivityMonitor;
   private onOutput: () => void;
+  private onStatus: () => void;
+  // 前面のプロセスグループと、それがエージェントか。調べるまでは、エージェントが動いていないとみなす
+  private foreground: Foreground | undefined;
+  private tty: string | undefined;
+  private detectTimer: ReturnType<typeof setTimeout> | undefined;
+  private detecting = false;
+  private killed = false;
 
   constructor(
     private command: string[],
@@ -56,8 +67,8 @@ export class TerminalSession {
     private onExit: () => void = () => {},
     // タイトルが変わったときに呼ぶ
     private onTitleChange: () => void = () => {},
-    // エージェントの状態（作業中・入力待ち）が変わったときに呼ぶ
-    onStatus: (status: AgentStatus) => void = () => {},
+    // エージェントの状態（作業中・指示待ち）が変わったとき、エージェントが動き始めた・終わったときに呼ぶ
+    onStatus: () => void = () => {},
     {
       // 再起動の前の画面。コマンドを起動する前にサーバー側の画面に書き、その下に区切りを出す
       restored,
@@ -66,7 +77,11 @@ export class TerminalSession {
     }: { restored?: Restored; onOutput?: () => void } = {},
   ) {
     this.onOutput = onOutput;
-    this.activity = new ActivityMonitor(onStatus);
+    this.onStatus = onStatus;
+    // エージェントが前面にいないときの判定の変化は知らせない
+    this.activity = new ActivityMonitor(() => {
+      if (this.foreground?.agent) onStatus();
+    });
     this.screen.loadAddon(this.serializer);
     if (restored) {
       this.size = { cols: restored.cols, rows: restored.rows };
@@ -120,6 +135,7 @@ export class TerminalSession {
           data: (_terminal, data) => {
             this.screen.write(data);
             this.activity.output();
+            this.scheduleDetect();
             this.broadcast({ type: "output", data });
             this.onOutput();
           },
@@ -143,6 +159,7 @@ export class TerminalSession {
 
   write(data: string) {
     this.activity.input(data);
+    this.scheduleDetect();
     this.proc?.terminal?.write(data);
   }
 
@@ -167,13 +184,47 @@ export class TerminalSession {
     );
   }
 
-  get status() {
-    return this.activity.status;
+  // エージェントの状態。エージェントが前面で動いていなければ undefined
+  get status(): AgentStatus | undefined {
+    return this.foreground?.agent ? this.activity.status : undefined;
   }
 
   kill() {
+    this.killed = true;
+    clearTimeout(this.detectTimer);
     this.activity.dispose();
     this.proc?.kill();
+  }
+
+  // 入出力のあとに間を置いて、前面のプロセスを調べる。調べている間や、調べる予定があるうちは重ねない
+  private scheduleDetect() {
+    if (this.detectTimer || this.detecting || this.killed) return;
+    this.detectTimer = setTimeout(() => {
+      this.detectTimer = undefined;
+      void this.detect();
+    }, detectDelayMs);
+  }
+
+  private async detect() {
+    const pid = this.proc?.pid;
+    if (pid === undefined) return;
+    this.detecting = true;
+    const found = await foregroundOf(pid, this.tty);
+    this.detecting = false;
+    if (this.killed || !found) return;
+    this.tty = found.tty;
+    const previous = this.foreground;
+    const next = found.foreground;
+    this.foreground = next;
+    if (!next.agent) {
+      if (previous?.agent) this.onStatus();
+      return;
+    }
+    // エージェントが前面になった（別のエージェントに替わった）ら、そこから判定を始める
+    if (!previous?.agent || previous.pgid !== next.pgid) {
+      this.activity.reset();
+      this.onStatus();
+    }
   }
 
   private fitToLargest() {
