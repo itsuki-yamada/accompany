@@ -470,7 +470,8 @@ function followFocus(force = false) {
   const active = document.activeElement;
   if (!force && active && active !== document.body && !root.contains(active)) return;
   if (!force && pane.element.contains(active)) return;
-  pane.focus();
+  // 自分の画面で拡大していて隠れているターミナルにも移れるよう、拡大を決め直してから移す（拡大の状態そのものは追従しない）
+  focusPane(target!);
 }
 
 // 自分で相手と別のターミナルを操作したら（クリック、右クリック、バーのボタンなど）、フォローをやめる。
