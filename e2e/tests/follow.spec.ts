@@ -258,3 +258,33 @@ test("タブの切り替えより先に相手のフォーカス先が届いて�
   await expect(pane(page, 3).locator(".xterm-helper-textarea")).toBeFocused();
   await expect(followIndicator(page)).toContainText("参加者 1 をフォロー中");
 });
+
+test("自分の画面で拡大していても、相手が隠れているターミナルへ移るとそこへ移り、枠に収まらなければそのターミナルを拡大する", async ({
+  browser,
+}) => {
+  // 端末の大きさは画面の大きい host に合わせるので、画面の小さい guest では分割した枠に収まらず、
+  // フォーカスしているターミナルを拡大する（docs/adr/68-zoom.md）
+  accompany = await startAccompany([], fakeShell);
+  const host = await openAsParticipant(browser, accompany.url);
+  await pane(host, 1).getByRole("button", { name: "右に分割" }).click();
+  await expectPaneToShow(host, 2, "Fake Shell ready");
+  await clickPane(host, 1);
+  const context = await browser.newContext({ viewport: { width: 800, height: 720 } });
+  const guest = await context.newPage();
+  await guest.goto(accompany.url);
+  await expectPaneToShow(guest, 1, "Fake Shell ready");
+  await expect(pane(guest, 1).getByText("拡大中")).toBeVisible();
+
+  await followButton(guest, 1, "参加者 1").click();
+  await expectFocusedOn(guest, 1);
+
+  await clickPane(host, 2);
+  await expectFocusedOn(guest, 2);
+  await expect(pane(guest, 2).getByText("拡大中")).toBeVisible();
+  await expect(guest.locator('.pane[aria-label="ターミナル 1"]')).toBeHidden();
+  await expect(followIndicator(guest)).toContainText("参加者 1 をフォロー中");
+
+  // 拡大はフォローされている側には反映しない
+  await expect(pane(host, 1)).toBeVisible();
+  await expect(pane(host, 2).getByText("拡大中")).toBeHidden();
+});
