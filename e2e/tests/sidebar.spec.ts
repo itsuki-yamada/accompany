@@ -42,7 +42,9 @@ function workspace(page: Page, name: string) {
 
 // Workspace の行（選ぶボタン・状態の印・閉じるボタン）
 function workspaceRow(page: Page, name: string) {
-  return sidebar(page).locator(".workspace-row").filter({ has: workspace(page, name) });
+  return sidebar(page)
+    .locator(".workspace-row")
+    .filter({ has: page.getByRole("tab", { name, exact: true }) });
 }
 
 function sessions(page: Page) {

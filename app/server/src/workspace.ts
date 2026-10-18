@@ -71,7 +71,7 @@ export class Workspace {
         if (restored.initial) this.initialTerminal = node.id;
         this.addTerminal(node.id, restored.initial ? (initialCommand ?? shellCommand) : shellCommand, restored);
       }
-      this.tabs.push({ id, name: `タブ ${id}`, layout });
+      this.tabs.push({ id, name: `Workspace ${id}`, layout });
     }
     this.active = saved.active;
     this.commands = saved.commands;
@@ -219,7 +219,7 @@ export class Workspace {
 
   private createTab(command: string[]) {
     const id = String(this.nextTabId++);
-    const tab: Tab = { id, name: `タブ ${id}`, layout: this.createTerminal(command) };
+    const tab: Tab = { id, name: `Workspace ${id}`, layout: this.createTerminal(command) };
     this.tabs.push(tab);
     return tab;
   }

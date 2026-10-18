@@ -2,7 +2,8 @@ import { appearanceSettings, loadAppearance, type Appearance } from "./appearanc
 import { notifyDone, requestPermissionOnFirstInteraction } from "./notify";
 import { Pane, type AgentStatus, type Viewer } from "./pane";
 import { QuickCommands } from "./quick-commands";
-import { shortcutList, withKeys, type Direction, type Shortcut } from "./shortcuts";
+import { shortcutList, type Direction, type Shortcut } from "./shortcuts";
+import { Sidebar } from "./sidebar";
 
 type Layout =
   | { type: "terminal"; id: string }
@@ -14,7 +15,7 @@ type Tabs = { tabs: Tab[]; active: string };
 const root = document.getElementById("workspace")!;
 const tabBar = document.getElementById("tabs")!;
 const panes = new Map<string, Pane>();
-// 最後に届いたタブの並びと表示中のタブ。次／前のタブへの切り替えや、通知をクリックしたときにそのターミナルのタブを探すのに使う
+// 最後に届いたタブ（画面の表記は Workspace）の並びと表示中のタブ。次／前のタブへの切り替えや、通知をクリックしたときにそのターミナルのタブを探すのに使う
 let current: Tabs | undefined;
 // 分割した画面で、フォーカスしているターミナルが自分の枠に収まらないときは、そのターミナルをタブの表示領域いっぱいに
 // 拡大して見せる。拡大は自分の画面だけの表示で、サーバーには伝えない（docs/adr/68-zoom.md）。
@@ -29,7 +30,7 @@ let placeholder: HTMLElement | undefined;
 const zoomDelay = 300;
 let zoomTimer: ReturnType<typeof setTimeout> | undefined;
 
-// ショートカットの一覧。タブバーのボタンで開く
+// ショートカットの一覧。ツールバーのボタンで開く
 const shortcuts = shortcutList();
 document.body.append(shortcuts);
 
@@ -52,7 +53,7 @@ let titles: Record<string, string> = {};
 let statuses: Record<string, AgentStatus> = {};
 // フォローしている参加者。各参加者のブラウザだけの状態（docs/adr/69-follow.md）
 let following: number | undefined;
-// フォロー中であることと、誰をフォローしているか。タブバーに出す。参加者の情報が届くたびに作り直すと、
+// フォロー中であることと、誰をフォローしているか。ツールバーに出す。参加者の情報が届くたびに作り直すと、
 // 「フォローをやめる」のボタンを押している途中やキーボードフォーカスが失われるので、同じ要素を使い回す
 const followIndicator = document.createElement("div");
 followIndicator.className = "follow-indicator";
@@ -69,6 +70,21 @@ const socket = new WebSocket(`${protocol}//${location.host}/ws/workspace`);
 const send = (message: object) => socket.send(JSON.stringify(message));
 // よく使うコマンドの一覧と、その登録・編集・削除の画面
 const quickCommands = new QuickCommands(send);
+// サイドメニュー（Workspace とセッションの一覧）。キーボードで Workspace を選んだときは、組み立て直してもサイドメニューに残る
+let keepSidebarFocus = false;
+const sidebar = new Sidebar(document.getElementById("sidebar")!, {
+  selectWorkspace: (tab, keepFocus) => {
+    keepSidebarFocus = keepFocus && tab !== current?.active;
+    send({ type: "select-tab", tab });
+  },
+  newWorkspace: () => send({ type: "new-tab" }),
+  closeWorkspace: (tab) => send({ type: "close-tab", tab }),
+  focusTerminal: (id) => focusTerminal(id),
+  returnFocus: () => {
+    const mine = members.find((m) => m.id === you)?.terminal;
+    ((mine && panes.get(mine)) || panes.values().next().value)?.focus();
+  },
+});
 
 // タブの並びと表示中のタブ、分割の配置は参加者全員で共有する。サーバーから届くたびに組み直す。
 // ただし境界をドラッグしている間は、組み直すとドラッグ中の境界がなくなるので、手を離すまで待つ
@@ -97,40 +113,23 @@ socket.onmessage = (event) => {
     if (dragging) deferredTabs = message;
     else renderTabs(message);
   }
+  if (current) sidebar.update({ ...current, titles, statuses, members, you });
 };
 
 // 表示中のタブの配置だけを組み立てる。ほかのタブのターミナルは接続を切り、戻ったときにサーバーから画面を復元する
 function renderTabs({ tabs, active }: Tabs) {
   current = { tabs, active };
-  const tablist = document.createElement("div");
-  tablist.className = "tab-list";
-  tablist.setAttribute("role", "tablist");
-  tablist.append(
-    ...tabs.map((tab) => {
-      const item = document.createElement("div");
-      item.className = "tab";
-      const select = button(tab.name, tab.name, () => send({ type: "select-tab", tab: tab.id }));
-      select.className = "tab-select";
-      select.setAttribute("role", "tab");
-      select.setAttribute("aria-selected", String(tab.id === active));
-      const close = button(`${tab.name} を閉じる`, "×", () => send({ type: "close-tab", tab: tab.id }));
-      // 最後のタブは閉じられない
-      close.disabled = tabs.length === 1;
-      item.append(select, close);
-      return item;
-    }),
-  );
+  // Workspace の一覧・追加・閉じるはサイドメニューにある。サイドメニューを隠しているときも、表示中の Workspace が分かるように出す
+  const name = document.createElement("span");
+  name.className = "current-workspace";
+  name.textContent = tabs.find((t) => t.id === active)?.name ?? "";
   const help = button("キーボードショートカット", "⌨", () => {});
   help.popoverTargetElement = shortcuts;
   const appearanceButton = button("表示の設定", "⚙", () => {});
   appearanceButton.popoverTargetElement = settings;
-  tabBar.replaceChildren(
-    tablist,
-    followIndicator,
-    button("新しいタブ", "+", () => send({ type: "new-tab" }), withKeys("新しいタブ")),
-    help,
-    appearanceButton,
-  );
+  const spacer = document.createElement("span");
+  spacer.className = "toolbar-spacer";
+  tabBar.replaceChildren(sidebar.toggleButton, name, followIndicator, spacer, help, appearanceButton);
 
   const layout = tabs.find((t) => t.id === active)?.layout;
   // 通知のクリックで切り替えを頼んだあと、ほかの人が別のタブに切り替えたときは、フォーカスする予定を取り消す
@@ -176,9 +175,10 @@ function render(layout: Layout) {
   if (pendingFocus && panes.has(pendingFocus)) {
     focusPane(pendingFocus);
     pendingFocus = undefined;
-  } else if (isFirstRender) panes.values().next().value?.focus();
+  } else if (isFirstRender && !keepSidebarFocus) panes.values().next().value?.focus();
   else if (lostFocus) nearestPane(lostFocus)?.focus();
   else if (active instanceof HTMLElement && active !== document.activeElement && root.contains(active)) active.focus();
+  keepSidebarFocus = false;
   // フォローしている相手のフォーカス先が、配置より先に届いていたとき
   followFocus();
 }
@@ -281,6 +281,10 @@ function runShortcut(terminal: string, shortcut: Shortcut) {
       const index = (tabs.findIndex((t) => t.id === active) + step + tabs.length) % tabs.length;
       return send({ type: "select-tab", tab: tabs[index]!.id });
     }
+    case "toggle-sidebar":
+      return sidebar.toggle();
+    case "focus-sidebar":
+      return sidebar.focus();
   }
 }
 
@@ -462,7 +466,7 @@ function showFollowing() {
 // 自分のフォーカスが、フォローしている相手のフォーカス先のターミナルになければ移す。移したことは、ふだんどおり
 // focus としてサーバーに伝わる。相手のフォーカス先が表示中のタブにないとき（タブの切り替えと行き違ったときなど）は、
 // 配置が届いて組み立てたときに移す。タブの切り替えは全員で共有しているので、フォローのためには切り替えない。
-// タブバーや設定の画面など、配置の外を操作しているときは、フォーカスを持っていかない（force はフォローを始めたとき）
+// サイドメニュー・ツールバーや設定の画面など、配置の外を操作しているときは、フォーカスを持っていかない（force はフォローを始めたとき）
 function followFocus(force = false) {
   const target = members.find((m) => m.id === following)?.terminal;
   const pane = target ? panes.get(target) : undefined;

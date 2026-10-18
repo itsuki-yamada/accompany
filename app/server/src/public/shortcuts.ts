@@ -9,13 +9,15 @@ export type Shortcut =
   | { type: "new-tab" }
   | { type: "next-tab" }
   | { type: "previous-tab" }
-  | { type: "zoom" };
+  | { type: "zoom" }
+  | { type: "toggle-sidebar" }
+  | { type: "focus-sidebar" };
 
 // code はキーの位置（event.code）。Latin 以外の配列でも効くように、event.key（入力される文字）ではなく位置で判定する。
-// key は画面に出す表記。repeat は、押し続けたときに繰り返してよいか（分割・閉じる・新しいタブは 1 回だけにする）
+// key は画面に出す表記。repeat は、押し続けたときに繰り返してよいか（分割・閉じる・新しい Workspace・サイドメニューは 1 回だけにする）
 type Binding = { label: string; code: string; key: string; repeat: boolean; shortcut: Shortcut };
 
-// 次／前のタブは ⌘⇧] / [ にしたかったが、macOS の Chrome が予約していてページに届かないので . / , にする
+// 次／前の Workspace は ⌘⇧] / [ にしたかったが、macOS の Chrome が予約していてページに届かないので . / , にする
 const bindings: Binding[] = [
   { label: "右に分割", code: "KeyR", key: "R", repeat: false, shortcut: { type: "split", direction: "row" } },
   { label: "下に分割", code: "KeyD", key: "D", repeat: false, shortcut: { type: "split", direction: "column" } },
@@ -27,11 +29,14 @@ const bindings: Binding[] = [
     repeat: true,
     shortcut: { type: "move-focus", direction } as const,
   })),
-  { label: "新しいタブ", code: "KeyO", key: "O", repeat: false, shortcut: { type: "new-tab" } },
-  { label: "次のタブ", code: "Period", key: ".", repeat: true, shortcut: { type: "next-tab" } },
-  { label: "前のタブ", code: "Comma", key: ",", repeat: true, shortcut: { type: "previous-tab" } },
+  { label: "新しい Workspace", code: "KeyO", key: "O", repeat: false, shortcut: { type: "new-tab" } },
+  { label: "次の Workspace", code: "Period", key: ".", repeat: true, shortcut: { type: "next-tab" } },
+  { label: "前の Workspace", code: "Comma", key: ",", repeat: true, shortcut: { type: "previous-tab" } },
   // tmux のズーム（prefix z）にならう（docs/adr/68-zoom.md）
   { label: "拡大表示の切り替え", code: "KeyZ", key: "Z", repeat: false, shortcut: { type: "zoom" } },
+  // S は Sidebar、E は VS Code のエクスプローラーへ移るキー（⌘⇧E）にならう（docs/adr/72-sidebar.md）
+  { label: "サイドメニューを出す・隠す", code: "KeyS", key: "S", repeat: false, shortcut: { type: "toggle-sidebar" } },
+  { label: "サイドメニューへ移る", code: "KeyE", key: "E", repeat: false, shortcut: { type: "focus-sidebar" } },
 ];
 
 // ショートカットのキーなら、その操作を返す。押し続けて繰り返し届いた keydown のうち、繰り返さない操作は ignore にする
@@ -57,7 +62,7 @@ export function withKeys(label: string, text = label) {
   return `${text}（${mac} / ${other}）`;
 }
 
-// ショートカットの一覧。タブバーのボタンで開く
+// ショートカットの一覧。ツールバーのボタンで開く
 export function shortcutList() {
   const list = document.createElement("div");
   list.id = "shortcut-list";

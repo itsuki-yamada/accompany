@@ -66,7 +66,9 @@ test("ターミナルを閉じると、残りのターミナルがその場所�
   await pane(page, 2).getByRole("button", { name: "閉じる" }).click();
 
   await expect(panes(page)).toHaveCount(1);
-  expect((await boxOf(page, 1)).width).toBeGreaterThan(1280 * 0.95);
+  // ターミナルを並べる領域（サイドメニューを除く）いっぱいに広がる
+  const area = (await page.getByRole("main").boundingBox())!;
+  expect((await boxOf(page, 1)).width).toBeGreaterThan(area.width * 0.95);
 });
 
 test("最後のターミナルは閉じられない", async ({ browser }) => {

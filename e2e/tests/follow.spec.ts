@@ -208,19 +208,19 @@ test("相手と別のターミナルで右クリックメニューを開くと�
   await expect(pane(guest, 3)).not.toHaveAttribute("data-focused", "true");
 });
 
-test("タブの切り替えより先に相手のフォーカス先が届いても、切り替えたあとにそのターミナルへ移る", async ({
+test("Workspace の切り替えより先に相手のフォーカス先が届いても、切り替えたあとにそのターミナルへ移る", async ({
   browser,
 }) => {
   const { host, guest } = await startSession(browser);
-  // タブ 2 にターミナル 4・5 を並べ、host はターミナル 5 にいる
-  await host.getByRole("button", { name: "新しいタブ" }).click();
+  // Workspace 2 にターミナル 4・5 を並べ、host はターミナル 5 にいる
+  await host.getByRole("button", { name: "新しい Workspace" }).click();
   await expectPaneToShow(host, 4, "Fake Shell ready");
   await pane(host, 4).getByRole("button", { name: "右に分割" }).click();
   await expectPaneToShow(host, 5, "Fake Shell ready");
   await clickPane(host, 5);
 
-  // 配置用の WebSocket を中継するページで開き直し、host がタブ 1 のターミナル 3 にフォーカスしたことが届くまで、
-  // タブの切り替えを止めておく（行き違いを起こす）。切り替えを届けたあとは参加者のフォーカス先を届けず、
+  // 配置用の WebSocket を中継するページで開き直し、host が Workspace 1 のターミナル 3 にフォーカスしたことが届くまで、
+  // Workspace の切り替えを止めておく（行き違いを起こす）。切り替えを届けたあとは参加者のフォーカス先を届けず、
   // 配置を組み立てたときにフォーカスを移すことを確かめる
   const page = await guest.context().newPage();
   let holding = false;
@@ -251,7 +251,7 @@ test("タブの切り替えより先に相手のフォーカス先が届いて�
   await expectFocusedOn(page, 5);
 
   holding = true;
-  await host.getByRole("tab", { name: "タブ 1", exact: true }).click();
+  await host.getByRole("tab", { name: "Workspace 1", exact: true }).click();
   await clickPane(host, 3);
 
   // 枠の色は自分のフォーカス先が presence で戻ってきてから付くので、ここではキー入力の先だけを確かめる
