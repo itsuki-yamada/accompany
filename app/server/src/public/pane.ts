@@ -12,8 +12,10 @@ const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 export type PaneActions = {
   split: (direction: "row" | "column") => void;
   close: () => void;
-  // このターミナルの拡大表示を切り替える。拡大は自分の画面だけの表示で、サーバーには伝えない（docs/adr/68-zoom.md）
+  // 拡大表示を外す／戻す。拡大は自分の画面だけの表示で、サーバーには伝えない（docs/adr/68-zoom.md）
   zoom: () => void;
+  // 端末の大きさか表示領域が変わり、枠に収まるか（overflows）が変わったかもしれないとき
+  resized: () => void;
   // キー入力の先がこのターミナルに移ったとき
   focused: () => void;
   // このターミナルにキー入力しているときに押されたキーボードショートカット
@@ -44,9 +46,8 @@ export class Pane {
   private closeButton: HTMLButtonElement;
   private zoomButton: HTMLButtonElement;
   private zoomLabel = document.createElement("span");
-  // 拡大表示しているか。拡大中は、端末の大きさを元の分割での表示領域（splitArea）で計算して伝える
-  private zoomed = false;
-  private splitArea: { width: number; height: number } | undefined;
+  // 拡大中に、分割での元の位置を取っておく要素。拡大中は、端末の大きさと枠に収まるかを、この要素の大きさで決める
+  private placeholder: HTMLElement | undefined;
   private viewers = document.createElement("span");
   private program = document.createElement("span");
   private status = document.createElement("span");
@@ -161,6 +162,7 @@ export class Pane {
         if (message.type === "resize") {
           this.terminal.resize(message.cols, message.rows);
           this.fitToArea();
+          actions.resized();
         }
       } else {
         this.terminal.write(new Uint8Array(event.data));
@@ -217,6 +219,7 @@ export class Pane {
     this.resizeObserver = new ResizeObserver(() => {
       this.sendSize();
       this.fitToArea();
+      actions.resized();
     });
     this.resizeObserver.observe(container);
   }
@@ -269,14 +272,35 @@ export class Pane {
     this.closeButton.disabled = !closable;
   }
 
-  // 拡大表示しているかと、隠しているほかのターミナルの数を出す。分割していなければ拡大できない
-  setZoom(zoomed: boolean, hidden: number) {
-    this.zoomed = zoomed;
+  // 拡大表示の状態を出す。placeholder は拡大中に分割での元の位置を取っておく要素（拡大していなければ undefined）、
+  // hidden は分割しているほかのターミナルの数、off は自分で拡大を外していて、このターミナルにフォーカスしていること。
+  // 拡大を外す／戻すは、拡大しているか、分割していて枠に収まらないときにできる
+  setZoom(zoom: { placeholder?: HTMLElement; hidden: number; off: boolean }) {
+    if (zoom.placeholder !== this.placeholder) {
+      if (this.placeholder) this.resizeObserver.unobserve(this.placeholder);
+      this.placeholder = zoom.placeholder;
+      if (this.placeholder) this.resizeObserver.observe(this.placeholder);
+    }
+    const zoomed = this.placeholder !== undefined;
+    const overflows = zoom.hidden > 0 && this.overflows();
     this.zoomButton.setAttribute("aria-pressed", String(zoomed));
-    this.zoomButton.disabled = !zoomed && hidden === 0;
-    this.zoomLabel.hidden = !zoomed;
-    this.zoomLabel.textContent = `拡大中（ほか ${hidden} 個を非表示）`;
-    this.zoomLabel.title = withKeys("拡大表示の切り替え", "もう一度押すと元の分割に戻る");
+    this.zoomButton.disabled = !zoomed && !overflows;
+    this.zoomLabel.hidden = !zoomed && !(zoom.off && overflows);
+    this.zoomLabel.dataset.state = zoomed ? "zoomed" : "off";
+    this.zoomLabel.textContent = zoomed ? "拡大中" : "拡大を外しています";
+    this.zoomLabel.title = zoomed
+      ? `枠に収まらないので拡大しています（ほか ${zoom.hidden} 個のターミナルを隠しています）。${withKeys("拡大表示の切り替え", "外すと分割の全体を見られます")}`
+      : `枠に収まりませんが、拡大を外しています。${withKeys("拡大表示の切り替え", "拡大に戻せます")}`;
+  }
+
+  // 端末が、分割での自分の枠に収まらない（スクロールバーが出る）か。設定したフォントの大きさで比べる
+  overflows() {
+    const area = this.splitArea();
+    if (!this.cell || !area) return false;
+    return (
+      this.terminal.cols * this.cell.width + scrollbarWidth > area.width ||
+      this.terminal.rows * this.cell.height > area.height
+    );
   }
 
   focus() {
@@ -307,7 +331,7 @@ export class Pane {
         "separator",
         // 自分の画面だけの表示の切り替え（docs/adr/68-zoom.md）
         {
-          label: this.zoomed ? "拡大を解除" : "拡大表示",
+          label: this.placeholder ? "拡大を解除" : "拡大表示",
           disabled: this.zoomButton.disabled,
           action: actions.zoom,
         },
@@ -393,8 +417,7 @@ export class Pane {
   // 自分が一番大きい表示領域のとき、ほかの参加者の端末まで大きくなる（docs/adr/68-zoom.md）
   private sendSize() {
     if (this.terminal.options.fontSize === this.appearance.fontSize) this.cell = cellSize(this.terminal) ?? this.cell;
-    if (!this.zoomed) this.splitArea = this.area() ?? this.splitArea;
-    const area = this.zoomed ? this.splitArea : this.area();
+    const area = this.splitArea();
     if (!this.cell || !area || this.socket.readyState !== WebSocket.OPEN) return;
     const cols = Math.max(2, Math.floor((Math.min(area.width, maxArea.width) - scrollbarWidth) / this.cell.width));
     const rows = Math.max(1, Math.floor(Math.min(area.height, maxArea.height) / this.cell.height));
@@ -464,6 +487,14 @@ export class Pane {
     if (target.top < visible.top || target.bottom > visible.bottom) {
       this.container.scrollTop += (target.top + target.bottom - visible.top - visible.bottom) / 2;
     }
+  }
+
+  // 分割での自分の枠の表示領域。拡大中は、元の位置に置いた要素の大きさから、バーなどの分を引いて求める
+  private splitArea() {
+    if (!this.placeholder) return this.area();
+    const width = this.placeholder.offsetWidth - (this.element.offsetWidth - this.container.offsetWidth);
+    const height = this.placeholder.offsetHeight - (this.element.offsetHeight - this.container.offsetHeight);
+    return width > 0 && height > 0 ? { width, height } : undefined;
   }
 
   // 自分の表示領域の大きさ。スクロールバーが出ていても変わらないよう、スクロールバーを含めた大きさを使う

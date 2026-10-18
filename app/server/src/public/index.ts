@@ -16,8 +16,18 @@ const tabBar = document.getElementById("tabs")!;
 const panes = new Map<string, Pane>();
 // 最後に届いたタブの並びと表示中のタブ。次／前のタブへの切り替えや、通知をクリックしたときにそのターミナルのタブを探すのに使う
 let current: Tabs | undefined;
-// 自分の画面だけで拡大表示しているターミナル。サーバーには伝えない（docs/adr/68-zoom.md）
+// 分割した画面で、フォーカスしているターミナルが自分の枠に収まらないときは、そのターミナルをタブの表示領域いっぱいに
+// 拡大して見せる。拡大は自分の画面だけの表示で、サーバーには伝えない（docs/adr/68-zoom.md）。
+// focusedTerminal は自分がフォーカスしているターミナル、zoomOff は自分で拡大を外しているか、
+// zoomed は拡大しているターミナル、placeholder は拡大中に分割での元の位置を取っておく要素
+let focusedTerminal: string | undefined;
+let zoomOff = false;
 let zoomed: string | undefined;
+let placeholder: HTMLElement | undefined;
+// 分割した直後などは、自分の枠に合わせた大きさをサーバーに伝えてから端末の大きさが変わるまで、一瞬だけ枠に収まらない。
+// そのたびに拡大して戻るとちらつくので、自動で拡大するのは、収まらない状態がこの時間続いたときにする
+const zoomDelay = 300;
+let zoomTimer: ReturnType<typeof setTimeout> | undefined;
 
 // ショートカットの一覧。タブバーのボタンで開く
 const shortcuts = shortcutList();
@@ -28,6 +38,7 @@ let appearance: Appearance = loadAppearance();
 const settings = appearanceSettings(appearance, (changed) => {
   appearance = changed;
   panes.forEach((pane) => pane.setAppearance(appearance));
+  updateZoom();
 });
 document.body.append(settings);
 
@@ -143,14 +154,14 @@ function render(layout: Layout) {
   element.style.flex = "1 1 0";
   root.replaceChildren(element);
   panes.forEach((pane) => pane.setClosable(ids.size > 1));
-  // 拡大中のターミナルが閉じられた・タブが切り替わった・分割が 1 つになったときは、拡大を解除する
-  if (zoomed && (!ids.has(zoomed) || ids.size < 2)) zoomed = undefined;
-  showZoom();
+  // 組み直すと元の位置の要素がなくなるので、拡大を置き直す。拡大中のターミナルが閉じられた・タブが切り替わった・
+  // 分割が 1 つになったときは、拡大しない。拡大していたなら、待たずに置き直す（ちらつかないように）
+  updateZoom(zoomed !== undefined);
   showViewers();
   showTitles();
   showStatuses();
   if (pendingFocus && panes.has(pendingFocus)) {
-    panes.get(pendingFocus)!.focus();
+    focusPane(pendingFocus);
     pendingFocus = undefined;
   } else if (isFirstRender) panes.values().next().value?.focus();
   else if (lostFocus) nearestPane(lostFocus)?.focus();
@@ -173,10 +184,15 @@ function paneFor(id: string) {
   let pane = panes.get(id);
   if (!pane) {
     pane = new Pane(id, {
-      split: (direction) => split(id, direction),
+      split: (direction) => send({ type: "split", terminal: id, direction }),
       close: () => send({ type: "close", terminal: id }),
       zoom: () => toggleZoom(id),
-      focused: () => send({ type: "focus", terminal: id }),
+      resized: () => updateZoom(),
+      focused: () => {
+        focusedTerminal = id;
+        updateZoom();
+        send({ type: "focus", terminal: id });
+      },
       shortcut: (shortcut) => runShortcut(id, shortcut),
       commands: () => quickCommands.list,
       manageCommands: () => quickCommands.open(),
@@ -224,15 +240,17 @@ function divider(split: HTMLElement, node: Extract<Layout, { type: "split" }>, f
 function runShortcut(terminal: string, shortcut: Shortcut) {
   switch (shortcut.type) {
     case "split":
-      return split(terminal, shortcut.direction);
+      return send({ type: "split", terminal, direction: shortcut.direction });
     case "close":
       return send({ type: "close", terminal });
     case "zoom":
       return toggleZoom(terminal);
-    case "move-focus":
-      // 拡大中は隣のターミナルが隠れているので、解除してから移る（tmux と同じ）
-      setZoom(undefined);
-      return neighborOf(terminal, shortcut.direction)?.focus();
+    case "move-focus": {
+      // 拡大中も、隠れているターミナルへ移れる。移った先が枠に収まらなければ、そのターミナルを拡大する
+      const next = neighborOf(terminal, shortcut.direction);
+      if (next) focusPane(next);
+      return;
+    }
     case "new-tab":
       return send({ type: "new-tab" });
     case "next-tab":
@@ -247,42 +265,82 @@ function runShortcut(terminal: string, shortcut: Shortcut) {
   }
 }
 
-// 分割で増えたターミナルが隠れないよう、拡大中なら解除してから分割する（tmux と同じ）
-function split(terminal: string, direction: "row" | "column") {
-  setZoom(undefined);
-  send({ type: "split", terminal, direction });
+// 自分で拡大を外す／戻す。拡大しているターミナルなら外し、そうでなければ拡大に戻す（枠に収まらなければ拡大する）。
+// 外した状態は、もう一度切り替えるまで続く（フォーカスを移しても拡大しない）
+function toggleZoom(terminal: string) {
+  zoomOff = zoomed === terminal;
+  focusPane(terminal);
 }
 
-// 拡大表示を切り替える。分割していなければ何もしない。キー入力の先は、切り替えたターミナルに置く
-function toggleZoom(terminal: string) {
-  if (zoomed === terminal) setZoom(undefined);
-  else if (panes.size > 1) setZoom(terminal);
+// キー入力の先をそのターミナルに移す。隠れているターミナルはフォーカスを受け取れないので、先に拡大を決め直す
+function focusPane(terminal: string) {
+  focusedTerminal = terminal;
+  updateZoom(true);
   panes.get(terminal)?.focus();
 }
 
-function setZoom(terminal: string | undefined) {
-  if (zoomed === terminal) return;
-  zoomed = terminal;
-  showZoom();
+// 拡大するターミナルを決め直す。変わったときだけ画面を組み替える。immediate は、フォーカスを移したときや
+// 自分で切り替えたときのように、すぐに決める（隠れているターミナルはフォーカスを受け取れないので、待たない）
+function updateZoom(immediate = false) {
+  // 配置を組み直して元の位置の要素がなくなったときは、いったん分割の表示に戻してから、収まるかを測り直す
+  if (zoomed !== undefined && !placeholder?.isConnected) {
+    zoomed = undefined;
+    showZoom();
+  }
+  const focused = focusedTerminal === undefined ? undefined : panes.get(focusedTerminal);
+  const target = !zoomOff && panes.size > 1 && focused?.overflows() ? focusedTerminal : undefined;
+  if (target !== undefined && target !== zoomed && !immediate) {
+    zoomTimer ??= setTimeout(() => {
+      zoomTimer = undefined;
+      updateZoom(true);
+    }, zoomDelay);
+    showZoomState();
+    return;
+  }
+  clearTimeout(zoomTimer);
+  zoomTimer = undefined;
+  if (target !== zoomed) {
+    zoomed = target;
+    showZoom();
+  } else showZoomState();
 }
 
-// 拡大中は、そのターミナルだけをタブの表示領域いっぱいに出す。ほかのターミナルは CSS で隠すだけで、
-// 接続と xterm はそのまま残す（作り直すと、画面の復元と描き直しが起きる）
+// 拡大中のターミナルを、CSS でタブの表示領域いっぱいに重ねて出す。分割での元の位置には同じ大きさの要素を置き、
+// ほかのターミナルと境界は見えなくするだけで、配置・接続・xterm はそのまま残す（作り直すと、画面の復元と描き直しが起きる）
 function showZoom() {
+  placeholder?.remove();
+  placeholder = undefined;
   root.toggleAttribute("data-zoomed", zoomed !== undefined);
+  for (const [id, pane] of panes) pane.element.toggleAttribute("data-zoomed", id === zoomed);
+  const element = zoomed === undefined ? undefined : panes.get(zoomed)?.element;
+  if (element) {
+    placeholder = document.createElement("div");
+    placeholder.className = "zoom-placeholder";
+    placeholder.style.flex = element.style.flex;
+    element.after(placeholder);
+  }
+  showZoomState();
+}
+
+// 各ターミナルのバーに、拡大の状態（拡大中・外している・切り替えられるか）を出す
+function showZoomState() {
   for (const [id, pane] of panes) {
-    pane.element.toggleAttribute("data-zoomed", id === zoomed);
-    pane.setZoom(id === zoomed, panes.size - 1);
+    pane.setZoom({
+      placeholder: id === zoomed ? placeholder : undefined,
+      hidden: panes.size - 1,
+      off: zoomOff && id === focusedTerminal,
+    });
   }
 }
 
 // その向きに隣り合うターミナルのうち、重なりが一番大きいもの（同じなら先に並んでいるもの）
+// 拡大中は、元の分割の配置（元の位置に置いた要素）で向きを決める
 function neighborOf(terminal: string, direction: Direction) {
-  const from = panes.get(terminal)?.element.getBoundingClientRect();
+  const from = (terminal === zoomed ? placeholder : panes.get(terminal)?.element)?.getBoundingClientRect();
   if (!from) return;
   // 境界の幅（4px）と枠の分だけ離れていても、隣り合っているものとみなす
   const gap = 8;
-  let best: { pane: Pane; overlap: number } | undefined;
+  let best: { id: string; overlap: number } | undefined;
   for (const [id, pane] of panes) {
     if (id === terminal) continue;
     const to = pane.element.getBoundingClientRect();
@@ -296,9 +354,9 @@ function neighborOf(terminal: string, direction: Direction) {
       direction === "left" || direction === "right"
         ? Math.min(from.bottom, to.bottom) - Math.max(from.top, to.top)
         : Math.min(from.right, to.right) - Math.max(from.left, to.left);
-    if (adjacent && overlap > 0 && (!best || overlap > best.overlap)) best = { pane, overlap };
+    if (adjacent && overlap > 0 && (!best || overlap > best.overlap)) best = { id, overlap };
   }
-  return best?.pane;
+  return best?.id;
 }
 
 // 中心どうしが一番近いターミナル
@@ -345,10 +403,7 @@ function notifyFinished(previous: Record<string, AgentStatus>, next: Record<stri
 // ほかのタブのターミナルなら、そのタブに切り替えてからフォーカスする
 function focusTerminal(id: string) {
   const pane = panes.get(id);
-  if (pane) {
-    if (zoomed !== id) setZoom(undefined);
-    return pane.focus();
-  }
+  if (pane) return focusPane(id);
   const tab = current?.tabs.find((t) => terminalIds(t.layout).includes(id));
   if (!tab) return;
   pendingFocus = id;

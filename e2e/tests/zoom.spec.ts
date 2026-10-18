@@ -10,7 +10,7 @@ import { boxOf, expectPaneToShow, pane, panes } from "./panes";
 const sizeShell = { SHELL: "e2e/fixtures/size-shell" };
 const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
 const large = { width: 1280, height: 720 };
-const small = { width: 800, height: 600 };
+const small = { width: 800, height: 720 };
 // ショートカットは macOS 向けの Cmd+Shift と、Windows / Linux 向けの Ctrl+Shift のどちらでも動く（docs/adr/31-shortcuts.md）
 const modifiers = ["Meta+Shift", "Control+Shift"] as const;
 
@@ -114,7 +114,7 @@ function fitsInPane(page: Page, n: number) {
 
 // コマンドから見えている端末のサイズ（size-shell が最後に表示したもの）
 async function commandSize(page: Page, n: number) {
-  const text = (await pane(page, n).locator(".xterm-rows").textContent()) ?? "";
+  const text = (await anyPane(page, n).locator(".xterm-rows").textContent()) ?? "";
   return [...text.matchAll(/size: (\d+)x(\d+)/g)].at(-1)?.slice(1).join("x") ?? "";
 }
 
