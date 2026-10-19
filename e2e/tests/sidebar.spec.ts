@@ -248,6 +248,54 @@ test("サイドメニューは、ボタンとショートカットで参加者�
   await expect(session(host, 1)).toBeFocused();
 });
 
+test("ウィンドウが狭いときは、最初はサイドメニューを隠しておき、ボタンで出せる", async ({ browser }) => {
+  accompany = await startAccompany(busyAgent, titleShell);
+  const context = await browser.newContext({ viewport: { width: 800, height: 720 } });
+  const page = await context.newPage();
+  await page.goto(accompany.url);
+  await expectPaneToShow(page, 1, "Busy Agent ready");
+
+  await expect(sidebar(page)).toBeHidden();
+  await expect(sidebarToggle(page)).toHaveAttribute("aria-expanded", "false");
+  await sidebarToggle(page).click();
+  await expect(sidebar(page)).toBeVisible();
+  // 自分で出したら、開き直しても出す
+  await page.reload();
+  await expectPaneToShow(page, 1, "Busy Agent ready");
+  await expect(sidebar(page)).toBeVisible();
+});
+
+test("サイドメニューを出す・隠すと表示領域が変わり、枠に収まらなくなった参加者の画面では自動で拡大する", async ({
+  browser,
+}) => {
+  accompany = await startAccompany(busyAgent, titleShell);
+  const host = await openAsParticipant(browser, accompany.url);
+  const guest = await openAsParticipant(browser, accompany.url);
+  await splitRight(host, 1, 2);
+  await expectPaneToShow(guest, 2, "Title setter ready");
+  await input(guest, 1).focus();
+  const zoomed = (page: Page) => pane(page, 1).getByText("拡大中");
+
+  // 同じ画面の大きさなので、どちらの枠にも収まる
+  await expect(zoomed(guest)).toBeHidden();
+
+  // host がサイドメニューを隠すと、端末は host の広くなった枠に合わせて大きくなり、guest の枠には収まらない
+  await sidebarToggle(host).click();
+  await expect(zoomed(guest)).toBeVisible();
+  await expect(zoomed(host)).toBeHidden();
+
+  // guest も隠すと、また収まって元の分割の表示に戻る
+  await sidebarToggle(guest).click();
+  await expect(zoomed(guest)).toBeHidden();
+  await expect(pane(guest, 2)).toBeVisible();
+
+  // guest が出し直すとまた拡大し、host も出し直すと戻る
+  await sidebarToggle(guest).click();
+  await expect(zoomed(guest)).toBeVisible();
+  await sidebarToggle(host).click();
+  await expect(zoomed(guest)).toBeHidden();
+});
+
 test("サイドメニューのショートカットは、ボタンのツールチップとショートカットの一覧に載る", async ({ browser }) => {
   accompany = await startAccompany(busyAgent, titleShell);
   const page = await openAsParticipant(browser, accompany.url);
