@@ -3,8 +3,10 @@ import { startAccompany, type Accompany } from "./accompany";
 import { boxOf, expectPaneToShow, pane } from "./panes";
 
 // 最初のターミナルは、出力を出してから止まる偽のエージェント（「work」で 3 秒、「longwork」で 6 秒作業する）。
-// 分割や新しい Workspace で増やすターミナルは、入力した行（「2;タイトル」）をタイトルに設定する偽のシェルにする
-const busyAgent = ["--", "bun", "e2e/fixtures/busy-agent.ts"];
+// エージェントとみなす名前（claude）で起動する（docs/adr/70-agent-detection.md）。
+// 分割や新しい Workspace で増やすターミナルは、入力した行（「2;タイトル」）をタイトルに設定する偽のシェルにする。
+// 偽のシェルはエージェントではないので、状態を出さず、件数にも数えない
+const busyAgent = ["--", "e2e/fixtures/agents/claude"];
 const titleShell = { SHELL: "e2e/fixtures/title-shell" };
 
 // ショートカットは macOS 向けの Cmd+Shift と、Windows / Linux 向けの Ctrl+Shift のどちらでも動く（docs/adr/31-shortcuts.md）
@@ -98,8 +100,9 @@ test("サイドメニューに、Workspace の一覧と、すべての Workspace
 
   await expect(sidebar(page).getByRole("tab")).toHaveText(["Workspace 1", "Workspace 2"]);
   await expect(workspace(page, "Workspace 2")).toHaveAttribute("aria-selected", "true");
-  await expect(workspaceRow(page, "Workspace 1")).toContainText("入力待ち 2");
-  await expect(workspaceRow(page, "Workspace 2")).toContainText("入力待ち 1");
+  await expect(workspaceRow(page, "Workspace 1")).toContainText("指示待ち 1");
+  // エージェントが動いていない Workspace には、状態の印を出さない
+  await expect(workspaceRow(page, "Workspace 2").locator(".status-count")).toHaveCount(0);
   await expect(sidebar(page).getByRole("button", { name: "Workspace 1 を閉じる" })).toBeEnabled();
 
   // セッションは、Workspace ごとにまとめて、配置の順に並ぶ
@@ -107,13 +110,18 @@ test("サイドメニューに、Workspace の一覧と、すべての Workspace
   const group = (name: string) => sessions(page).getByRole("group", { name, exact: true });
   await expect(group("Workspace 1").getByRole("button")).toHaveCount(2);
   await expect(group("Workspace 2").getByRole("button")).toHaveCount(1);
-  await expect(session(page, 1)).toContainText("入力待ち");
+  await expect(session(page, 1)).toContainText("指示待ち");
   await expect(session(page, 2)).toContainText("vim notes.md");
+  // タイトルが claude でも、前面のプロセスがエージェントでなければ状態を出さない
   await expect(session(page, 3)).toContainText("claude");
+  for (const n of [2, 3]) {
+    await expect(session(page, n)).not.toContainText("指示待ち");
+    await expect(session(page, n)).not.toContainText("作業中");
+  }
   // 自分は新しい Workspace のターミナル 3 にフォーカスしている
   await expect(session(page, 3)).toContainText("あなた");
   await expect(session(page, 1)).not.toContainText("あなた");
-  await expect(sessions(page)).toContainText("入力待ち 3");
+  await expect(sessions(page)).toContainText("指示待ち 1");
   await expect(sessions(page)).toContainText("作業中 0");
 
   // Workspace を選ぶと切り替わる
@@ -148,10 +156,10 @@ test("状態・タイトル・フォーカスの変化が、Workspace の印と�
   await expect(session(host, 3)).toContainText("npm test");
   await expect(session(host, 3)).toContainText("参加者");
 
-  // 作業が終わると入力待ちになる
-  await expect(session(host, 1)).toContainText("入力待ち", { timeout: 10_000 });
+  // 作業が終わると指示待ちになる
+  await expect(session(host, 1)).toContainText("指示待ち", { timeout: 10_000 });
   await expect(workspaceRow(host, "Workspace 1")).not.toContainText("作業中");
-  await expect(workspaceRow(host, "Workspace 1")).toContainText("入力待ち 2");
+  await expect(workspaceRow(host, "Workspace 1")).toContainText("指示待ち 1");
   await expect(sessions(host)).toContainText("作業中 0");
 });
 
