@@ -1,0 +1,10 @@
+#!/bin/sh
+# E2E で、Accompany が前面のプロセスを調べるときの ps を遅くする（PATH の先頭に置く）。
+# 本物の ps でプロセスの一覧を取ったら、その引数を E2E_PS_LOG に書き足し、E2E_PS_DELAY 秒待ってから一覧を返す。
+# 一覧を取ってから返すまでの間に前面のプロセスが替わる場面を、テストから作れるようにする
+out=$(/bin/ps "$@")
+status=$?
+echo "$*" >> "$E2E_PS_LOG"
+sleep "${E2E_PS_DELAY:-1}"
+printf '%s\n' "$out"
+exit $status

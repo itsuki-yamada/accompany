@@ -1,4 +1,7 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startAccompany, type Accompany } from "./accompany";
 import { expectPaneToShow, pane, typeInPane } from "./panes";
@@ -10,6 +13,8 @@ const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
 // 本物のシェル。偽のエージェントを claude という名前で起動できるようにする
 const agentsDir = fileURLToPath(new URL("../fixtures/agents", import.meta.url));
 const realShell = { SHELL: "/bin/sh", PATH: `${agentsDir}:${process.env.PATH}` };
+// 前面のプロセスを調べる ps を遅くするもの（e2e/fixtures/slow-ps/ps）
+const slowPsDir = fileURLToPath(new URL("../fixtures/slow-ps", import.meta.url));
 
 let accompany: Accompany | undefined;
 
@@ -364,4 +369,66 @@ test("エージェントが動いているターミナルは、フォーカス�
   await pane(page, 1).locator(".xterm-screen").click();
   await expect(pane(page, 1)).toHaveAttribute("data-focused", "true");
   expect((await style(1)).bar).toBe(agent.bar);
+});
+
+test("シェルで Ctrl+Z でエージェントを止めてシェルが前面に戻ると、状態を出さなくなる", async ({ browser }) => {
+  accompany = await startAccompany([], realShell);
+  const page = await openAsParticipant(browser, accompany.url, "granted", true, "$");
+  await typeInPane(page, 1, "claude\n");
+  await expect(agentStatus(page, 1)).toHaveText("指示待ち", { timeout: 5_000 });
+  await expectPaneToShow(page, 1, "Busy Agent ready");
+
+  // 止めたエージェントは端末に残るが、前面にはいない
+  await page.keyboard.press("Control+z");
+  await expect(agentStatus(page, 1)).toBeHidden({ timeout: 5_000 });
+  await expect(pane(page, 1)).not.toHaveAttribute("data-agent");
+});
+
+test("シェルで裏に回して動かしたエージェント（claude &）には、状態を出さない", async ({ browser }) => {
+  accompany = await startAccompany([], realShell);
+  const page = await openAsParticipant(browser, accompany.url, "granted", true, "$");
+
+  // 裏のエージェントも起動直後に出力するので、前面を調べるきっかけになる
+  await typeInPane(page, 1, "claude &\n");
+  await expectPaneToShow(page, 1, "starting");
+  await page.waitForTimeout(2_500);
+
+  await expect(agentStatus(page, 1)).toBeHidden();
+  await expect(pane(page, 1)).not.toHaveAttribute("data-agent");
+  expect((await statusHistory(page)).filter((s) => s !== "")).toEqual([]);
+});
+
+test("前面のプロセスを調べている最中にエージェントが終わっても、シェルに状態を残さない", async ({ browser }) => {
+  // 前面のプロセスを調べる ps を遅くし、一覧を取ってから返すまでの間にエージェントを終える
+  const psLog = join(mkdtempSync(join(tmpdir(), "accompany-e2e-ps-")), "ps.log");
+  writeFileSync(psLog, "");
+  accompany = await startAccompany([], {
+    ...realShell,
+    PATH: `${slowPsDir}:${realShell.PATH}`,
+    E2E_PS_LOG: psLog,
+    E2E_PS_DELAY: "1.5",
+  });
+  const page = await openAsParticipant(browser, accompany.url, "granted", true, "$");
+  await typeInPane(page, 1, "claude\n");
+  await expect(agentStatus(page, 1)).toHaveText("指示待ち", { timeout: 10_000 });
+  await expectPaneToShow(page, 1, "Busy Agent ready");
+
+  // 調べるのが止むまで待つ（2.5 秒続けて ps が呼ばれなければ止んだとみなす）
+  const psCalls = () => readFileSync(psLog, "utf8").split("\n").filter(Boolean).length;
+  let calls = psCalls();
+  for (let quiet = 0; quiet < 5; ) {
+    await page.waitForTimeout(500);
+    const now = psCalls();
+    quiet = now === calls ? quiet + 1 : 0;
+    calls = now;
+  }
+
+  // 文字を打つと（エコーが出る）前面を調べる。ps が一覧を取ったら、返ってくる前にエージェントを終える。
+  // シェルのプロンプトが、そのターミナルの最後の出力になる
+  await typeInPane(page, 1, "x");
+  await expect.poll(psCalls, { timeout: 5_000 }).toBeGreaterThan(calls);
+  await page.keyboard.press("Control+c");
+
+  await expect(agentStatus(page, 1)).toBeHidden({ timeout: 8_000 });
+  await expect(pane(page, 1)).not.toHaveAttribute("data-agent");
 });
