@@ -642,7 +642,7 @@ body {
   font: inherit;
 }
 
-/* 拡大表示（docs/adr/68-zoom.md）。拡大中のターミナルをタブの表示領域いっぱいに重ねて出す。分割での元の位置には
+/* 拡大表示（docs/adr/68-zoom.md）。拡大中のターミナルを Workspace の表示領域いっぱいに重ねて出す。分割での元の位置には
    同じ大きさの要素（.zoom-placeholder）を置き、ほかのターミナルと境界は見えなくするだけで、大きさも接続もそのまま残す */
 #workspace {
   position: relative;

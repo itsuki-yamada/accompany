@@ -39,14 +39,14 @@
 
 - **サイドメニュー（1-b）**: ユーザーのイメージ（herdr）に合わせた。常に見えていれば、開く操作なしに作業中・入力待ちが目に入る
 - **すべての Workspace を出す（2-b）**: 元の要望は「入力待ちのセッションを一覧から選んで飛ぶ」。herdr は blocked（入力・承認待ち）や done（終わって未確認）を区別できるので、Workspace の印から目当ての Workspace を見つけられるが、Accompany の状態は作業中・入力待ちの 2 つだけで、ただのシェルも「入力待ち」になる。表示中の Workspace だけだと、別の Workspace の入力待ちへは 2 回の操作が要るので、全件を出して 1 回で移れるようにした。Workspace ごとにまとめるので、どの Workspace のターミナルかも分かる
-- **ショートカットのキー**: S は Sidebar、E は VS Code のエクスプローラーへ移るキー（⌘⇧E）にならった。Chromium のキーの割り当て（`chrome/browser/ui/accelerator_table.cc`、`chrome/browser/global_keyboard_shortcuts_mac.mm`、`chrome/browser/ui/cocoa/accelerators_cocoa.mm`、`main_menu_builder.mm`）を確かめ、⌘⇧S・⌘⇧E・Ctrl+Shift+S・Ctrl+Shift+E はどの OS にも割り当てがないことを確認した（⌘S は保存、Ctrl+E は検索だが、Shift 付きは別のキー）。⌘⇧L / Ctrl+Shift+L は縦のタブの折りたたみ、⌘⇧B / Ctrl+Shift+B はブックマークバーに使われているので避けた。シェルとの衝突は docs/adr/31-shortcuts.md と同じ考え方（Shift なしの Ctrl+S / Ctrl+E はこれまでどおり届く）
+- **ショートカットのキー**: S は Sidebar、E は VS Code のエクスプローラーへ移るキー（⌘⇧E）にならった。Chromium のキーの割り当て（`chrome/browser/ui/accelerator_table.cc`、`chrome/browser/global_keyboard_shortcuts_mac.mm`、`chrome/browser/ui/cocoa/accelerators_cocoa.mm`、`main_menu_builder.mm`）を確かめ、⌘⇧S・⌘⇧E・Ctrl+Shift+S・Ctrl+Shift+E はどの OS にも割り当てがないことを確認した（⌘S は保存、Ctrl+E は検索だが、Shift 付きは別のキー）。⌘⇧L / Ctrl+Shift+L は縦のタブの折りたたみ、⌘⇧B / Ctrl+Shift+B はブックマークバーに使われているので避けた。シェルとの衝突は docs/adr/31-shortcuts.md と同じ考え方（Shift なしの Ctrl+S / Ctrl+E はこれまでどおり届く）。ブラウザとの衝突の根拠は Chromium だけで確かめた。Firefox では Ctrl+Shift+S がスクリーンショットに使われる
 - **タブバーを残す（3-b）**: 隠したときにも、いまの Workspace と切り替え手段が分かる必要がある。ツールバーに名前を出すのが一番単純で、⌨・⚙ の置き場所も変えずに済む
 - **識別子は変えない（4-a）**: #68・#69・#70 が `index.ts`・`pane.ts`・サーバー周辺を並行して変えている。識別子やメッセージまで変えると衝突が大きく、保存形式の移行も要る。サーバーのクラス名 `Workspace`（全体を持つ）と画面の「Workspace」（タブ）が別物を指すことになるが、コードのコメントで「画面の表記は Workspace」と補う
 
 ## 影響・今後の課題
+
 - ウィンドウが狭いと、サイドメニューの分だけ分割したターミナルの枠が狭くなり、ペインのバー（名前・状態・参加者・ボタン）が枠に収まらず、隣のターミナルのバーに重なる（たとえば幅 800px で左右に分割したとき）。そのため、自分で切り替えたことがない参加者には、幅 1024px 未満では最初は隠しておく。自分で切り替えたら、その選択をブラウザに覚えて従う。バーが狭い枠に収まらないこと自体は、サイドメニューを隠していても 3 つ以上に分割すれば起きるので、別に直す
 - 拡大表示（docs/adr/68-zoom.md）とは、表示領域の変化として組み合わさる。サイドメニューを出す・隠すと各参加者の枠の大きさが変わり、端末の大きさ（一番大きい表示領域に合わせる）も変わる。ほかの参加者がサイドメニューを隠して端末が大きくなると、サイドメニューを出している参加者の枠に収まらなくなり、その参加者の画面では自動で拡大する（E2E で確認）
-
 - サイドメニュー（幅 240px）の分だけ、ターミナルを並べる領域が狭くなり、各参加者が送る端末の大きさ（列数）も減る。隠すと広がる。E2E の「画面いっぱい」は、ターミナルを並べる領域（`main`）いっぱいの意味に改めた
 - 「終わったがまだ見ていない（done）」や「承認待ち（blocked）」の区別は入れていない。別のストーリーで扱う。区別できるようになったら、Workspace の印をそれに合わせ、セッションの一覧を表示中の Workspace だけに絞る（herdr と同じ）ことも検討する
 - エージェントとシェルを見分けて、エージェントだけを出すことはしていない（状態の判定はすべてのターミナルで同じ。docs/adr/28-agent-status.md）
