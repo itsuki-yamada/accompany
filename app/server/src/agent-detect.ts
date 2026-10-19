@@ -33,10 +33,24 @@ export function isAgentCommand(args: string) {
 // 前面のプロセスグループ。エージェントが動いていなければ agent は false
 export type Foreground = { pgid: number; agent: boolean };
 
+// ps がこの時間で終わらなければ止めて、調べられなかったものとする（止まったままの ps を待ち続けないため）
+const psTimeoutMs = 2000;
+
 async function ps(args: string[]) {
   const proc = Bun.spawn(["ps", ...args], { stdout: "pipe", stderr: "ignore" });
-  const [out] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-  return out;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      proc.kill();
+      reject(new Error("ps timed out"));
+    }, psTimeoutMs);
+  });
+  try {
+    const read = Promise.all([new Response(proc.stdout).text(), proc.exited]).then(([out]) => out);
+    return await Promise.race([read, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // pid のプロセスを制御端末に持つプロセスを ps で調べ、前面のプロセスグループ（tpgid）に属するものの引数を見る。
@@ -45,7 +59,8 @@ export async function foregroundOf(pid: number, tty?: string): Promise<{ tty: st
   try {
     tty ??= (await ps(["-o", "tty=", "-p", String(pid)])).trim();
     if (!tty || tty.startsWith("?")) return undefined;
-    const rows = (await ps(["-o", "pgid=,tpgid=,args=", "-t", tty]))
+    // -ww: Linux の procps は、端末の幅で引数を切り詰めることがあるので、切り詰めないようにする
+    const rows = (await ps(["-ww", "-o", "pgid=,tpgid=,args=", "-t", tty]))
       .split("\n")
       .map((line) => line.trim().match(/^(\d+)\s+(-?\d+)\s+(.*)$/))
       .filter((m) => m !== null)

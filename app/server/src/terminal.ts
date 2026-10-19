@@ -59,6 +59,8 @@ export class TerminalSession {
   private tty: string | undefined;
   private detectTimer: ReturnType<typeof setTimeout> | undefined;
   private detecting = false;
+  // 調べている最中に入出力があった。調べ終えたら調べ直す（最中に前面が替わったかもしれないので）
+  private detectAgain = false;
   private killed = false;
 
   constructor(
@@ -196,9 +198,14 @@ export class TerminalSession {
     this.proc?.kill();
   }
 
-  // 入出力のあとに間を置いて、前面のプロセスを調べる。調べている間や、調べる予定があるうちは重ねない
+  // 入出力のあとに間を置いて、前面のプロセスを調べる。調べる予定があるうちは重ねない。
+  // 調べている最中の入出力は、調べ終えてから改めて予定を作る
   private scheduleDetect() {
-    if (this.detectTimer || this.detecting || this.killed) return;
+    if (this.detecting) {
+      this.detectAgain = true;
+      return;
+    }
+    if (this.detectTimer || this.killed) return;
     this.detectTimer = setTimeout(() => {
       this.detectTimer = undefined;
       void this.detect();
@@ -209,8 +216,14 @@ export class TerminalSession {
     const pid = this.proc?.pid;
     if (pid === undefined) return;
     this.detecting = true;
-    const found = await foregroundOf(pid, this.tty);
-    this.detecting = false;
+    this.detectAgain = false;
+    let found: Awaited<ReturnType<typeof foregroundOf>>;
+    try {
+      found = await foregroundOf(pid, this.tty);
+    } finally {
+      this.detecting = false;
+      if (this.detectAgain) this.scheduleDetect();
+    }
     if (this.killed || !found) return;
     this.tty = found.tty;
     const previous = this.foreground;
