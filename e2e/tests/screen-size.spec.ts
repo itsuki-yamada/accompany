@@ -149,9 +149,11 @@ test("1 人で開くと、端末がブラウザの画面いっぱいの大きさ
 
   await expect.poll(() => commandSize(host)).not.toBe("80x24");
   await expectTerminalToFitIn(host);
+  // 画面いっぱい = サイドメニューとツールバーを除いた、ターミナルを並べる領域いっぱい
+  const area = (await host.getByRole("main").boundingBox())!;
   const box = (await host.locator(".xterm-screen").boundingBox())!;
-  expect(box.width).toBeGreaterThan(large.width * 0.9);
-  expect(box.height).toBeGreaterThan(large.height * 0.9);
+  expect(box.width).toBeGreaterThan(area.width * 0.9);
+  expect(box.height).toBeGreaterThan(area.height * 0.9);
   expect(await scrollable(host)).toBe(false);
 });
 

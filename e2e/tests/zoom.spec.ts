@@ -5,7 +5,7 @@ import { boxOf, expectPaneToShow, pane, panes } from "./panes";
 // 分割した画面で、フォーカスしているターミナルが自分の枠に収まらないときは、そのターミナルを自分の画面だけで拡大して見る。
 // 拡大はサーバーの配置やほかの参加者には反映しない（docs/adr/68-zoom.md）
 
-// 分割や新しいタブで増えるターミナルは $SHELL を起動する。端末のサイズを表示し続けるもの（size-shell）と、
+// 分割や新しい Workspace で増えるターミナルは $SHELL を起動する。端末のサイズを表示し続けるもの（size-shell）と、
 // 入力をそのまま返すもの（fake-shell）を使い分ける
 const sizeShell = { SHELL: "e2e/fixtures/size-shell" };
 const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
@@ -48,7 +48,7 @@ async function workspaceBox(page: Page) {
   return (await page.locator("#workspace").boundingBox())!;
 }
 
-// タブの表示領域いっぱいに出ているか
+// Workspace の表示領域いっぱいに出ているか
 async function expectToFillWorkspace(page: Page, n: number) {
   const area = await workspaceBox(page);
   await expect.poll(async () => (await boxOf(page, n)).width).toBeGreaterThan(area.width - 2);

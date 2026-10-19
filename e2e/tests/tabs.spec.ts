@@ -3,7 +3,7 @@ import { expect, test, type Browser, type Page } from "@playwright/test";
 import { startAccompany, type Accompany } from "./accompany";
 import { expectPaneToShow, pane, panes, typeInPane } from "./panes";
 
-// 新しいタブは $SHELL を起動するので、入力をそのまま返す偽のシェルにする
+// 新しい Workspace は $SHELL を起動するので、入力をそのまま返す偽のシェルにする
 const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
 
 let accompany: Accompany | undefined;
@@ -28,7 +28,7 @@ function tabs(page: Page) {
 }
 
 async function openNewTab(page: Page) {
-  await page.getByRole("button", { name: "新しいタブ" }).click();
+  await page.getByRole("button", { name: "新しい Workspace" }).click();
 }
 
 async function exitShell(page: Page, n: number) {
@@ -37,23 +37,23 @@ async function exitShell(page: Page, n: number) {
   await page.keyboard.press("Control+D");
 }
 
-test("新しいタブを開くと、タブ 2 が追加されて表示され、新しいシェルを操作できる", async ({ browser }) => {
+test("新しい Workspace を開くと、Workspace 2 が追加されて表示され、新しいシェルを操作できる", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
   await expectPaneToShow(page, 1, "Fake Shell ready");
-  await expect(tabs(page)).toHaveText(["タブ 1"]);
+  await expect(tabs(page)).toHaveText(["Workspace 1"]);
 
   await openNewTab(page);
 
-  await expect(tabs(page)).toHaveText(["タブ 1", "タブ 2"]);
-  await expect(tab(page, "タブ 2")).toHaveAttribute("aria-selected", "true");
+  await expect(tabs(page)).toHaveText(["Workspace 1", "Workspace 2"]);
+  await expect(tab(page, "Workspace 2")).toHaveAttribute("aria-selected", "true");
   await expectPaneToShow(page, 2, "Fake Shell ready");
   await expect(pane(page, 1)).toHaveCount(0);
   await typeInPane(page, 2, "typed in tab 2\n");
   await expectPaneToShow(page, 2, "typed in tab 2");
 });
 
-test("タブを切り替えると、切り替える前の画面がそのまま戻る", async ({ browser }) => {
+test("Workspace を切り替えると、切り替える前の画面がそのまま戻る", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
   await expectPaneToShow(page, 1, "Fake Shell ready");
@@ -62,14 +62,14 @@ test("タブを切り替えると、切り替える前の画面がそのまま�
   await openNewTab(page);
   await expectPaneToShow(page, 2, "Fake Shell ready");
 
-  await tab(page, "タブ 1").click();
+  await tab(page, "Workspace 1").click();
 
-  await expect(tab(page, "タブ 1")).toHaveAttribute("aria-selected", "true");
+  await expect(tab(page, "Workspace 1")).toHaveAttribute("aria-selected", "true");
   await expectPaneToShow(page, 1, "typed in tab 1");
   await expect(pane(page, 2)).toHaveCount(0);
 });
 
-test("各タブは、それぞれ独立した分割の配置を持つ", async ({ browser }) => {
+test("各 Workspace は、それぞれ独立した分割の配置を持つ", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
   await expectPaneToShow(page, 1, "Fake Shell ready");
@@ -79,30 +79,30 @@ test("各タブは、それぞれ独立した分割の配置を持つ", async ({
   await pane(page, 2).getByRole("button", { name: "右に分割" }).click();
   await expectPaneToShow(page, 3, "Fake Shell ready");
 
-  await tab(page, "タブ 1").click();
+  await tab(page, "Workspace 1").click();
   await expectPaneToShow(page, 1, "Fake Shell ready");
   await expect(panes(page)).toHaveCount(1);
 
-  await tab(page, "タブ 2").click();
+  await tab(page, "Workspace 2").click();
   await expectPaneToShow(page, 3, "Fake Shell ready");
   await expect(panes(page)).toHaveCount(2);
 });
 
-test("タブを閉じると、そのタブがなくなり、残りのタブが表示される", async ({ browser }) => {
+test("Workspace を閉じると、その Workspace がなくなり、残りの Workspace が表示される", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
   await expectPaneToShow(page, 1, "Fake Shell ready");
   await openNewTab(page);
   await expectPaneToShow(page, 2, "Fake Shell ready");
 
-  await page.getByRole("button", { name: "タブ 2 を閉じる" }).click();
+  await page.getByRole("button", { name: "Workspace 2 を閉じる" }).click();
 
-  await expect(tabs(page)).toHaveText(["タブ 1"]);
-  await expect(tab(page, "タブ 1")).toHaveAttribute("aria-selected", "true");
+  await expect(tabs(page)).toHaveText(["Workspace 1"]);
+  await expect(tab(page, "Workspace 1")).toHaveAttribute("aria-selected", "true");
   await expectPaneToShow(page, 1, "Fake Shell ready");
 });
 
-test("タブを閉じると、そのタブのターミナルがすべて終了する", async ({ browser }, testInfo) => {
+test("Workspace を閉じると、その Workspace のターミナルがすべて終了する", async ({ browser }, testInfo) => {
   // 偽のシェルが、起動するたびにプロセス ID を書き足す
   const pidFile = testInfo.outputPath("pids");
   accompany = await startAccompany([], { SHELL: "e2e/fixtures/pid-shell", E2E_PID_FILE: pidFile });
@@ -117,12 +117,12 @@ test("タブを閉じると、そのタブのターミナルがすべて終了�
   const [tab1Shell, ...tab2Shells] = await pids();
   expect(tab2Shells.every(isAlive)).toBe(true);
 
-  await page.getByRole("button", { name: "タブ 2 を閉じる" }).click();
+  await page.getByRole("button", { name: "Workspace 2 を閉じる" }).click();
 
-  await expect(tabs(page)).toHaveText(["タブ 1"]);
+  await expect(tabs(page)).toHaveText(["Workspace 1"]);
   await expect.poll(() => tab2Shells.some(isAlive)).toBe(false);
   expect(isAlive(tab1Shell!)).toBe(true);
-  // 閉じたタブのターミナルにはつなげない
+  // 閉じた Workspace のターミナルにはつなげない
   expect(await connectTo(page, 2)).toBe("error");
   expect(await connectTo(page, 3)).toBe("error");
   expect(await connectTo(page, 1)).toBe("open");
@@ -153,15 +153,15 @@ function connectTo(page: Page, terminal: number) {
   );
 }
 
-test("最後のタブは閉じられない", async ({ browser }) => {
+test("最後の Workspace は閉じられない", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
   await expectPaneToShow(page, 1, "Fake Shell ready");
 
-  await expect(page.getByRole("button", { name: "タブ 1 を閉じる" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Workspace 1 を閉じる" })).toBeDisabled();
 });
 
-test("タブの最後のターミナルのシェルを終了すると、そのタブが閉じる", async ({ browser }) => {
+test("Workspace の最後のターミナルのシェルを終了すると、その Workspace が閉じる", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
   await expectPaneToShow(page, 1, "Fake Shell ready");
@@ -170,11 +170,11 @@ test("タブの最後のターミナルのシェルを終了すると、その�
 
   await exitShell(page, 2);
 
-  await expect(tabs(page)).toHaveText(["タブ 1"]);
+  await expect(tabs(page)).toHaveText(["Workspace 1"]);
   await expectPaneToShow(page, 1, "Fake Shell ready");
 });
 
-test("最後のタブの最後のターミナルのシェルを終了しても、タブとターミナルは残る", async ({ browser }) => {
+test("最後の Workspace の最後のターミナルのシェルを終了しても、Workspace とターミナルは残る", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
   await expectPaneToShow(page, 1, "Fake Shell ready");
@@ -183,11 +183,11 @@ test("最後のタブの最後のターミナルのシェルを終了しても�
 
   // シェルが終了したことを画面から知る手がかりがないので、少し待ってから残っていることを確かめる
   await page.waitForTimeout(500);
-  await expect(tabs(page)).toHaveText(["タブ 1"]);
+  await expect(tabs(page)).toHaveText(["Workspace 1"]);
   await expect(panes(page)).toHaveCount(1);
 });
 
-test("タブの追加・切り替え・閉じる操作が、参加者全員の画面に反映される", async ({ browser }) => {
+test("Workspace の追加・切り替え・閉じる操作が、参加者全員の画面に反映される", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const host = await openAsParticipant(browser, accompany.url);
   const guest = await openAsParticipant(browser, accompany.url);
@@ -195,19 +195,19 @@ test("タブの追加・切り替え・閉じる操作が、参加者全員の�
   await expectPaneToShow(guest, 1, "Fake Shell ready");
 
   await openNewTab(host);
-  await expect(tabs(guest)).toHaveText(["タブ 1", "タブ 2"]);
-  await expect(tab(guest, "タブ 2")).toHaveAttribute("aria-selected", "true");
+  await expect(tabs(guest)).toHaveText(["Workspace 1", "Workspace 2"]);
+  await expect(tab(guest, "Workspace 2")).toHaveAttribute("aria-selected", "true");
   await expectPaneToShow(guest, 2, "Fake Shell ready");
 
-  await tab(guest, "タブ 1").click();
-  await expect(tab(host, "タブ 1")).toHaveAttribute("aria-selected", "true");
+  await tab(guest, "Workspace 1").click();
+  await expect(tab(host, "Workspace 1")).toHaveAttribute("aria-selected", "true");
   await expectPaneToShow(host, 1, "Fake Shell ready");
 
-  await host.getByRole("button", { name: "タブ 2 を閉じる" }).click();
-  await expect(tabs(guest)).toHaveText(["タブ 1"]);
+  await host.getByRole("button", { name: "Workspace 2 を閉じる" }).click();
+  await expect(tabs(guest)).toHaveText(["Workspace 1"]);
 });
 
-test("途中から参加した人に、タブの並びと表示中のタブ、その画面が復元される", async ({ browser }) => {
+test("途中から参加した人に、Workspace の並びと表示中の Workspace、その画面が復元される", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const host = await openAsParticipant(browser, accompany.url);
   await expectPaneToShow(host, 1, "Fake Shell ready");
@@ -218,12 +218,12 @@ test("途中から参加した人に、タブの並びと表示中のタブ、�
 
   const guest = await openAsParticipant(browser, accompany.url);
 
-  await expect(tabs(guest)).toHaveText(["タブ 1", "タブ 2"]);
-  await expect(tab(guest, "タブ 2")).toHaveAttribute("aria-selected", "true");
+  await expect(tabs(guest)).toHaveText(["Workspace 1", "Workspace 2"]);
+  await expect(tab(guest, "Workspace 2")).toHaveAttribute("aria-selected", "true");
   await expectPaneToShow(guest, 2, "before guest joins");
 });
 
-test("タブを切り替えても、切り替えた先のタブでターミナルにフォーカスしている人の表示が出る", async ({ browser }) => {
+test("Workspace を切り替えても、切り替えた先の Workspace でターミナルにフォーカスしている人の表示が出る", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const host = await openAsParticipant(browser, accompany.url);
   const guest = await openAsParticipant(browser, accompany.url);
@@ -243,8 +243,8 @@ test("タブを切り替えても、切り替えた先のタブでターミナ�
   await expect(badge(guest, 2, "参加者 1")).toBeVisible();
   await expect(pane(host, 2)).toHaveAttribute("data-focused", "true");
 
-  // タブ 1 に戻っても、フォーカスしている人の表示が出る
-  await tab(guest, "タブ 1").click();
+  // Workspace 1 に戻っても、フォーカスしている人の表示が出る
+  await tab(guest, "Workspace 1").click();
   await expectPaneToShow(host, 1, "Fake Shell ready");
   await pane(host, 1).locator(".xterm-screen").click();
   await pane(guest, 1).locator(".xterm-screen").click();
@@ -256,7 +256,7 @@ test("タブを切り替えても、切り替えた先のタブでターミナ�
   await expect(pane(host, 1)).toHaveAttribute("data-focused", "true");
 });
 
-test("新しいタブのターミナルも、参加者のうち一番大きい画面に合わせた大きさになり、画面の小さい人はスクロールして見る", async ({
+test("新しい Workspace のターミナルも、参加者のうち一番大きい画面に合わせた大きさになり、画面の小さい人はスクロールして見る", async ({
   browser,
 }) => {
   accompany = await startAccompany([], { SHELL: "e2e/fixtures/size-shell" });

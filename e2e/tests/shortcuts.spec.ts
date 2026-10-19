@@ -3,7 +3,7 @@ import { startAccompany, type Accompany } from "./accompany";
 import { boxOf, expectPaneToShow, pane, panes } from "./panes";
 import { terminalScreen } from "./terminal";
 
-// 分割や新しいタブで増えるターミナルは $SHELL を起動するので、入力をそのまま返す偽のシェルにする
+// 分割や新しい Workspace で増えるターミナルは $SHELL を起動するので、入力をそのまま返す偽のシェルにする
 const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
 
 // ショートカットは macOS 向けの Cmd+Shift と、Windows / Linux 向けの Ctrl+Shift のどちらでも動く（docs/adr/31-shortcuts.md）。
@@ -127,7 +127,7 @@ test("Cmd+Shift+矢印 / Ctrl+Shift+矢印 で、隣のターミナルへフォ�
   await expectPaneToShow(page, 1, "typed in left");
 });
 
-test("Ctrl+Shift+O で新しいタブを開き、Cmd+Shift+. / , や Ctrl+Shift+. / , で次・前のタブに切り替える", async ({
+test("Ctrl+Shift+O で新しい Workspace を開き、Cmd+Shift+. / , や Ctrl+Shift+. / , で次・前の Workspace に切り替える", async ({
   browser,
 }) => {
   accompany = await startAccompany([], fakeShell);
@@ -135,35 +135,35 @@ test("Ctrl+Shift+O で新しいタブを開き、Cmd+Shift+. / , や Ctrl+Shift+
   await focusPane(page, 1);
 
   await page.keyboard.press("Control+Shift+O");
-  await expect(page.getByRole("tab")).toHaveText(["タブ 1", "タブ 2"]);
-  await expect(tab(page, "タブ 2")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab")).toHaveText(["Workspace 1", "Workspace 2"]);
+  await expect(tab(page, "Workspace 2")).toHaveAttribute("aria-selected", "true");
   await expectPaneToShow(page, 2, "Fake Shell ready");
   await expectFocusOn(page, 2);
 
   await page.keyboard.press("Meta+Shift+O");
-  await expect(page.getByRole("tab")).toHaveText(["タブ 1", "タブ 2", "タブ 3"]);
-  await expect(tab(page, "タブ 3")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab")).toHaveText(["Workspace 1", "Workspace 2", "Workspace 3"]);
+  await expect(tab(page, "Workspace 3")).toHaveAttribute("aria-selected", "true");
   await expectFocusOn(page, 3);
 
   await page.keyboard.press("Control+Shift+Comma");
-  await expect(tab(page, "タブ 2")).toHaveAttribute("aria-selected", "true");
+  await expect(tab(page, "Workspace 2")).toHaveAttribute("aria-selected", "true");
   await expectFocusOn(page, 2);
 
   await page.keyboard.press("Meta+Shift+Period");
-  await expect(tab(page, "タブ 3")).toHaveAttribute("aria-selected", "true");
+  await expect(tab(page, "Workspace 3")).toHaveAttribute("aria-selected", "true");
   await expectFocusOn(page, 3);
 
   // 端では反対側に回る
   await page.keyboard.press("Control+Shift+Period");
-  await expect(tab(page, "タブ 1")).toHaveAttribute("aria-selected", "true");
+  await expect(tab(page, "Workspace 1")).toHaveAttribute("aria-selected", "true");
   await expectFocusOn(page, 1);
 
   await page.keyboard.press("Meta+Shift+Comma");
-  await expect(tab(page, "タブ 3")).toHaveAttribute("aria-selected", "true");
+  await expect(tab(page, "Workspace 3")).toHaveAttribute("aria-selected", "true");
   await expectFocusOn(page, 3);
 });
 
-test("キーを押し続けても、分割・閉じる・新しいタブは 1 回だけ行う", async ({ browser }) => {
+test("キーを押し続けても、分割・閉じる・新しい Workspace は 1 回だけ行う", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
   await focusPane(page, 1);
@@ -190,7 +190,7 @@ test("キーを押し続けても、分割・閉じる・新しいタブは 1 �
   await expect(panes(page)).toHaveCount(2);
 
   await hold("KeyO");
-  await expect(page.getByRole("tab")).toHaveText(["タブ 1", "タブ 2"]);
+  await expect(page.getByRole("tab")).toHaveText(["Workspace 1", "Workspace 2"]);
   await page.waitForTimeout(500);
   await expect(page.getByRole("tab")).toHaveCount(2);
 });
@@ -234,7 +234,7 @@ test("ショートカットと同じ文字・矢印でも、Shift なしの Ctrl
   await expect(page.getByRole("tab")).toHaveCount(1);
 });
 
-test("ショートカットの一覧を、タブバーのボタンとツールチップで確かめられる", async ({ browser }) => {
+test("ショートカットの一覧を、ツールバーのボタンとツールチップで確かめられる", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
 
@@ -243,9 +243,9 @@ test("ショートカットの一覧を、タブバーのボタンとツール�
     "title",
     "右に分割（⌘⇧R / Ctrl+Shift+R）",
   );
-  await expect(page.getByRole("button", { name: "新しいタブ" })).toHaveAttribute(
+  await expect(page.getByRole("button", { name: "新しい Workspace" })).toHaveAttribute(
     "title",
-    "新しいタブ（⌘⇧O / Ctrl+Shift+O）",
+    "新しい Workspace（⌘⇧O / Ctrl+Shift+O）",
   );
 
   const list = page.getByRole("dialog", { name: "キーボードショートカット" });
@@ -257,9 +257,9 @@ test("ショートカットの一覧を、タブバーのボタンとツール�
     "下に分割",
     "ターミナルを閉じる",
     "隣のターミナルへ移る",
-    "新しいタブ",
-    "次のタブ",
-    "前のタブ",
+    "新しい Workspace",
+    "次の Workspace",
+    "前の Workspace",
     "⌘⇧R",
     "Ctrl+Shift+.",
   ]) {

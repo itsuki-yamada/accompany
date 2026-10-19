@@ -4,7 +4,7 @@ import { expect, test, type Browser, type Page } from "@playwright/test";
 import { newStateDir, startAccompany, type Accompany } from "./accompany";
 import { boxOf, expectPaneToShow, pane, panes, typeInPane } from "./panes";
 
-// 分割や新しいタブ、戻したターミナルは $SHELL を起動するので、入力をそのまま返す偽のシェルにする
+// 分割や新しい Workspace、戻したターミナルは $SHELL を起動するので、入力をそのまま返す偽のシェルにする
 const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
 const restartedMark = "── Accompany を再起動しました ──";
 
@@ -55,7 +55,7 @@ async function savedContent() {
   return (await Promise.all(files.map((f) => readFile(f, "utf8")))).join("\n");
 }
 
-// タブ 1 を左右に分割し、タブ 2 を開いて、それぞれに出力を残す。表示中のタブはタブ 2、境界は左寄せにする
+// Workspace 1 を左右に分割し、Workspace 2 を開いて、それぞれに出力を残す。表示中の Workspace は Workspace 2、境界は左寄せにする
 async function arrange(page: Page) {
   await expectPaneToShow(page, 1, "Fake Shell ready");
   await typeInPane(page, 1, "left before restart\n");
@@ -72,13 +72,13 @@ async function arrange(page: Page) {
   await page.mouse.up();
   await expect.poll(async () => (await boxOf(page, 1)).width / 1280).toBeLessThan(0.35);
 
-  await page.getByRole("button", { name: "新しいタブ" }).click();
+  await page.getByRole("button", { name: "新しい Workspace" }).click();
   await expectPaneToShow(page, 3, "Fake Shell ready");
   await typeInPane(page, 3, "tab 2 before restart\n");
   await expectPaneToShow(page, 3, "tab 2 before restart");
 }
 
-test("起動し直すと、タブ・分割の配置と、各ターミナルのスクロールバックが戻る", async ({ browser }) => {
+test("起動し直すと、Workspace・分割の配置と、各ターミナルのスクロールバックが戻る", async ({ browser }) => {
   accompany = await start();
   await arrange(await open(browser, accompany.url));
   await accompany.stop();
@@ -86,14 +86,14 @@ test("起動し直すと、タブ・分割の配置と、各ターミナルの�
   accompany = await start();
   const page = await open(browser, accompany.url);
 
-  await expect(tabs(page)).toHaveText(["タブ 1", "タブ 2"]);
-  await expect(tab(page, "タブ 2")).toHaveAttribute("aria-selected", "true");
+  await expect(tabs(page)).toHaveText(["Workspace 1", "Workspace 2"]);
+  await expect(tab(page, "Workspace 2")).toHaveAttribute("aria-selected", "true");
   // 戻したスクロールバックの下に区切りが出て、その下で新しく起動したシェルが動く
   await expect(screenText(page, 3)).toHaveText(
     /tab 2 before restart.*── Accompany を再起動しました ──.*Fake Shell ready/,
   );
 
-  await tab(page, "タブ 1").click();
+  await tab(page, "Workspace 1").click();
   await expect(panes(page)).toHaveCount(2);
   await expect(screenText(page, 1)).toHaveText(/left before restart.*── Accompany を再起動しました ──.*Fake Shell ready/);
   await expect(screenText(page, 2)).toHaveText(/right before restart.*── Accompany を再起動しました ──.*Fake Shell ready/);
@@ -129,7 +129,7 @@ test("起動時のコマンドを動かしていたターミナルでは、起�
   await expect(screenText(page, 2)).not.toContainText("Fake Agent ready");
 });
 
-test("起動時のコマンドを動かしていたターミナルを閉じていたときは、起動し直すと新しいタブで起動時のコマンドが動く", async ({
+test("起動時のコマンドを動かしていたターミナルを閉じていたときは、起動し直すと新しい Workspace で起動時のコマンドが動く", async ({
   browser,
 }) => {
   const fakeAgent = ["--", "bun", "e2e/fixtures/fake-agent.ts"];
@@ -145,15 +145,15 @@ test("起動時のコマンドを動かしていたターミナルを閉じて�
   accompany = await start(fakeAgent);
   page = await open(browser, accompany.url);
 
-  await expect(tabs(page)).toHaveText(["タブ 1", "タブ 2"]);
-  await expect(tab(page, "タブ 2")).toHaveAttribute("aria-selected", "true");
+  await expect(tabs(page)).toHaveText(["Workspace 1", "Workspace 2"]);
+  await expect(tab(page, "Workspace 2")).toHaveAttribute("aria-selected", "true");
   await expectPaneToShow(page, 3, "Fake Agent ready");
   await expect(screenText(page, 3)).not.toContainText(restartedMark);
-  await tab(page, "タブ 1").click();
+  await tab(page, "Workspace 1").click();
   await expect(screenText(page, 2)).toHaveText(/── Accompany を再起動しました ──.*Fake Shell ready/);
 });
 
-test("起動時のコマンドを省略したときは、そのターミナルを閉じていても新しいタブは増えない", async ({ browser }) => {
+test("起動時のコマンドを省略したときは、そのターミナルを閉じていても新しい Workspace は増えない", async ({ browser }) => {
   accompany = await start();
   let page = await open(browser, accompany.url);
   await expectPaneToShow(page, 1, "Fake Shell ready");
@@ -167,7 +167,7 @@ test("起動時のコマンドを省略したときは、そのターミナル�
   page = await open(browser, accompany.url);
 
   await expect(screenText(page, 2)).toHaveText(/── Accompany を再起動しました ──.*Fake Shell ready/);
-  await expect(tabs(page)).toHaveText(["タブ 1"]);
+  await expect(tabs(page)).toHaveText(["Workspace 1"]);
 });
 
 test("止める操作を経ずに落ちても、少し前までの配置とスクロールバックが戻る", async ({ browser }) => {
@@ -219,7 +219,7 @@ test("--fresh を付けて起動すると、復元せずに新しく始まる", 
   const page = await open(browser, accompany.url);
 
   await expectPaneToShow(page, 1, "Fake Shell ready");
-  await expect(tabs(page)).toHaveText(["タブ 1"]);
+  await expect(tabs(page)).toHaveText(["Workspace 1"]);
   await expect(panes(page)).toHaveCount(1);
   await expect(screenText(page, 1)).not.toContainText("left before restart");
   await expect(screenText(page, 1)).not.toContainText(restartedMark);
