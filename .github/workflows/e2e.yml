@@ -71,7 +71,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # E2E を通した実行ファイルそのものを、release.yml が Release に添付する
+      # E2E を通した実行ファイルそのものを、release.yml が Release に添付する。
+      # 4 つで 300MB を超え、成果物の保存容量を圧迫するので、同じ実行の release.yml が取得できる 1 日だけ残す
       - name: 実行ファイルをアップロードする
         if: matrix.target == 'binary'
         uses: actions/upload-artifact@v7
@@ -79,7 +80,7 @@ jobs:
           name: accompany-binaries
           path: ${{ env.BINARIES }}/accompany-*
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 1
 
       # 失敗したときこそ証跡が必要なので、成否にかかわらずアップロードする
       - name: HTML レポートをアップロードする

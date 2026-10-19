@@ -1,12 +1,12 @@
 name: Release
 
-# main にマージされるたびに、tarball の形で E2E を通したうえで、
+# main にマージされるたびに、tarball と実行ファイルの形で E2E を通したうえで、
 # 先行版 edge を作り直し、まだなければ package.json のバージョンの正式な Release を作る
 on:
   push:
     branches:
       - main
-  # 常に dry-run: タグも Release も作らずに、tarball・E2E・「何をするか」の表示までを試す
+  # 常に dry-run: タグも Release も作らずに、tarball・実行ファイル・E2E・「何をするか」の表示までを試す
   workflow_dispatch:
 
 # main の実行は 1 本ずつ流し、edge の更新が競合しないようにする（待っている実行は最新のものだけが残る）。
@@ -40,12 +40,18 @@ jobs:
           name: accompany-tarball
           path: tarball
 
+      - name: E2E を通した実行ファイルを取得する
+        uses: actions/download-artifact@v8
+        with:
+          name: accompany-binaries
+          path: binaries
+
       - name: edge を作り直し、まだなければ正式な Release を作る
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           DRY_RUN: "false"
-        run: .github/scripts/release.sh tarball/accompany-*.tgz
+        run: .github/scripts/release.sh tarball/accompany-*.tgz binaries
 
   # main への push 以外（workflow_dispatch）では、読み取り権限だけで何をするかを表示する
   dry-run:
@@ -64,9 +70,15 @@ jobs:
           name: accompany-tarball
           path: tarball
 
+      - name: E2E を通した実行ファイルを取得する
+        uses: actions/download-artifact@v8
+        with:
+          name: accompany-binaries
+          path: binaries
+
       - name: 何をするかを表示する
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           DRY_RUN: "true"
-        run: .github/scripts/release.sh tarball/accompany-*.tgz
+        run: .github/scripts/release.sh tarball/accompany-*.tgz binaries
