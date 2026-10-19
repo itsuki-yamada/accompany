@@ -217,6 +217,40 @@ body {
   background: var(--viewer-color);
 }
 
+/* ほかの参加者の名前は、押すとその人をフォローするボタン。フォロー中は枠を付ける（docs/adr/69-follow.md） */
+.pane-bar button.viewer {
+  font-size: 11px;
+  color: #000;
+  background: var(--viewer-color);
+}
+
+.pane-bar button.viewer[aria-pressed="true"] {
+  outline: 2px solid #fff;
+  outline-offset: -1px;
+}
+
+/* フォロー中であることと、誰をフォローしているか。画面の縁も相手の色で囲む。
+   縁は配置の大きさを変えない（端末の大きさに影響しない）よう、outline で中に重ねて描く */
+.follow-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 0 4px 0 8px;
+  white-space: nowrap;
+  color: #000;
+  background: var(--follow-color);
+}
+
+.follow-indicator[hidden] {
+  display: none;
+}
+
+#workspace[data-following="true"] {
+  outline: 2px solid var(--follow-color);
+  outline-offset: -2px;
+}
+
 /* ターミナルの検索バー。参加者ごとに、ターミナルの右上に重ねて開く。
    ターミナルの表示領域を狭めると、端末の大きさ（参加者のうち一番大きい表示領域に合わせる）が変わり、
    ほかの参加者の画面にも影響するので、重ねて表示する */
