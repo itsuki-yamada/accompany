@@ -269,13 +269,17 @@ function terminalIds(node: Layout): string[] {
   return node.type === "terminal" ? [node.id] : node.children.flatMap(terminalIds);
 }
 
-// 既定は出す。読めないときも出す
+// 自分で切り替えたことがあれば、それに従う。なければ、ウィンドウが狭いとき（分割したターミナルのバーが収まらなくなる）を除いて出す
+const narrowWidth = 1024;
+
 function loadVisible() {
+  let saved: string | null = null;
   try {
-    return localStorage.getItem(storageKey) !== "hidden";
+    saved = localStorage.getItem(storageKey);
   } catch {
-    return true;
+    // 読めなければ、切り替えたことがないものとする
   }
+  return saved === null ? window.innerWidth >= narrowWidth : saved !== "hidden";
 }
 
 function saveVisible(visible: boolean) {
