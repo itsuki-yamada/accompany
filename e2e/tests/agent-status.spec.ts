@@ -225,7 +225,8 @@ test("通知が許可されていなければ、作業が終わっても通知�
   await typeInPane(page, 1, "work\n");
   await expect(agentStatus(page, 1)).toHaveText("作業中", { timeout: 5_000 });
   await setHidden(page, true);
-  await expect(agentStatus(page, 1)).toHaveText("指示待ち", { timeout: 10_000 });
+  // 誰も見ていないので、終わると未確認になる（docs/adr/74-unseen-done.md）
+  await expect(agentStatus(page, 1)).toHaveText("未確認", { timeout: 10_000 });
 
   await page.waitForTimeout(500);
   expect(await notificationTitles(page)).toEqual([]);
@@ -314,9 +315,10 @@ test("シェルから起動したエージェントを見分けて状態を出�
   expect(await statusHistory(page)).not.toContain("作業中");
   expect(await notificationTitles(page)).toEqual([]);
 
-  // 指示を出せば、作業中を経て指示待ちになり、通知が出る
+  // 指示を出せば、作業中を経て終わり、通知が出る。ページが見えていないので、終わると未確認になる
   await typeInPane(page, 1, "work\n");
-  await workUntilDone(page, 1);
+  await expect(agentStatus(page, 1)).toHaveText("作業中", { timeout: 5_000 });
+  await expect(agentStatus(page, 1)).toHaveText("未確認", { timeout: 10_000 });
   await expect.poll(() => notificationTitles(page)).toEqual(["ターミナル 1: 指示待ち"]);
 
   // エージェントを終えてシェルに戻ると、状態を出さなくなる
@@ -431,4 +433,129 @@ test("前面のプロセスを調べている最中にエージェントが終�
 
   await expect(agentStatus(page, 1)).toBeHidden({ timeout: 8_000 });
   await expect(pane(page, 1)).not.toHaveAttribute("data-agent");
+});
+
+// 作業が終わったが、まだ誰も見ていないもの（docs/adr/74-unseen-done.md）。
+// 見た = 表示中の Workspace にあり、その参加者がそのターミナルにフォーカスしていて、ページが見えている
+
+function sidebar(page: Page) {
+  return page.getByRole("complementary", { name: "サイドメニュー" });
+}
+
+function sessions(page: Page) {
+  return sidebar(page).getByRole("region", { name: "セッション" });
+}
+
+function sessionRow(page: Page, n: number) {
+  return sessions(page).getByRole("button", { name: `ターミナル ${n}`, exact: true });
+}
+
+function workspaceRow(page: Page, name: string) {
+  return sidebar(page)
+    .locator(".workspace-row")
+    .filter({ has: page.getByRole("tab", { name, exact: true }) });
+}
+
+test("誰も見ていないときに作業が終わると「未確認」になり、ほかの参加者がそのターミナルを見ると全員から消えて指示待ちになる", async ({
+  browser,
+}) => {
+  accompany = await startAccompany(busyAgent, fakeShell);
+  const host = await openAsParticipant(browser, accompany.url);
+  const guest = await openAsParticipant(browser, accompany.url);
+  await pane(host, 1).getByRole("button", { name: "右に分割" }).click();
+  await expectPaneToShow(host, 2, "Fake Shell ready");
+  await expectPaneToShow(guest, 2, "Fake Shell ready");
+  await pane(guest, 2).locator(".xterm-screen").click();
+
+  await typeInPane(host, 1, "work\n");
+  await expect(agentStatus(host, 1)).toHaveText("作業中", { timeout: 5_000 });
+  // どちらの参加者も、作業しているターミナルを見ていない
+  await pane(host, 2).locator(".xterm-screen").click();
+  await expect(pane(host, 2)).toHaveAttribute("data-focused", "true");
+
+  for (const page of [host, guest]) {
+    await expect(agentStatus(page, 1)).toHaveText("未確認", { timeout: 10_000 });
+    await expect(sessionRow(page, 1)).toContainText("未確認");
+    await expect(workspaceRow(page, "Workspace 1")).toContainText("未確認 1");
+    await expect(sessions(page)).toContainText("未確認 1");
+  }
+  // 指示待ちとは別の見た目にする
+  const look = (page: Page) =>
+    agentStatus(page, 1).evaluate((e) => {
+      const style = getComputedStyle(e);
+      return style.backgroundColor + style.color;
+    });
+  const unseenLook = await look(host);
+
+  // ほかの参加者（guest）が見ると、全員の表示から消える
+  await pane(guest, 1).locator(".xterm-screen").click();
+  for (const page of [host, guest]) {
+    await expect(agentStatus(page, 1)).toHaveText("指示待ち");
+    await expect(sessionRow(page, 1)).toContainText("指示待ち");
+    await expect(sessionRow(page, 1)).not.toContainText("未確認");
+    await expect(workspaceRow(page, "Workspace 1")).toContainText("指示待ち 1");
+    await expect(workspaceRow(page, "Workspace 1")).not.toContainText("未確認");
+  }
+  expect(await look(host)).not.toBe(unseenLook);
+});
+
+test("フォーカスして見ているターミナルの作業が終わっても、未確認にならない", async ({ browser }) => {
+  accompany = await startAccompany(busyAgent);
+  const page = await openAsParticipant(browser, accompany.url);
+
+  await typeInPane(page, 1, "work\n");
+  await workUntilDone(page, 1);
+
+  await page.waitForTimeout(500);
+  expect(await statusHistory(page)).not.toContain("未確認");
+});
+
+test("ページが見えていないときに終わると、フォーカスしていても未確認になり、ページが見えるようになると消える", async ({
+  browser,
+}) => {
+  accompany = await startAccompany(busyAgent);
+  const page = await openAsParticipant(browser, accompany.url);
+
+  await typeInPane(page, 1, "work\n");
+  await expect(agentStatus(page, 1)).toHaveText("作業中", { timeout: 5_000 });
+  await setHidden(page, true);
+  await expect(agentStatus(page, 1)).toHaveText("未確認", { timeout: 10_000 });
+
+  await setHidden(page, false);
+  await expect(agentStatus(page, 1)).toHaveText("指示待ち");
+});
+
+test("表示していない Workspace で終わったターミナルは未確認になり、その Workspace を表示して見ると消える", async ({
+  browser,
+}) => {
+  accompany = await startAccompany(busyAgent, fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+
+  await typeInPane(page, 1, "work\n");
+  await expect(agentStatus(page, 1)).toHaveText("作業中", { timeout: 5_000 });
+  await sidebar(page).getByRole("button", { name: "新しい Workspace" }).click();
+  await expectPaneToShow(page, 2, "Fake Shell ready");
+
+  await expect(sessionRow(page, 1)).toContainText("未確認", { timeout: 10_000 });
+  await expect(workspaceRow(page, "Workspace 1")).toContainText("未確認 1");
+
+  await sessionRow(page, 1).click();
+  await expect(pane(page, 1)).toHaveAttribute("data-focused", "true");
+  await expect(agentStatus(page, 1)).toHaveText("指示待ち");
+  await expect(sessionRow(page, 1)).not.toContainText("未確認");
+});
+
+test("未確認のまま次の作業を始めると作業中になり、見ないまま終わるとまた未確認になる", async ({ browser }) => {
+  accompany = await startAccompany(busyAgent);
+  const page = await openAsParticipant(browser, accompany.url);
+
+  await typeInPane(page, 1, "work\n");
+  await expect(agentStatus(page, 1)).toHaveText("作業中", { timeout: 5_000 });
+  await setHidden(page, true);
+  await expect(agentStatus(page, 1)).toHaveText("未確認", { timeout: 10_000 });
+
+  // ページが見えていないまま、次の指示を送る
+  await typeInPane(page, 1, "work\n");
+  await expect(agentStatus(page, 1)).toHaveText("作業中", { timeout: 5_000 });
+  await expect(agentStatus(page, 1)).toHaveText("未確認", { timeout: 10_000 });
 });

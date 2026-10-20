@@ -1,6 +1,6 @@
 // サイドメニュー。上に Workspace の一覧、下にすべての Workspace のセッション（ターミナル）の一覧を出す。
 // 出す・隠すは参加者ごとで、ブラウザに覚えておく（docs/adr/72-sidebar.md）
-import type { AgentStatus } from "./pane";
+import { statusDescriptions, statusLabels, type AgentStatus } from "./pane";
 import { shortcutFor, withKeys } from "./shortcuts";
 
 // サーバーから届く、Workspace（コード・メッセージの上では tab）の並びと配置
@@ -30,9 +30,8 @@ export type SidebarActions = {
   returnFocus: () => void;
 };
 
-// エージェントの状態の表記（docs/adr/70-agent-detection.md）。statuses に含まれないターミナルではエージェントが動いていないので、
-// 状態を出さず、件数にも数えない
-const statusLabels: Record<AgentStatus, string> = { working: "作業中", idle: "指示待ち" };
+// エージェントの状態の表記は、ターミナルのバーと同じ（docs/adr/70-agent-detection.md、docs/adr/74-unseen-done.md）。
+// statuses に含まれないターミナルではエージェントが動いていないので、状態を出さず、件数にも数えない
 const storageKey = "accompany.sidebar";
 
 export class Sidebar {
@@ -153,7 +152,7 @@ export class Sidebar {
 
   private renderSessions({ tabs, active, titles, statuses, members, you }: SidebarState) {
     const all = agentStatuses(tabs.flatMap((tab) => terminalIds(tab.layout)), statuses);
-    this.summary.replaceChildren(counts(all, true));
+    this.summary.replaceChildren(counts(all));
     this.groups.replaceChildren(
       ...tabs.map((tab) => {
         const group = document.createElement("div");
@@ -183,6 +182,7 @@ export class Sidebar {
             badge.className = "session-status";
             badge.dataset.status = status;
             badge.textContent = statusLabels[status];
+            badge.title = statusDescriptions[status];
             line.append(badge);
           }
           const label = document.createElement("span");
@@ -259,17 +259,18 @@ function agentStatuses(ids: string[], statuses: Record<string, AgentStatus>) {
   return ids.flatMap((id) => (statuses[id] ? [statuses[id]] : []));
 }
 
-// 状態ごとの件数（例: 作業中 1・指示待ち 2）。always なら 0 件の状態も出す
-function counts(statuses: AgentStatus[], always = false) {
+// 状態ごとの件数（例: 作業中 1・未確認 1・指示待ち 2）。0 件の状態は出さない
+function counts(statuses: AgentStatus[]) {
   const element = document.createElement("span");
   element.className = "status-counts";
-  for (const status of ["working", "idle"] as const) {
+  for (const status of ["working", "done", "idle"] as const) {
     const count = statuses.filter((s) => s === status).length;
-    if (count === 0 && !always) continue;
+    if (count === 0) continue;
     const item = document.createElement("span");
     item.className = "status-count";
     item.dataset.status = status;
     item.textContent = `${statusLabels[status]} ${count}`;
+    item.title = statusDescriptions[status];
     element.append(item);
   }
   return element;

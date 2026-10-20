@@ -53,6 +53,11 @@ function sessions(page: Page) {
   return sidebar(page).getByRole("region", { name: "セッション" });
 }
 
+// セッションの見出しの、状態ごとの全体の件数
+function summary(page: Page) {
+  return sessions(page).locator(".sidebar-summary .status-count");
+}
+
 // セッションの一覧の、そのターミナルの行
 function session(page: Page, n: number) {
   return sessions(page).getByRole("button", { name: `ターミナル ${n}`, exact: true });
@@ -121,8 +126,8 @@ test("サイドメニューに、Workspace の一覧と、すべての Workspace
   // 自分は新しい Workspace のターミナル 3 にフォーカスしている
   await expect(session(page, 3)).toContainText("あなた");
   await expect(session(page, 1)).not.toContainText("あなた");
-  await expect(sessions(page)).toContainText("指示待ち 1");
-  await expect(sessions(page)).toContainText("作業中 0");
+  // 見出しの全体の件数も、Workspace の印と同じく 0 件の状態は出さない
+  await expect(summary(page)).toHaveText(["指示待ち 1"]);
 
   // Workspace を選ぶと切り替わる
   await workspace(page, "Workspace 1").click();
@@ -156,11 +161,12 @@ test("状態・タイトル・フォーカスの変化が、Workspace の印と�
   await expect(session(host, 3)).toContainText("npm test");
   await expect(session(host, 3)).toContainText("参加者");
 
-  // 作業が終わると指示待ちになる
-  await expect(session(host, 1)).toContainText("指示待ち", { timeout: 10_000 });
+  // 誰も見ていないまま作業が終わると、未確認になる（docs/adr/74-unseen-done.md）
+  await expect(session(host, 1)).toContainText("未確認", { timeout: 10_000 });
   await expect(workspaceRow(host, "Workspace 1")).not.toContainText("作業中");
-  await expect(workspaceRow(host, "Workspace 1")).toContainText("指示待ち 1");
-  await expect(sessions(host)).toContainText("作業中 0");
+  await expect(workspaceRow(host, "Workspace 1")).toContainText("未確認 1");
+  await expect(summary(host)).toHaveText(["未確認 1"]);
+  await expect(summary(guest)).toHaveText(["未確認 1"]);
 });
 
 test("セッションを選ぶと、その Workspace に切り替わり、そのターミナルにフォーカスする", async ({ browser }) => {

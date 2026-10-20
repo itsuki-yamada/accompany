@@ -68,6 +68,13 @@ requestPermissionOnFirstInteraction();
 const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 const socket = new WebSocket(`${protocol}//${location.host}/ws/workspace`);
 const send = (message: object) => socket.send(JSON.stringify(message));
+// ページが見えているかをサーバーに伝える。見えていて、表示中のターミナルにフォーカスしていれば、そのターミナルの未確認が消える
+// （docs/adr/74-unseen-done.md）
+const sendVisibility = () => {
+  if (socket.readyState === WebSocket.OPEN) send({ type: "visibility", visible: !document.hidden });
+};
+socket.addEventListener("open", sendVisibility);
+document.addEventListener("visibilitychange", sendVisibility);
 // よく使うコマンドの一覧と、その登録・編集・削除の画面
 const quickCommands = new QuickCommands(send);
 // サイドメニュー（Workspace とセッションの一覧）。キーボードで Workspace を選んだときは、組み立て直してもサイドメニューに残る
@@ -412,12 +419,12 @@ function showStatuses() {
   for (const [id, pane] of panes) pane.setStatus(statuses[id]);
 }
 
-// 作業中から指示待ちに変わったターミナルを、見ていなければ通知する。
+// 作業中から指示待ち（見ている人がいなければ未確認）に変わったターミナルを、見ていなければ通知する。
 // 見ている = ページが見えていて、そのターミナルが表示中のタブにあり、自分がそのターミナルにフォーカスしている
 function notifyFinished(previous: Record<string, AgentStatus>, next: Record<string, AgentStatus>) {
   const focused = members.find((m) => m.id === you)?.terminal;
   for (const [id, status] of Object.entries(next)) {
-    if (previous[id] !== "working" || status !== "idle") continue;
+    if (previous[id] !== "working" || status === "working") continue;
     if (!document.hidden && panes.has(id) && focused === id) continue;
     notifyDone(`ターミナル ${id}: 指示待ち`, () => focusTerminal(id));
   }

@@ -1,6 +1,8 @@
 // ターミナルで動いているエージェントの状態。判定の規則は docs/adr/28-agent-status.md。
 // エージェントが前面にいるときだけ判定する（docs/adr/70-agent-detection.md）
-export type AgentStatus = "working" | "idle";
+export type ActivityStatus = "working" | "idle";
+// 参加者に配る状態。指示待ちのうち、作業が終わってまだ誰も見ていないものを done（未確認）にする（docs/adr/74-unseen-done.md）
+export type AgentStatus = ActivityStatus | "done";
 
 // 入力からこの時間内の出力は、入力の表示（エコー）とみなして数えない
 const echoMs = 200;
@@ -24,7 +26,7 @@ function isTyped(data: string) {
 
 // PTY の入出力の続き方から、エージェントが作業中か指示待ちかを判定する
 export class ActivityMonitor {
-  status: AgentStatus = "idle";
+  status: ActivityStatus = "idle";
   private lastInput = 0;
   // 数える出力が出始めた時刻。出力が途切れたら消す
   private burstStart: number | undefined;
@@ -32,7 +34,7 @@ export class ActivityMonitor {
   // ターミナルを閉じたあとに届いた出力で、タイマーを作り直さない
   private disposed = false;
 
-  constructor(private onChange: (status: AgentStatus) => void) {}
+  constructor(private onChange: (status: ActivityStatus) => void) {}
 
   input(data: string) {
     if (!isTyped(data)) return;
@@ -69,7 +71,7 @@ export class ActivityMonitor {
     this.set("idle");
   }
 
-  private set(status: AgentStatus) {
+  private set(status: ActivityStatus) {
     if (this.status === status) return;
     this.status = status;
     this.onChange(status);

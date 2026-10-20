@@ -29,8 +29,14 @@ export type PaneActions = {
 
 // このターミナルで動いているエージェントの状態。サーバーが判定して全員に配る。
 // 「入力待ち」はほかの参加者の入力を待っているようにも読めるので、エージェントが指示を待っていると書く（docs/adr/70-agent-detection.md）
-export type AgentStatus = "working" | "idle";
-const statusLabels: Record<AgentStatus, string> = { working: "作業中", idle: "指示待ち" };
+// 作業が終わってまだ誰も見ていないものは「未確認」にする（docs/adr/74-unseen-done.md）
+export type AgentStatus = "working" | "idle" | "done";
+export const statusLabels: Record<AgentStatus, string> = { working: "作業中", done: "未確認", idle: "指示待ち" };
+export const statusDescriptions: Record<AgentStatus, string> = {
+  working: "エージェントが作業中",
+  done: "作業が終わったが、まだ誰も見ていない",
+  idle: "エージェントが指示を待っている",
+};
 
 // このターミナルにフォーカスしている参加者。following は、自分がその人をフォローしているか
 export type Viewer = { id: number; name: string; color: string; self: boolean; following: boolean };
@@ -276,6 +282,7 @@ export class Pane {
   setStatus(status: AgentStatus | undefined) {
     this.status.hidden = status === undefined;
     this.status.textContent = status ? statusLabels[status] : "";
+    this.status.title = status ? statusDescriptions[status] : "";
     if (status) {
       this.status.dataset.status = status;
       this.element.dataset.agent = "true";
