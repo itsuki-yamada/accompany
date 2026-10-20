@@ -854,6 +854,11 @@ body {
   border: 1px solid #444;
 }
 
+.session-status[data-status="idle"] {
+  color: #64ffda;
+  border-color: #64ffda;
+}
+
 .session-status[data-status="working"] {
   color: #ffd54f;
   border-color: #ffd54f;
