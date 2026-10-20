@@ -25,10 +25,12 @@ export type PaneActions = {
   // 参加者全員で共有している、よく使うコマンドの一覧と、その登録・編集・削除の画面を開く
   commands: () => QuickCommand[];
   manageCommands: () => void;
-  // ほかの参加者をフォローする（フォロー中ならやめる）
+  // ほかの参加者とペアプロする（その人に追従している途中ならやめる）
   follow: (member: number) => void;
   // このターミナルでの自分の選択範囲が変わったとき。選択をやめたときやターミナルを抜けたときは undefined
   selected: (range: SelectionRange | undefined) => void;
+  // スクロール位置が変わったとき。user は、自分でスクロールした（ホイール・スクロールバー）か
+  scrolled: (user: boolean) => void;
 };
 
 // ターミナルの選択範囲。位置は列と、出力の始めからの行の番号（バッファの行に、スクロールバックから押し出された行の数を足したもの。
@@ -61,7 +63,7 @@ export const statusDescriptions: Record<AgentStatus, string> = {
   idle: "エージェントが指示を待っている",
 };
 
-// このターミナルにフォーカスしている参加者。following は、自分がその人をフォローしているか
+// このターミナルにフォーカスしている参加者。following は、自分がペアプロモードでその人に追従しているか
 export type Viewer = { id: number; name: string; color: string; self: boolean; following: boolean };
 
 // 端末の大きさを決めるとき、各参加者の表示領域はこの大きさ（フル HD）までとみなす（docs/adr/51-largest-size.md）
@@ -70,6 +72,8 @@ const maxArea = { width: 1920, height: 1080 };
 const scrollbarWidth = 14;
 // 画面に収めるために縮小するとき、フォントの大きさをどこまで小さくするか
 const minFitFontSize = 2;
+// ホイールやスクロールバーを操作してから、この時間のうちに変わったスクロール位置は、自分でスクロールしたものとみなす
+const userScrollWindow = 500;
 type CellSize = { width: number; height: number };
 
 // 1 つのターミナルの表示。配置が変わっても同じ要素と接続を使い回す
@@ -109,6 +113,8 @@ export class Pane {
   private firstOutput = true;
   // 最後にサーバーに伝えた自分の選択範囲
   private sentSelection = "null";
+  // 最後にホイールやスクロールバーを操作した時刻
+  private userScrollAt = -Infinity;
 
   constructor(id: string, actions: PaneActions, appearance: Appearance) {
     this.appearance = appearance;
@@ -256,6 +262,17 @@ export class Pane {
     this.terminal.textarea?.addEventListener("focus", actions.focused);
     // 検索バーに入力しているときも、このターミナルにフォーカスしているものとして表示する
     this.search.element.addEventListener("focusin", actions.focused);
+    // スクロール位置を、ペアプロモードで追従している人に伝えるために知らせる。xterm はスクロールの原因を教えないので、
+    // 直前にホイールやスクロールバーを操作していれば、自分でスクロールしたものとみなす（docs/adr/93-pair-mode.md）
+    this.element.addEventListener("wheel", () => (this.userScrollAt = performance.now()), { capture: true, passive: true });
+    container.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (event.target instanceof Element && event.target.closest(".scrollbar")) this.userScrollAt = performance.now();
+      },
+      { capture: true },
+    );
+    this.terminal.onScroll(() => actions.scrolled(performance.now() - this.userScrollAt < userScrollWindow));
     // ドロップしたファイルのパスは、このターミナルの入力として貼り付ける
     acceptFileDrop(this.element, (text) => this.terminal.paste(text));
 
@@ -294,9 +311,9 @@ export class Pane {
   }
 
   // フォーカスしている参加者を、バーに名前で出す。自分がフォーカスしていれば枠を自分の色で強調する。
-  // ほかの参加者の名前は、押すとその人をフォローするボタンにする（docs/adr/69-follow.md）
+  // ほかの参加者の名前は、押すとその人とペアプロする（その人の画面に追従する）ボタンにする（docs/adr/93-pair-mode.md）
   setViewers(viewers: Viewer[]) {
-    // 参加者の情報は誰かが動くたびに届く。変わっていなければ作り直さない（フォローのボタンを押している途中などに失わないため）
+    // 参加者の情報は誰かが動くたびに届く。変わっていなければ作り直さない（ペアプロのボタンを押している途中などに失わないため）
     const key = JSON.stringify(viewers);
     if (key === this.viewersKey) return;
     this.viewersKey = key;
@@ -305,12 +322,10 @@ export class Pane {
         const badge = viewer.self
           ? document.createElement("span")
           : button(
-              `${viewer.name} をフォロー`,
+              `${viewer.name} とペアプロ`,
               viewer.name,
               () => this.actions.follow(viewer.id),
-              viewer.following
-                ? `${viewer.name} のフォローをやめる`
-                : `${viewer.name} をフォローする（その人のフォーカスに追従する）`,
+              viewer.following ? "ペアプロをやめる" : `${viewer.name} とペアプロ（その人の画面に追従する）`,
             );
         badge.className = "viewer";
         if (viewer.self) badge.textContent = "あなた";
@@ -407,6 +422,19 @@ export class Pane {
     this.remoteSelectionsKey = key;
     this.receivedSelections = selections;
     if (this.restored) this.placeRemoteSelections();
+  }
+
+  // スクロール位置。参加者によってスクロールバックの行数が違うことがあるので、一番下から何行戻しているかで表す
+  scrollOffset() {
+    const { baseY, viewportY } = this.terminal.buffer.active;
+    return baseY - viewportY;
+  }
+
+  // 相手の位置に合わせたスクロールを、自分でスクロールしたものと取り違えないよう、直前の操作を忘れる
+  scrollToOffset(offset: number) {
+    this.userScrollAt = -Infinity;
+    const { baseY } = this.terminal.buffer.active;
+    this.terminal.scrollToLine(Math.max(0, baseY - offset));
   }
 
   dispose() {

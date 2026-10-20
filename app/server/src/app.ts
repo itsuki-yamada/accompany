@@ -66,8 +66,9 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
   app.use("/ws/*", sameOriginOnly);
   app.use("/api/*", sameOriginOnly);
 
-  // タブと分割の配置、参加者ごとのフォーカス先と選択範囲、よく使うコマンドの一覧を全員に配り、タブの追加・切り替え・閉じる、
-  // 分割・閉じる・割合の変更・フォーカスの移動・選択範囲・ページが見えているか、よく使うコマンドの登録・編集・削除を受け付ける
+  // タブと分割の配置、参加者ごとのフォーカス先と選択範囲・ペアプロモードで追従している相手・スクロール位置、
+  // よく使うコマンドの一覧を全員に配り、タブの追加・切り替え・閉じる、分割・閉じる・割合の変更・フォーカスの移動・選択範囲・
+  // ページが見えているか、ペアプロモードの開始・終了とスクロール位置、よく使うコマンドの登録・編集・削除を受け付ける
   app.get(
     "/ws/workspace",
     upgradeWebSocket(() => {
@@ -97,6 +98,13 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
             if (range !== undefined) member?.select(String(message.terminal), range ?? undefined);
           } else if (message?.type === "visibility") {
             member?.visible(message.visible === true);
+          } else if (message?.type === "follow") {
+            // 参加者の番号でないもの（null など）は、ペアプロモードをやめたものとする
+            member?.follow(Number.isSafeInteger(message.member) ? message.member : undefined);
+          } else if (message?.type === "scroll" && Number.isSafeInteger(message.offset) && message.offset >= 0) {
+            // 全員に配るので、あるターミナルのものだけを受け付ける
+            const terminal = String(message.terminal);
+            if (workspace.terminal(terminal)) member?.scroll(terminal, message.offset);
           } else if (message?.type === "add-command" || message?.type === "update-command") {
             const command = parseQuickCommand(message);
             if (!command) return;
