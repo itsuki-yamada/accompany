@@ -1,7 +1,7 @@
 import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { newStateDir, startAccompany, type Accompany } from "./accompany";
+import { closeContexts, newContext, newStateDir, startAccompany, type Accompany } from "./accompany";
 import { boxOf, expectPaneToShow, pane, panes, typeInPane } from "./panes";
 
 // 分割や新しい Workspace、戻したターミナルは $SHELL を起動するので、入力をそのまま返す偽のシェルにする
@@ -16,6 +16,7 @@ test.beforeEach(() => {
 });
 
 test.afterEach(async () => {
+  await closeContexts();
   await accompany?.stop();
   await rm(join(stateDir, ".."), { recursive: true, force: true });
 });
@@ -26,7 +27,7 @@ function start(args: string[] = []) {
 }
 
 async function open(browser: Browser, url: string) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const context = await newContext(browser, { viewport: { width: 1280, height: 720 } });
   const page = await context.newPage();
   await page.goto(url);
   return page;

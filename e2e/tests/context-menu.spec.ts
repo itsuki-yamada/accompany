@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { startAccompany, type Accompany } from "./accompany";
+import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
 import { boxOf, expectPaneToShow, pane } from "./panes";
 import { expectTerminalToShow, terminalScreen, typeInTerminal } from "./terminal";
 
@@ -12,11 +12,12 @@ const clipboard = ["clipboard-read", "clipboard-write"];
 let accompany: Accompany | undefined;
 
 test.afterEach(async () => {
+  await closeContexts();
   await accompany?.stop();
 });
 
 async function open(browser: Browser, url: string, permissions: string[] = []) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, permissions });
+  const context = await newContext(browser, { viewport: { width: 1280, height: 720 }, permissions });
   const page = await context.newPage();
   await page.goto(url);
   return page;

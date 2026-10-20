@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Browser, BrowserContext, BrowserContextOptions } from "@playwright/test";
 
 // 起動コマンドは ACCOMPANY_CMD で差し替えられる（例: tarball から bunx で起動する）
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
@@ -69,4 +70,21 @@ function isAlive(pgid: number) {
   } catch {
     return false;
   }
+}
+
+// 参加者ごとのブラウザのコンテキストを作る。作ったものは closeContexts でテストのあとに閉じる。
+// 閉じないと、ページが次のテスト以降も残り続け、Playwright がテストのたびに残ったページ全部のスクリーンショットを撮るので、
+// 後のテストほど遅くなり、待ち時間の短い確認が落ちやすくなる（#83）
+const contexts = new Set<BrowserContext>();
+
+export async function newContext(browser: Browser, options?: BrowserContextOptions) {
+  const context = await browser.newContext(options);
+  contexts.add(context);
+  return context;
+}
+
+export async function closeContexts() {
+  const closing = [...contexts];
+  contexts.clear();
+  await Promise.all(closing.map((context) => context.close()));
 }

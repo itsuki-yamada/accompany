@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { startAccompany, type Accompany } from "./accompany";
+import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
 import { terminalScreen } from "./terminal";
 
 const ticker = ["--", "bun", "e2e/fixtures/ticker.ts"];
@@ -7,12 +7,13 @@ const ticker = ["--", "bun", "e2e/fixtures/ticker.ts"];
 let accompany: Accompany | undefined;
 
 test.afterEach(async () => {
+  await closeContexts();
   await accompany?.stop();
 });
 
 // 参加者ごとに別のブラウザコンテキストで開く
 async function openAsParticipant(browser: Browser, url: string) {
-  const context = await browser.newContext();
+  const context = await newContext(browser);
   const page = await context.newPage();
   await page.goto(url);
   return page;

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, type Browser, type Locator } from "@playwright/test";
-import { startAccompany, type Accompany } from "./accompany";
+import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
 import { expectPaneToShow, pane, typeInPane } from "./panes";
 
 let accompany: Accompany | undefined;
@@ -14,6 +14,7 @@ test.beforeEach(() => {
 });
 
 test.afterEach(async () => {
+  await closeContexts();
   await accompany?.stop();
   accompany = undefined;
   rmSync(tmp, { recursive: true, force: true });
@@ -25,7 +26,7 @@ function start() {
 }
 
 async function openAsParticipant(browser: Browser, url: string) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const context = await newContext(browser, { viewport: { width: 1280, height: 720 } });
   const page = await context.newPage();
   await page.goto(url);
   await expectPaneToShow(page, 1, "Fake Shell ready");

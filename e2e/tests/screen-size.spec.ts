@@ -2,7 +2,7 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { startAccompany, type Accompany } from "./accompany";
+import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
 import { terminalScreen } from "./terminal";
 
 // 端末のサイズを左上に、目印の言葉と URL を右下の隅に表示し続ける偽のエージェント
@@ -18,6 +18,7 @@ let accompany: Accompany | undefined;
 let tmp: string | undefined;
 
 test.afterEach(async () => {
+  await closeContexts();
   await accompany?.stop();
   accompany = undefined;
   if (tmp) rmSync(tmp, { recursive: true, force: true });
@@ -30,7 +31,7 @@ async function openAsParticipant(
   viewport: typeof large,
   permissions: string[] = [],
 ) {
-  const context = await browser.newContext({ viewport, permissions });
+  const context = await newContext(browser, { viewport, permissions });
   const page = await context.newPage();
   await page.goto(url);
   await expect(terminalScreen(page)).toContainText("size:");

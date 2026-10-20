@@ -1,5 +1,5 @@
 import { expect, test, type Browser } from "@playwright/test";
-import { startAccompany, type Accompany } from "./accompany";
+import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
 import { expectPaneToShow, pane } from "./panes";
 
 const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
@@ -7,11 +7,12 @@ const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
 let accompany: Accompany | undefined;
 
 test.afterEach(async () => {
+  await closeContexts();
   await accompany?.stop();
 });
 
 async function openAsParticipant(browser: Browser, url: string) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const context = await newContext(browser, { viewport: { width: 1280, height: 720 } });
   const page = await context.newPage();
   await page.goto(url);
   await expectPaneToShow(page, 1, "Fake Shell ready");

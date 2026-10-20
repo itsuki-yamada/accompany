@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { startAccompany, type Accompany } from "./accompany";
+import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
 import { expectPaneToShow, pane, typeInPane } from "./panes";
 
 // 出力を出してから止まる偽のエージェント。エージェントとみなす名前（claude）で起動する。
@@ -19,6 +19,7 @@ const slowPsDir = fileURLToPath(new URL("../fixtures/slow-ps", import.meta.url))
 let accompany: Accompany | undefined;
 
 test.afterEach(async () => {
+  await closeContexts();
   await accompany?.stop();
 });
 
@@ -34,7 +35,7 @@ async function openAsParticipant(
   initiallyHidden = false,
   ready = "Busy Agent ready",
 ) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const context = await newContext(browser, { viewport: { width: 1280, height: 720 } });
   await context.addInitScript(([initial, initiallyHidden]: [Permission, boolean]) => {
     const w = window as any;
     w.notifications = [];

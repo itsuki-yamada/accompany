@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { startAccompany, type Accompany } from "./accompany";
+import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
 import { expectPaneToShow, pane, panes, typeInPane } from "./panes";
 
 // 新しい Workspace は $SHELL を起動するので、入力をそのまま返す偽のシェルにする
@@ -9,11 +9,12 @@ const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
 let accompany: Accompany | undefined;
 
 test.afterEach(async () => {
+  await closeContexts();
   await accompany?.stop();
 });
 
 async function openAsParticipant(browser: Browser, url: string, viewport = { width: 1280, height: 720 }) {
-  const context = await browser.newContext({ viewport });
+  const context = await newContext(browser, { viewport });
   const page = await context.newPage();
   await page.goto(url);
   return page;
