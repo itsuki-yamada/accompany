@@ -20,11 +20,11 @@
 
 - Accompany はビルドの要らない TypeScript で、JavaScript/TypeScript と GitHub Actions は、どちらも default setup がそのまま扱える。advanced setup で変えたいもの（ビルドの手順、独自のクエリ）がない
 - ワークフローを置かなければ、`permissions` の絞り込み、アクションの SHA 固定、その更新（docs/adr/87-dependency-updates.md）といった、保守するものが増えない
-- どちらも GitHub Actions のランナーで動き、公開リポジトリでは無料。いまは Billing の問題で Actions が動かないので、どちらを選んでも公開までは動かない
+- どちらも GitHub Actions のランナーで動き、公開リポジトリでは無料
 
 ## 影響・今後の課題
 
-- フォークからの PR では動かない（default setup の仕様）。外部の人の PR は、main にマージしたあとの push で調べられる
+- フォークからの PR では動かない（default setup の仕様）。外部の人の PR は、main にマージしたあとの push で調べられる。advanced setup なら `pull_request` でフォークの PR も調べられるが、外部の人の PR が増えるまでは、マージ後に調べれば足りる
 - 設定はリポジトリの中に残らない。有効になっているかは、Security タブの Code scanning で確かめる
 - PR のチェックに「CodeQL」が増える。必須のチェックにするかは、Branch protection を決めるときに考える
 - 独自のクエリやビルドの手順が要るようになったら、advanced setup に移る（default setup を止めてから `codeql.yml` を置く）
