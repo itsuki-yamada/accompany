@@ -30,7 +30,9 @@ export type SidebarActions = {
   returnFocus: () => void;
 };
 
-const statusLabels: Record<AgentStatus, string> = { working: "作業中", idle: "入力待ち" };
+// エージェントの状態の表記（docs/adr/70-agent-detection.md）。statuses に含まれないターミナルではエージェントが動いていないので、
+// 状態を出さず、件数にも数えない
+const statusLabels: Record<AgentStatus, string> = { working: "作業中", idle: "指示待ち" };
 const storageKey = "accompany.sidebar";
 
 export class Sidebar {
@@ -143,14 +145,14 @@ export class Sidebar {
         // 最後の Workspace は閉じられない
         close.disabled = tabs.length === 1;
         close.addEventListener("click", () => this.actions.closeWorkspace(tab.id));
-        row.append(select, counts(terminalIds(tab.layout).map((id) => statuses[id] ?? "idle")), close);
+        row.append(select, counts(agentStatuses(terminalIds(tab.layout), statuses)), close);
         return row;
       }),
     );
   }
 
   private renderSessions({ tabs, active, titles, statuses, members, you }: SidebarState) {
-    const all = tabs.flatMap((tab) => terminalIds(tab.layout).map((id) => statuses[id] ?? "idle"));
+    const all = agentStatuses(tabs.flatMap((tab) => terminalIds(tab.layout)), statuses);
     this.summary.replaceChildren(counts(all, true));
     this.groups.replaceChildren(
       ...tabs.map((tab) => {
@@ -164,7 +166,7 @@ export class Sidebar {
         name.textContent = tab.name;
         group.append(name);
         for (const id of terminalIds(tab.layout)) {
-          const status = statuses[id] ?? "idle";
+          const status = statuses[id];
           const row = document.createElement("button");
           row.type = "button";
           row.className = "session";
@@ -174,16 +176,19 @@ export class Sidebar {
           row.setAttribute("aria-label", `ターミナル ${id}`);
           const viewers = members.filter((m) => m.terminal === id);
           if (viewers.some((m) => m.id === you)) row.dataset.focused = "true";
-          const badge = document.createElement("span");
-          badge.className = "session-status";
-          badge.dataset.status = status;
-          badge.textContent = statusLabels[status];
+          const line = document.createElement("span");
+          line.className = "session-line";
+          if (status) {
+            const badge = document.createElement("span");
+            badge.className = "session-status";
+            badge.dataset.status = status;
+            badge.textContent = statusLabels[status];
+            line.append(badge);
+          }
           const label = document.createElement("span");
           label.className = "session-name";
           label.textContent = `ターミナル ${id}`;
-          const line = document.createElement("span");
-          line.className = "session-line";
-          line.append(badge, label);
+          line.append(label);
           row.append(line);
           const title = titles[id];
           if (title) {
@@ -249,7 +254,12 @@ function header(text: string) {
   return element;
 }
 
-// 状態ごとの件数（例: 作業中 1・入力待ち 2）。always なら 0 件の状態も出す
+// エージェントが動いているターミナルの状態だけを取り出す
+function agentStatuses(ids: string[], statuses: Record<string, AgentStatus>) {
+  return ids.flatMap((id) => (statuses[id] ? [statuses[id]] : []));
+}
+
+// 状態ごとの件数（例: 作業中 1・指示待ち 2）。always なら 0 件の状態も出す
 function counts(statuses: AgentStatus[], always = false) {
   const element = document.createElement("span");
   element.className = "status-counts";

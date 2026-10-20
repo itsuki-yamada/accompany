@@ -27,9 +27,10 @@ export type PaneActions = {
   follow: (member: number) => void;
 };
 
-// このターミナルで動いているエージェントの状態。サーバーが判定して全員に配る
+// このターミナルで動いているエージェントの状態。サーバーが判定して全員に配る。
+// 「入力待ち」はほかの参加者の入力を待っているようにも読めるので、エージェントが指示を待っていると書く（docs/adr/70-agent-detection.md）
 export type AgentStatus = "working" | "idle";
-const statusLabels: Record<AgentStatus, string> = { working: "作業中", idle: "入力待ち" };
+const statusLabels: Record<AgentStatus, string> = { working: "作業中", idle: "指示待ち" };
 
 // このターミナルにフォーカスしている参加者。following は、自分がその人をフォローしているか
 export type Viewer = { id: number; name: string; color: string; self: boolean; following: boolean };
@@ -104,7 +105,7 @@ export class Pane {
     this.status.className = "pane-status";
     this.status.setAttribute("role", "status");
     this.status.setAttribute("aria-label", "エージェントの状態");
-    this.setStatus("idle");
+    this.setStatus(undefined);
     this.zoomLabel.className = "pane-zoomed";
     this.zoomLabel.setAttribute("role", "status");
     this.zoomLabel.hidden = true;
@@ -271,9 +272,17 @@ export class Pane {
     this.program.hidden = text === "";
   }
 
-  setStatus(status: AgentStatus) {
-    this.status.textContent = statusLabels[status];
-    this.status.dataset.status = status;
+  // エージェントの状態を出す。エージェントが動いていなければ（undefined）状態を出さず、目立たせる表示もやめる
+  setStatus(status: AgentStatus | undefined) {
+    this.status.hidden = status === undefined;
+    this.status.textContent = status ? statusLabels[status] : "";
+    if (status) {
+      this.status.dataset.status = status;
+      this.element.dataset.agent = "true";
+    } else {
+      delete this.status.dataset.status;
+      delete this.element.dataset.agent;
+    }
   }
 
   // 配色とフォントの大きさ、はみ出したときの見せ方を変える。フォントの大きさで表示領域に収まる列数・行数が変わるので、
