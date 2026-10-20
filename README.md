@@ -27,23 +27,23 @@ AI コーディングエージェントを交えたリモート・ペアプロ�
 | Linux（x64） | `Linux x86_64` | `accompany-<バージョン>-linux-x64` |
 | Linux（arm64） | `Linux aarch64` | `accompany-<バージョン>-linux-arm64` |
 
-- edge のファイル名には、バージョンのあとにコミット ID が入る（`accompany-0.4.0-fefd04d-darwin-arm64` など）
+- edge のファイル名には、バージョンのあとにコミット ID が入る（`accompany-0.6.0-fefd04d-darwin-arm64` など）
 - Linux 向けは glibc のディストリビューション（Ubuntu、Debian、Fedora など）で動く。Alpine などの musl では動かない
 
 ```sh
 # 正式版の、Apple Silicon の Mac 向けをダウンロードする（edge は `gh release download edge ...`）
 gh release download --repo itsuki-yamada/accompany --pattern 'accompany-*-darwin-arm64'
 chmod +x accompany-*-darwin-arm64
-./accompany-0.4.0-darwin-arm64
+./accompany-0.6.0-darwin-arm64
 ```
 
 表示された URL（`http://127.0.0.1:3000`）をブラウザで開く。起動のしかたは次のとおり（tarball から起動するときも同じ）。
 
 ```sh
-./accompany-0.4.0-darwin-arm64                 # 最初のターミナルで $SHELL を動かす
-./accompany-0.4.0-darwin-arm64 -- claude       # 最初のターミナルで動かすコマンドを指定する
-./accompany-0.4.0-darwin-arm64 --port 4000     # 待ち受けるポートを変える
-./accompany-0.4.0-darwin-arm64 --fresh         # 前回の画面を戻さずに始める
+./accompany-0.6.0-darwin-arm64                 # 最初のターミナルで $SHELL を動かす
+./accompany-0.6.0-darwin-arm64 -- claude       # 最初のターミナルで動かすコマンドを指定する
+./accompany-0.6.0-darwin-arm64 --port 4000     # 待ち受けるポートを変える
+./accompany-0.6.0-darwin-arm64 --fresh         # 前回の画面を戻さずに始める
 ```
 
 #### macOS で、ダウンロードしたファイルを実行できないとき
@@ -53,7 +53,7 @@ chmod +x accompany-*-darwin-arm64
 - 実行する前に、属性を外す。`gh release download` や `curl` でダウンロードしたものには、属性は付かない
 
   ```sh
-  xattr -d com.apple.quarantine accompany-0.4.0-darwin-arm64
+  xattr -d com.apple.quarantine accompany-0.6.0-darwin-arm64
   ```
 
 - 一度止められたあとは、属性を外しても起動できないことがある。ダウンロードし直し、実行する前に属性を外す。または、「システム設定」→「プライバシーとセキュリティ」に出る「このまま開く」を押す
@@ -65,7 +65,7 @@ chmod +x accompany-*-darwin-arm64
 Bun が入っていれば、tarball（`accompany-<バージョン>.tgz`）からも起動できる。tarball は絶対パスで指定する（相対パスでは bunx が失敗する）。
 
 ```sh
-bunx --package "$PWD/accompany-0.4.0.tgz" accompany
+bunx --package "$PWD/accompany-0.6.0.tgz" accompany
 ```
 
 Bun 1.3 までは、画面の JS と CSS が読み込まれず、画面が空になる（docs/adr/78-binaries.md）。古い Bun で起動すると、必要な版を表示して終了するので、`bun upgrade` で上げるか、実行ファイルを使う。
