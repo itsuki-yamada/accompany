@@ -124,10 +124,11 @@ test("マウスの報告モードを有効にしたアプリでも、リンク�
 
   // リンクのないところのクリックは、これまでどおりアプリに届く（SGR 形式の ESC [ < 0 ; ... の押す・離す）。
   // アプリは受け取った順に表示するので、これが出た時点で、リンクのクリックが届いていれば先に出ている
-  // 10 行目をクリックし、その行（; 1 0 M）の報告が届くのを待つ
+  // 10 行目をクリックし、その行の離す報告（; 1 0 m）が届くのを待つ。押す報告（; 1 0 M）とは別々に届くことがあるので、
+  // 押す報告だけを待つと、離す報告が届く前に数えてしまう
   const box = (await pane(page, 1).locator(".xterm-rows > div").nth(9).boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await expectPaneToShow(page, 1, "3b 31 30 4d");
+  await expectPaneToShow(page, 1, "3b 31 30 6d");
   // 届いたマウスの報告（ESC [ <）は、この 1 回のクリックの押す・離すの 2 つだけ
   const shown = (await pane(page, 1).locator(".xterm-rows").textContent()) ?? "";
   expect(shown.match(/1b 5b 3c/g)).toHaveLength(2);
