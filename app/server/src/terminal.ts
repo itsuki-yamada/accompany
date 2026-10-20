@@ -49,6 +49,10 @@ export class TerminalSession {
   private serializer = new SerializeAddon();
   // 書き出した画面にはカーソルの表示・非表示が含まれないため、DECTCEM（CSI ? 25 h/l）を見て自分で追う
   private cursorHidden = false;
+  // 書き出した画面にはマウスの報告の形式も含まれないため、SGR 形式（CSI ? 1006 h/l、ピクセル単位は 1016）を見て自分で追う。
+  // 戻さないと、途中から参加した人のブラウザは従来の形式で報告し（xterm.js はそれを onData ではなく onBinary で出す）、
+  // Claude Code などにドラッグやクリックが届かない（docs/adr/94-remote-selection.md）
+  private mouseEncoding: 1006 | 1016 | undefined;
   // コマンドが OSC 0 / OSC 2 で設定したタイトル。ブラウザに出す前に sanitizeTitle で整える
   title = "";
   private activity: ActivityMonitor;
@@ -99,9 +103,12 @@ export class TerminalSession {
       this.title = sanitized;
       this.onTitleChange();
     });
-    for (const [final, hidden] of [["h", false], ["l", true]] as const) {
+    for (const [final, enabled] of [["h", true], ["l", false]] as const) {
       this.screen.parser.registerCsiHandler({ prefix: "?", final }, (params) => {
-        if (params.includes(25)) this.cursorHidden = hidden;
+        if (params.includes(25)) this.cursorHidden = !enabled;
+        for (const mode of [1006, 1016] as const) {
+          if (params.includes(mode)) this.mouseEncoding = enabled ? mode : undefined;
+        }
         return false;
       });
     }
@@ -109,6 +116,7 @@ export class TerminalSession {
     // コマンドが残したタイトルもここで消す（docs/adr/33-context-menu.md）
     this.screen.parser.registerEscHandler({ final: "c" }, () => {
       this.cursorHidden = false;
+      this.mouseEncoding = undefined;
       if (this.title !== "") {
         this.title = "";
         this.onTitleChange();
@@ -126,7 +134,10 @@ export class TerminalSession {
     this.listeners.add(receive);
     this.screen.write("", () => {
       listener({ type: "resize", size: this.size });
-      const snapshot = this.serializer.serialize() + (this.cursorHidden ? "\x1b[?25l" : "");
+      const snapshot =
+        this.serializer.serialize() +
+        (this.cursorHidden ? "\x1b[?25l" : "") +
+        (this.mouseEncoding ? `\x1b[?${this.mouseEncoding}h` : "");
       if (snapshot) listener({ type: "output", data: encoder.encode(snapshot) });
       pending.forEach(listener);
       restored = true;
