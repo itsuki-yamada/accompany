@@ -168,6 +168,20 @@ body {
   margin-right: 14px;
 }
 
+/* ほかの参加者の選択範囲（docs/adr/94-remote-selection.md）。自分の選択範囲（.xterm-selection）と同じく文字の上に重ね、
+   マウスの操作は下の端末に通す。下線をその人の色で引き、自分の選択範囲と見分けられるようにする */
+.remote-selections {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.remote-selection {
+  position: absolute;
+  box-shadow: inset 0 -2px 0 var(--selection-color);
+}
+
 /* フォーカスしている参加者の表示。自分がフォーカスしているターミナルは、枠を自分の色で強調する */
 .pane {
   box-sizing: border-box;

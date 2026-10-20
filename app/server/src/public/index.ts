@@ -1,6 +1,6 @@
 import { appearanceSettings, loadAppearance, type Appearance } from "./appearance";
 import { notifyDone, requestPermissionOnFirstInteraction } from "./notify";
-import { Pane, type AgentStatus, type Viewer } from "./pane";
+import { Pane, type AgentStatus, type SelectionRange, type Viewer } from "./pane";
 import { QuickCommands } from "./quick-commands";
 import { shortcutList, type Direction, type Shortcut } from "./shortcuts";
 import { Sidebar } from "./sidebar";
@@ -43,8 +43,14 @@ const settings = appearanceSettings(appearance, (changed) => {
 });
 document.body.append(settings);
 
-// 参加者とそのフォーカス先。自分が誰かはサーバーが最初に教えてくれる
-type Member = { id: number; name: string; color: string; terminal?: string };
+// 参加者とそのフォーカス先、ターミナルごとの選択範囲。自分が誰かはサーバーが最初に教えてくれる
+type Member = {
+  id: number;
+  name: string;
+  color: string;
+  terminal?: string;
+  selections: Record<string, SelectionRange>;
+};
 let you: number | undefined;
 let members: Member[] = [];
 // ターミナルごとの、コマンドが設定したタイトル
@@ -105,6 +111,7 @@ socket.onmessage = (event) => {
     you = message.you;
   } else if (message.type === "presence") {
     members = message.members;
+    showSelections();
     showFollowing();
     followFocus();
   } else if (message.type === "titles") {
@@ -177,6 +184,7 @@ function render(layout: Layout) {
   // 分割が 1 つになったときは、拡大しない。拡大していたなら、待たずに置き直す（ちらつかないように）
   updateZoom(zoomed !== undefined);
   showViewers();
+  showSelections();
   showTitles();
   showStatuses();
   if (pendingFocus && panes.has(pendingFocus)) {
@@ -219,6 +227,7 @@ function paneFor(id: string) {
       commands: () => quickCommands.list,
       manageCommands: () => quickCommands.open(),
       follow: (member) => (following === member ? stopFollowing() : startFollowing(member)),
+      selected: (range) => send({ type: "select", terminal: id, ...range }),
     }, appearance);
     panes.set(id, pane);
   }
@@ -408,6 +417,17 @@ function showViewers() {
       .filter((m) => m.terminal === id)
       .map((m) => ({ id: m.id, name: m.name, color: m.color, self: m.id === you, following: m.id === following }));
     pane.setViewers(viewers);
+  }
+}
+
+// ほかの参加者の選択範囲を、その人の色で出す（docs/adr/94-remote-selection.md）
+function showSelections() {
+  for (const [id, pane] of panes) {
+    pane.setRemoteSelections(
+      members.flatMap((m) =>
+        m.id !== you && m.selections[id] ? [{ name: m.name, color: m.color, range: m.selections[id] }] : [],
+      ),
+    );
   }
 }
 

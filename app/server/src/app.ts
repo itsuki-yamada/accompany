@@ -3,9 +3,9 @@ import { bodyLimit } from "hono/body-limit";
 import { upgradeWebSocket } from "hono/bun";
 import { createMiddleware } from "hono/factory";
 import { parseQuickCommand } from "./quick-commands";
-import { clampSize, type Participant, type Size } from "./terminal";
+import { clampSize, maxSize, type Participant, type Size } from "./terminal";
 import { maxUploadBytes, type Uploads } from "./uploads";
-import type { Workspace } from "./workspace";
+import type { Position, SelectionRange, Workspace } from "./workspace";
 
 const loopbackHostnames = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
@@ -29,6 +29,27 @@ function parseSize(message: { cols?: unknown; rows?: unknown }): Size | undefine
   return valid(cols) && valid(rows) ? clampSize({ cols, rows }) : undefined;
 }
 
+// 選択範囲として受け付けるバッファの行の数。ブラウザの端末のバッファは、スクロールバック（xterm.js の既定で 1000 行）と
+// 画面の行数（上限は maxSize.rows）まで
+const maxSelectionLines = 1000 + maxSize.rows;
+
+// ブラウザから届く選択範囲。列と行は 0 以上の整数で、端末に収まるものだけを受け付け、始まりが終わりより後ろのものは捨てる。
+// start と end がどちらもなければ、選択をやめた（null）
+function parseSelection(message: { start?: unknown; end?: unknown }): SelectionRange | null | undefined {
+  const { start, end } = message;
+  if (start === undefined && end === undefined) return null;
+  const valid = (n: unknown, max: number): n is number =>
+    Number.isSafeInteger(n) && (n as number) >= 0 && (n as number) <= max;
+  const position = (value: unknown): Position | undefined => {
+    const { x, y } = (value ?? {}) as { x?: unknown; y?: unknown };
+    return valid(x, maxSize.cols) && valid(y, maxSelectionLines - 1) ? { x, y } : undefined;
+  };
+  const from = position(start);
+  const to = position(end);
+  if (!from || !to || from.y > to.y || (from.y === to.y && from.x > to.x)) return undefined;
+  return { start: from, end: to };
+}
+
 function parseJson(data: unknown) {
   try {
     return JSON.parse(String(data));
@@ -43,8 +64,8 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
   app.use("/ws/*", sameOriginOnly);
   app.use("/api/*", sameOriginOnly);
 
-  // タブと分割の配置、参加者ごとのフォーカス先、よく使うコマンドの一覧を全員に配り、タブの追加・切り替え・閉じる、
-  // 分割・閉じる・割合の変更・フォーカスの移動・ページが見えているか、よく使うコマンドの登録・編集・削除を受け付ける
+  // タブと分割の配置、参加者ごとのフォーカス先と選択範囲、よく使うコマンドの一覧を全員に配り、タブの追加・切り替え・閉じる、
+  // 分割・閉じる・割合の変更・フォーカスの移動・選択範囲・ページが見えているか、よく使うコマンドの登録・編集・削除を受け付ける
   app.get(
     "/ws/workspace",
     upgradeWebSocket(() => {
@@ -69,6 +90,9 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
             workspace.closeTab(String(message.tab));
           } else if (message?.type === "focus") {
             member?.focus(String(message.terminal));
+          } else if (message?.type === "select") {
+            const range = parseSelection(message);
+            if (range !== undefined) member?.select(String(message.terminal), range ?? undefined);
           } else if (message?.type === "visibility") {
             member?.visible(message.visible === true);
           } else if (message?.type === "add-command" || message?.type === "update-command") {

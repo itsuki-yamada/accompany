@@ -8,8 +8,19 @@ export type Layout =
   | { type: "terminal"; id: string }
   | { type: "split"; id: string; direction: "row" | "column"; ratio: number; children: [Layout, Layout] };
 
-// 参加者。認証がまだないので、接続順に「参加者 N」と呼び、色を割り当てる
-export type Member = { id: number; name: string; color: string; terminal?: string };
+// ターミナルの選択範囲。位置は列と、スクロールバックを含めたバッファの行（0 から数える）。end の列は含まない
+export type Position = { x: number; y: number };
+export type SelectionRange = { start: Position; end: Position };
+
+// 参加者。認証がまだないので、接続順に「参加者 N」と呼び、色を割り当てる。
+// selections は、ターミナルごとの、その参加者が選択している範囲（docs/adr/94-remote-selection.md）
+export type Member = {
+  id: number;
+  name: string;
+  color: string;
+  terminal?: string;
+  selections: Record<string, SelectionRange>;
+};
 
 // タブ。それぞれが独立した分割の配置を持つ
 export type Tab = { id: string; name: string; layout: Layout };
@@ -116,7 +127,7 @@ export class Workspace {
   // 参加者として加わる。返り値でフォーカス先を伝えたり、抜けたりする
   join(listener: Listener) {
     const id = this.nextMemberId++;
-    const member: Member = { id, name: `参加者 ${id}`, color: colors[(id - 1) % colors.length]! };
+    const member: Member = { id, name: `参加者 ${id}`, color: colors[(id - 1) % colors.length]!, selections: {} };
     this.members.set(listener, member);
     listener({ type: "welcome", you: id });
     listener(this.tabsEvent());
@@ -135,6 +146,14 @@ export class Workspace {
         if (visible) this.visibleMembers.add(member);
         else this.visibleMembers.delete(member);
         this.updateSeen();
+      },
+      // ターミナルでの選択範囲を、ほかの参加者にも見せる。range がなければ選択をやめた
+      // （閉じたターミナルの選択も、ブラウザがやめたと伝えてくるので消す）
+      select: (terminalId: string, range: SelectionRange | undefined) => {
+        if (range && this.terminals.has(terminalId)) member.selections[terminalId] = range;
+        else if (!range && Object.hasOwn(member.selections, terminalId)) delete member.selections[terminalId];
+        else return;
+        this.notifyPresence();
       },
       leave: () => {
         this.members.delete(listener);
