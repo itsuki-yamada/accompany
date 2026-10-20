@@ -156,11 +156,12 @@ test("状態・タイトル・フォーカスの変化が、Workspace の印と�
   await expect(session(host, 3)).toContainText("npm test");
   await expect(session(host, 3)).toContainText("参加者");
 
-  // 作業が終わると指示待ちになる
-  await expect(session(host, 1)).toContainText("指示待ち", { timeout: 10_000 });
+  // 誰も見ていないまま作業が終わると、未確認になる（docs/adr/74-unseen-done.md）
+  await expect(session(host, 1)).toContainText("未確認", { timeout: 10_000 });
   await expect(workspaceRow(host, "Workspace 1")).not.toContainText("作業中");
-  await expect(workspaceRow(host, "Workspace 1")).toContainText("指示待ち 1");
+  await expect(workspaceRow(host, "Workspace 1")).toContainText("未確認 1");
   await expect(sessions(host)).toContainText("作業中 0");
+  await expect(sessions(guest)).toContainText("未確認 1");
 });
 
 test("セッションを選ぶと、その Workspace に切り替わり、そのターミナルにフォーカスする", async ({ browser }) => {
