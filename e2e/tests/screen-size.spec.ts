@@ -50,11 +50,12 @@ async function commandSize(page: Page) {
 // 端末の大きさが変わってから描き直すまでの間は、サイズが画面にないことがある。行が減ると、xterm は
 // カーソルのある最後の行を残して上の行をスクロールバックに送るので、左上のサイズの行が見えなくなる
 async function waitForSize(page: Page, accept: (size: string) => boolean = (size) => size !== "80x24") {
+  // 落ちたときに、最後に読んだサイズがメッセージに出るようにする（待つ時間は expect.poll の既定と同じ 5 秒）
   let size = "";
-  await expect.poll(async () => {
+  await expect(async () => {
     size = await commandSize(page);
-    return size !== "" && accept(size);
-  }).toBe(true);
+    expect(size !== "" && accept(size), `最後に読んだサイズ: "${size}"`).toBe(true);
+  }).toPass({ timeout: 5_000 });
   return size;
 }
 

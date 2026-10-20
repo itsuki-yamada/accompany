@@ -83,8 +83,9 @@ export async function newContext(browser: Browser, options?: BrowserContextOptio
   return context;
 }
 
+// 閉じるときに例外が出ても、afterEach の続き（Accompany を止めるなど）を止めないよう、結果を待つだけにする
 export async function closeContexts() {
   const closing = [...contexts];
   contexts.clear();
-  await Promise.all(closing.map((context) => context.close()));
+  await Promise.allSettled(closing.map((context) => context.close()));
 }
