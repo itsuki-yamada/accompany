@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+// 最初に読み込み、古い Bun では、ほかのモジュールを動かす前に終了する
+import "./require-bun";
 import { parseArgs } from "node:util";
 import { websocket } from "hono/bun";
 import { createApp } from "./app";

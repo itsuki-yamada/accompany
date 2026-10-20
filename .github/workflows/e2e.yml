@@ -16,8 +16,9 @@ jobs:
       # 片方が落ちても、もう片方の結果とレポートを残す
       fail-fast: false
       matrix:
-        # source: リポジトリから直接起動する / tarball: リリースする tarball から bunx で起動する
-        target: [source, tarball]
+        # source: リポジトリから直接起動する / tarball: リリースする tarball から bunx で起動する /
+        # binary: リリースする実行ファイル（linux-x64）を起動する
+        target: [source, tarball, binary]
     steps:
       - uses: actions/checkout@v7
 
@@ -39,6 +40,18 @@ jobs:
           echo "ACCOMPANY_CMD=bunx --package $tarball accompany" >> "$GITHUB_ENV"
           echo "TARBALL=$tarball" >> "$GITHUB_ENV"
 
+      # 4 つの OS と CPU 向けをすべてここでクロスコンパイルし、このランナーで動く linux-x64 で E2E を流す。
+      # macOS 向けは、macOS のランナーの費用のため CI では流さない（docs/adr/78-binaries.md）
+      - name: 実行ファイルを作り、E2E の起動コマンドを実行ファイルにする
+        if: matrix.target == 'binary'
+        run: |
+          dir="$RUNNER_TEMP/binaries-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          .github/scripts/build-binaries.sh "$dir"
+          binary=$(ls "$dir"/accompany-*-linux-x64)
+          echo "binary: $binary"
+          echo "ACCOMPANY_CMD=$binary" >> "$GITHUB_ENV"
+          echo "BINARIES=$dir" >> "$GITHUB_ENV"
+
       - name: Playwright の Chromium を入れる
         working-directory: e2e
         run: bunx playwright install --with-deps chromium
@@ -57,6 +70,17 @@ jobs:
           path: ${{ env.TARBALL }}
           if-no-files-found: error
           retention-days: 30
+
+      # E2E を通した実行ファイルそのものを、release.yml が Release に添付する。
+      # 4 つで 300MB を超え、成果物の保存容量を圧迫するので、同じ実行の release.yml が取得できる 1 日だけ残す
+      - name: 実行ファイルをアップロードする
+        if: matrix.target == 'binary'
+        uses: actions/upload-artifact@v7
+        with:
+          name: accompany-binaries
+          path: ${{ env.BINARIES }}/accompany-*
+          if-no-files-found: error
+          retention-days: 1
 
       # 失敗したときこそ証跡が必要なので、成否にかかわらずアップロードする
       - name: HTML レポートをアップロードする

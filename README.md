@@ -12,6 +12,64 @@ AI コーディングエージェントを交えたリモート・ペアプロ�
 - **代替手段**: TUI 環境の画面サイズ制約に悩まされる Tmux/ttyd や、特定のエディタに依存する拡張機能とは異なり、
 - **差別化要因**: インフラやエディタに依存せず、純粋な Web アプリケーションとして動くため、ローカルからオンプレ K8s の使い捨て Pod まであらゆる場所で動き、ブラウザ一つでシームレスな共有体験を提供する点が最大の特長です。
 
+## 使い方
+
+[Release](https://github.com/itsuki-yamada/accompany/releases) に、正式版（Latest）と、main の最新のコミットから作った先行版（edge）を置いている。
+
+### 実行ファイルで起動する（Bun は要らない）
+
+自分の OS と CPU のものを 1 つ選ぶ。`uname -sm` の結果で選べる。
+
+| マシン | `uname -sm` | ファイル |
+|---|---|---|
+| macOS（Apple Silicon: M1〜M4 など） | `Darwin arm64` | `accompany-<バージョン>-darwin-arm64` |
+| macOS（Intel） | `Darwin x86_64` | `accompany-<バージョン>-darwin-x64` |
+| Linux（x64） | `Linux x86_64` | `accompany-<バージョン>-linux-x64` |
+| Linux（arm64） | `Linux aarch64` | `accompany-<バージョン>-linux-arm64` |
+
+- edge のファイル名には、バージョンのあとにコミット ID が入る（`accompany-0.6.0-fefd04d-darwin-arm64` など）
+- Linux 向けは glibc のディストリビューション（Ubuntu、Debian、Fedora など）で動く。Alpine などの musl では動かない
+
+```sh
+# 正式版の、Apple Silicon の Mac 向けをダウンロードする（edge は `gh release download edge ...`）
+gh release download --repo itsuki-yamada/accompany --pattern 'accompany-*-darwin-arm64'
+chmod +x accompany-*-darwin-arm64
+./accompany-0.6.0-darwin-arm64
+```
+
+表示された URL（`http://127.0.0.1:3000`）をブラウザで開く。起動のしかたは次のとおり（tarball から起動するときも同じ）。
+
+```sh
+./accompany-0.6.0-darwin-arm64                 # 最初のターミナルで $SHELL を動かす
+./accompany-0.6.0-darwin-arm64 -- claude       # 最初のターミナルで動かすコマンドを指定する
+./accompany-0.6.0-darwin-arm64 --port 4000     # 待ち受けるポートを変える
+./accompany-0.6.0-darwin-arm64 --fresh         # 前回の画面を戻さずに始める
+```
+
+#### macOS で、ダウンロードしたファイルを実行できないとき
+
+実行ファイルは Apple の公証を受けていない。ブラウザでダウンロードすると、ファイルに quarantine の属性が付き、macOS（Gatekeeper）に起動を止められる。「開発元を検証できません」「Apple は … を検証できませんでした」と表示されたり、起動したまま何も表示されなかったりする。
+
+- 実行する前に、属性を外す。`gh release download` や `curl` でダウンロードしたものには、属性は付かない
+
+  ```sh
+  xattr -d com.apple.quarantine accompany-0.6.0-darwin-arm64
+  ```
+
+- 一度止められたあとは、属性を外しても起動できないことがある。ダウンロードし直し、実行する前に属性を外す。または、「システム設定」→「プライバシーとセキュリティ」に出る「このまま開く」を押す
+- `permission denied` と表示されるときは、`chmod +x` で実行できるようにする
+- `Killed: 9` と表示されるときは、ファイルが壊れている（既にある実行ファイルに上書きでコピーした、など）。消してからダウンロードし直す
+
+### tarball から起動する（Bun 1.4.0 以上が要る）
+
+Bun が入っていれば、tarball（`accompany-<バージョン>.tgz`）からも起動できる。tarball は絶対パスで指定する（相対パスでは bunx が失敗する）。
+
+```sh
+bunx --package "$PWD/accompany-0.6.0.tgz" accompany
+```
+
+Bun 1.3 までは、画面の JS と CSS が読み込まれず、画面が空になる（docs/adr/78-binaries.md）。古い Bun で起動すると、必要な版を表示して終了するので、`bun upgrade` で上げるか、実行ファイルを使う。
+
 ## 構成
 
 | ディレクトリ | 内容 |
