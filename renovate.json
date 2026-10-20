@@ -1,0 +1,31 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "依存パッケージ・mise.toml のツール・GitHub Actions の新しい版を PR で届ける（docs/adr/87-dependency-updates.md）",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests", "security:minimumReleaseAgeNpm", ":semanticCommits", ":semanticCommitTypeAll(chore)"],
+  "dependencyDashboardTitle": "依存の更新の一覧（Renovate）",
+  "timezone": "Asia/Tokyo",
+  "schedule": ["* 0-8 * * 1"],
+  "osvVulnerabilityAlerts": true,
+  "commitMessageAction": "",
+  "commitMessageTopic": "{{depName}}",
+  "commitMessageExtra": "を {{#if isPinDigest}}{{{newDigestShort}}}{{else}}{{#if isMajor}}{{prettyNewMajor}}{{else}}{{#if isSingleVersion}}{{prettyNewVersion}}{{else}}{{#if newValue}}{{{newValue}}}{{else}}{{{newDigestShort}}}{{/if}}{{/if}}{{/if}}{{/if}} にする",
+  "group": {
+    "branchTopic": "{{{groupSlug}}}",
+    "commitMessageTopic": "{{{groupName}}}",
+    "commitMessageExtra": "",
+    "commitMessageSuffix": "を上げる"
+  },
+  "packageRules": [
+    {
+      "description": "github-actions マネージャーは依存ごとに「<名前> action」をタイトルに使うので、ほかの依存と同じく名前だけにする（マネージャーの設定より依存の値が優先されるため、packageRules で上書きする）",
+      "matchManagers": ["github-actions"],
+      "commitMessageTopic": "{{depName}}"
+    },
+    {
+      "description": "major 以外はまとめて 1 つの PR にする。major は破壊的な変更を個別に確かめるため、1 つずつの PR にする",
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin", "pinDigest"],
+      "groupName": "major 以外の依存",
+      "groupSlug": "non-major"
+    }
+  ]
+}

@@ -20,7 +20,7 @@ jobs:
         # binary: リリースする実行ファイル（linux-x64）を起動する
         target: [source, tarball, binary]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # mise.toml の bun を使う
       - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
@@ -64,7 +64,7 @@ jobs:
       # E2E を通した tarball そのものを、release.yml が Release に添付する
       - name: tarball をアップロードする
         if: matrix.target == 'tarball'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: accompany-tarball
           path: ${{ env.TARBALL }}
@@ -75,7 +75,7 @@ jobs:
       # 4 つで 300MB を超え、成果物の保存容量を圧迫するので、同じ実行の release.yml が取得できる 1 日だけ残す
       - name: 実行ファイルをアップロードする
         if: matrix.target == 'binary'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: accompany-binaries
           path: ${{ env.BINARIES }}/accompany-*
@@ -86,7 +86,7 @@ jobs:
       - name: HTML レポートをアップロードする
         id: upload
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-report-${{ matrix.target }}
           path: e2e/playwright-report/
