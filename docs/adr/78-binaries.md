@@ -70,7 +70,7 @@ Accompany にアーキテクチャに依存するもの（ネイティブモジ�
 - macOS 向けの E2E は 2 にする。linux-arm64 も CI では流さない
 - 置き方は 1 にする。ダウンロードしたら `chmod +x` が要るが、`gh release download` で 1 つを選んで落とし、そのまま起動できる。README に手順を書く
 - edge の古いファイルは、今回置いたもの（tarball と 4 つの実行ファイル）以外をすべて消す
-- macOS の署名: Bun の `--compile` は darwin-arm64 に ad-hoc 署名（`linker-signed`）を付ける。Apple Silicon は署名のない実行ファイルを起動しないが、ad-hoc 署名があれば起動できる。darwin-x64 には Bun 本体の署名が残っていて、実行ファイルにしたことで無効になっているが、Intel（と Rosetta）では署名がなくても起動できる。Apple の Developer ID での署名と公証は、この範囲に含めない
+- macOS の署名: Bun の `--compile` は darwin-arm64 に ad-hoc 署名（`linker-signed`）を付ける。ubuntu でクロスコンパイルしても付く（CI が作ったものを手元の Mac で `codesign -dv` すると `flags=0x20002(adhoc,linker-signed)`、`Signature=adhoc` で、`codesign -v` も通る）ので、署名を付ける仕組みは足さない。Apple Silicon は署名のない実行ファイルを起動しないが、ad-hoc 署名があれば起動できる。darwin-x64 には Bun 本体の署名が残っていて、実行ファイルにしたことで無効になっているが、Intel（と Rosetta）では署名がなくても起動できる。Apple の Developer ID での署名と公証は、この範囲に含めない
 - Gatekeeper: ブラウザでダウンロードすると quarantine の属性が付き、Developer ID の署名と公証がないので、起動を止められる。README に、実行する前に `xattr -d com.apple.quarantine` で外す手順と、`gh release download` や `curl` で落とせば属性が付かないことを書く
 
 ## 理由
