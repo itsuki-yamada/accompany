@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
-import { startAccompany, type Accompany } from "./accompany";
+import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
 import { expectPaneToShow, pane, typeInPane } from "./panes";
 
 const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
@@ -11,11 +11,12 @@ const guestColor = /rgba?\(255, 183, 77/;
 let accompany: Accompany | undefined;
 
 test.afterEach(async () => {
+  await closeContexts();
   await accompany?.stop();
 });
 
 async function openAsParticipant(browser: Browser, url: string, ready = "Fake Shell ready") {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const context = await newContext(browser, { viewport: { width: 1280, height: 720 } });
   const page = await context.newPage();
   await page.goto(url);
   await expectPaneToShow(page, 1, ready);
