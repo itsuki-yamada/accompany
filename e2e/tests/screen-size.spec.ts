@@ -25,6 +25,11 @@ test.afterEach(async () => {
   tmp = undefined;
 });
 
+// 下限より画面の小さい人がはみ出した部分をどう見るかを確かめるときの、端末の大きさの下限（ウィンドウの大きさ）。
+// 画面の大きい人（large）より小さく、小さい人（small）より縦横とも大きい
+const minWindow = "1000x600";
+
+// ページが見えているかどうか（document.hidden）を、テストから切り替えられるようにする
 async function openAsParticipant(
   browser: Browser,
   url: string,
@@ -32,6 +37,15 @@ async function openAsParticipant(
   permissions: string[] = [],
 ) {
   const context = await newContext(browser, { viewport, permissions });
+  await context.addInitScript(() => {
+    let hidden = false;
+    Object.defineProperty(document, "hidden", { get: () => hidden });
+    Object.defineProperty(document, "visibilityState", { get: () => (hidden ? "hidden" : "visible") });
+    (window as any).setHidden = (value: boolean) => {
+      hidden = value;
+      document.dispatchEvent(new Event("visibilitychange"));
+    };
+  });
   const page = await context.newPage();
   await page.goto(url);
   await expect(terminalScreen(page)).toContainText("size:");
@@ -117,14 +131,32 @@ async function chooseOverflow(page: Page, label: string) {
   await expect(dialog).toBeHidden();
 }
 
-// 画面の大きい人（host）と小さい人（guest）が参加している状態にする
+// 端末の周りの余白が、ターミナルの背景色で塗られているか（表示領域の右下の隅の色が、端末の背景色と同じか）
+async function marginColor(page: Page) {
+  return page.locator(".pane-terminal").evaluate((e) => getComputedStyle(e).backgroundColor);
+}
+
+async function terminalBackground(page: Page) {
+  return page.locator(".xterm-viewport").evaluate((e) => getComputedStyle(e).backgroundColor);
+}
+
+// 画面の大きい人（host）と、下限より画面の小さい人（guest）が参加している状態にする。
+// 端末の大きさは下限（minWindow）のウィンドウに収まる大きさになり、host の画面には収まり、guest の画面からははみ出す
 async function openLargeAndSmall(browser: Browser, permissions: string[] = []) {
-  accompany = await startAccompany(cornerReporter);
-  const host = await openAsParticipant(browser, accompany.url, large, permissions);
-  const size = await waitForSize(host);
+  accompany = await startAccompany(cornerReporter, {}, { minWindow });
+  const { page: host, size: hostAlone } = await sizeAlone(browser, accompany.url, large, permissions);
   const guest = await openAsParticipant(browser, accompany.url, small, permissions);
+  const size = await waitForSize(host, (size) => size !== hostAlone);
+  await waitForSize(guest, (s) => s === size);
   await expect.poll(() => scrollable(guest)).toBe(true);
+  expect(await scrollable(host, "any")).toBe(false);
   return { host, guest, size };
+}
+
+// 1 人で開いたときの端末の大きさ（自分の画面に合わせた大きさ）
+async function sizeAlone(browser: Browser, url: string, viewport: typeof large, permissions: string[] = []) {
+  const page = await openAsParticipant(browser, url, viewport, permissions);
+  return { page, size: await waitForSize(page) };
 }
 
 // 出力の URL は、マウスが乗ってリンクと判定されてからクリックする
@@ -170,53 +202,73 @@ test("1 人で開くと、端末がブラウザの画面いっぱいの大きさ
   expect(await scrollable(host)).toBe(false);
 });
 
-test("画面の小さい人が参加しても端末の大きさは変わらず、その人は文字の大きさはそのままでスクロールして全体を見られる", async ({
+test("画面の小さい人が参加すると、全員の端末がその人の画面に合わせて小さくなり、画面の大きい人は端末の周りが余白になる", async ({
   browser,
 }) => {
-  const { host, guest, size } = await openLargeAndSmall(browser);
+  accompany = await startAccompany(cornerReporter);
+  const { page: host, size: hostAlone } = await sizeAlone(browser, accompany.url, large);
 
-  // 端末の大きさは、画面の大きい人に合わせたまま
-  expect(await commandSize(guest)).toBe(size);
-  expect(await commandSize(host)).toBe(size);
-  await expect(guest.locator(".xterm-rows > div")).toHaveCount(parse(size).rows);
+  const guest = await openAsParticipant(browser, accompany.url, small);
+
+  // 端末の大きさは、画面の小さい人に合わせる
+  const shared = await waitForSize(host, (size) => parse(size).cols < parse(hostAlone).cols);
+  expect(parse(shared).rows).toBeLessThan(parse(hostAlone).rows);
+  await waitForSize(guest, (size) => size === shared);
+  // 画面の小さい人は、スクロールも縮小もせずに全体を見られる
+  await expectTerminalToFitIn(guest);
+  await expect.poll(() => scrollable(guest, "any")).toBe(false);
+  expect(await isVisible(guest, await cornerPoint(guest, corner.length - 1))).toBe(true);
+  // 画面の大きい人は、端末の周りが余白になるだけで、スクロールせずに全体を見られる。余白は端末の背景色で塗る
+  await expect(host.locator(".xterm-rows > div")).toHaveCount(parse(shared).rows);
+  expect(await scrollable(host, "any")).toBe(false);
+  const area = (await host.locator(".pane-terminal").boundingBox())!;
+  const box = (await host.locator(".xterm-screen").boundingBox())!;
+  expect(box.width).toBeLessThan(area.width * 0.8);
+  expect(box.height).toBeLessThan(area.height * 0.8);
+  expect(Math.abs(box.x - area.x)).toBeLessThan(2);
+  expect(Math.abs(box.y - area.y)).toBeLessThan(2);
+  expect(await marginColor(host)).toBe(await terminalBackground(host));
+  expect(await isVisible(host, await cornerPoint(host, corner.length - 1))).toBe(true);
   // 文字の大きさは同じ
   expect(await fontSizeOf(guest)).toBe(await fontSizeOf(host));
-  // 右下の隅は、スクロールすると見える
-  expect(await isVisible(guest, await cornerPoint(guest, 0))).toBe(false);
-  await scrollTo(guest, "end");
-  expect(await isVisible(guest, await cornerPoint(guest, 0))).toBe(true);
-  expect(await isVisible(guest, await cornerPoint(guest, corner.length - 1))).toBe(true);
 });
 
-test("画面の大きい人が参加すると、全員の端末がその人の画面に合わせて大きくなる", async ({ browser }) => {
+test("画面の大きい人が参加しても、端末の大きさは変わらない", async ({ browser }) => {
   accompany = await startAccompany(cornerReporter);
-  const host = await openAsParticipant(browser, accompany.url, small);
-  const hostAlone = parse(await waitForSize(host));
-  expect(await scrollable(host)).toBe(false);
+  const { page: host, size: hostAlone } = await sizeAlone(browser, accompany.url, small);
 
   const guest = await openAsParticipant(browser, accompany.url, large);
 
-  const shared = await waitForSize(guest, (size) => parse(size).cols > hostAlone.cols);
-  expect(parse(shared).rows).toBeGreaterThan(hostAlone.rows);
-  await expect.poll(() => commandSize(host)).toBe(shared);
-  await expectTerminalToFitIn(guest);
-  // 2 人とも同じ行数の端末を描き、画面の小さい人はスクロールして見る
-  await expect(host.locator(".xterm-rows > div")).toHaveCount(parse(shared).rows);
-  await expect(guest.locator(".xterm-rows > div")).toHaveCount(parse(shared).rows);
-  await expect.poll(() => scrollable(host)).toBe(true);
+  await waitForSize(guest, (size) => size === hostAlone);
+  // 大きさが変わると、偽のエージェントが新しい大きさを表示する
+  await guest.waitForTimeout(500);
+  expect(await commandSize(host)).toBe(hostAlone);
+  expect(await scrollable(host, "any")).toBe(false);
+  expect(await scrollable(guest, "any")).toBe(false);
 });
 
-test("画面の大きい人が抜けると、残った人の画面に合わせた大きさに戻る", async ({ browser }) => {
+test("画面の小さい人が抜けると、残った人の画面に合わせた大きさに戻る", async ({ browser }) => {
   accompany = await startAccompany(cornerReporter);
-  const host = await openAsParticipant(browser, accompany.url, small);
-  const hostAlone = await waitForSize(host);
-  const guest = await openAsParticipant(browser, accompany.url, large);
+  const { page: host, size: hostAlone } = await sizeAlone(browser, accompany.url, large);
+  const guest = await openAsParticipant(browser, accompany.url, small);
   await waitForSize(host, (size) => size !== hostAlone);
 
   await guest.context().close();
 
-  await expect.poll(() => commandSize(host)).toBe(hostAlone);
-  await expect.poll(() => scrollable(host)).toBe(false);
+  await waitForSize(host, (size) => size === hostAlone);
+});
+
+test("ページを見ていない参加者の画面も含めて、一番小さい画面に合わせる", async ({ browser }) => {
+  accompany = await startAccompany(cornerReporter);
+  const { page: guest, size: smallSize } = await sizeAlone(browser, accompany.url, small);
+  // 画面の小さい人は、別のタブやウィンドウを見ていて、Accompany のページは見えていない
+  await guest.evaluate(() => (window as any).setHidden(true));
+
+  const host = await openAsParticipant(browser, accompany.url, large);
+
+  await waitForSize(host, (size) => size === smallSize);
+  await host.waitForTimeout(500);
+  expect(await commandSize(host)).toBe(smallSize);
 });
 
 test("ブラウザのウィンドウの大きさを変えると、端末の大きさも合わせて変わる", async ({ browser }) => {
@@ -247,22 +299,39 @@ test("フル HD より大きい画面では、端末はフル HD の大きさま
 
 test("参加者が大きすぎる大きさを伝えても、端末は 512 列・256 行までにする", async ({ browser }) => {
   accompany = await startAccompany(cornerReporter);
-  const page = await openAsParticipant(browser, accompany.url, large);
-  await waitForSize(page);
+  // 端末の大きさは一番小さい参加者に合わせるので、大きすぎる値を伝える参加者だけがつながっている状態にする。
+  // ターミナルを開かない、同じオリジンのページから接続する
+  const page = await (await newContext(browser)).newPage();
+  await page.goto(`${accompany.url}/not-found`);
 
   // 改造したブラウザや、1 文字の大きさを小さく測る不具合などで、大きすぎる値が届いたとき
-  await page.evaluate(
-    () =>
-      new Promise<void>((resolve) => {
-        const socket = new WebSocket(`ws://${location.host}/ws/terminals/1`);
-        socket.onopen = () => {
-          socket.send(JSON.stringify({ type: "resize", cols: 600, rows: 300 }));
-          resolve();
-        };
-      }),
-  );
+  await page.evaluate(() => {
+    const w = window as any;
+    w.sizes = [];
+    const socket = new WebSocket(`ws://${location.host}/ws/terminals/1`);
+    socket.onmessage = (event) => {
+      if (typeof event.data !== "string") return;
+      const message = JSON.parse(event.data);
+      if (message.type === "resize") w.sizes.push(`${message.cols}x${message.rows}`);
+    };
+    socket.onopen = () => socket.send(JSON.stringify({ type: "resize", cols: 600, rows: 300 }));
+  });
 
-  await expect.poll(() => commandSize(page)).toBe("512x256");
+  await expect.poll(() => page.evaluate(() => (window as any).sizes.at(-1))).toBe("512x256");
+});
+
+test("下限より画面の小さい人は、文字の大きさはそのままで、はみ出した部分をスクロールして見る", async ({ browser }) => {
+  const { host, guest, size } = await openLargeAndSmall(browser);
+
+  await expect(guest.locator(".xterm-rows > div")).toHaveCount(parse(size).rows);
+  expect(await scrollable(host, "any")).toBe(false);
+  // 文字の大きさは同じ
+  expect(await fontSizeOf(guest)).toBe(await fontSizeOf(host));
+  // 右下の隅は、スクロールすると見える
+  expect(await isVisible(guest, await cornerPoint(guest, 0))).toBe(false);
+  await scrollTo(guest, "end");
+  expect(await isVisible(guest, await cornerPoint(guest, 0))).toBe(true);
+  expect(await isVisible(guest, await cornerPoint(guest, corner.length - 1))).toBe(true);
 });
 
 test("「画面に収める（縮小）」にすると、端末の大きさは変えずに、自分の画面だけ縮小して全体を表示する", async ({
@@ -338,7 +407,7 @@ test.describe("スクロールした位置でも、マウスの位置どおり�
 
   test("ファイルのドロップ", async ({ browser }) => {
     tmp = realpathSync(mkdtempSync(join(tmpdir(), "accompany-e2e-")));
-    accompany = await startAccompany(cornerReporter, { TMPDIR: tmp });
+    accompany = await startAccompany(cornerReporter, { TMPDIR: tmp }, { minWindow });
     await openAsParticipant(browser, accompany.url, large);
     const guest = await openAsParticipant(browser, accompany.url, small);
     await expect.poll(() => scrollable(guest)).toBe(true);

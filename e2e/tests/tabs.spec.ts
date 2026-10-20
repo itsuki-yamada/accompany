@@ -257,7 +257,7 @@ test("Workspace を切り替えても、切り替えた先の Workspace でタ�
   await expect(pane(host, 1)).toHaveAttribute("data-focused", "true");
 });
 
-test("新しい Workspace のターミナルも、参加者のうち一番大きい画面に合わせた大きさになり、画面の小さい人はスクロールして見る", async ({
+test("新しい Workspace のターミナルも、参加者のうち一番小さい画面に合わせた大きさになり、画面の大きい人は周りが余白になる", async ({
   browser,
 }) => {
   accompany = await startAccompany([], { SHELL: "e2e/fixtures/size-shell" });
@@ -269,19 +269,23 @@ test("新しい Workspace のターミナルも、参加者のうち一番大き
 
   await openNewTab(host);
 
-  // コマンドから見えている端末のサイズ（最後に表示したもの）が 2 人で同じになり、大きい画面に収まる
+  // コマンドから見えている端末のサイズ（最後に表示したもの）が 2 人で同じになり、小さい画面に収まる
   const size = async (page: Page) => {
     const text = (await pane(page, 2).locator(".xterm-rows").textContent()) ?? "";
     return [...text.matchAll(/size: (\d+)x(\d+)/g)].at(-1)?.slice(1).join("x") ?? "";
   };
   await expect.poll(() => size(guest)).not.toMatch(/^(80x24)?$/);
   await expect.poll(async () => (await size(host)) === (await size(guest))).toBe(true);
+  const guestBox = (await pane(guest, 2).locator(".xterm-screen").boundingBox())!;
+  expect(guestBox.x + guestBox.width).toBeLessThanOrEqual(small.width);
+  expect(guestBox.y + guestBox.height).toBeLessThanOrEqual(small.height);
+  const overflows = (page: Page) =>
+    pane(page, 2)
+      .locator(".pane-terminal")
+      .evaluate((e) => e.scrollWidth > e.clientWidth || e.scrollHeight > e.clientHeight);
+  expect(await overflows(guest)).toBe(false);
+  // 画面の大きい人は、端末の周りが余白になる
   const hostBox = (await pane(host, 2).locator(".xterm-screen").boundingBox())!;
-  expect(hostBox.x + hostBox.width).toBeLessThanOrEqual(large.width);
-  expect(hostBox.y + hostBox.height).toBeLessThanOrEqual(large.height);
-  expect(hostBox.width).toBeGreaterThan(small.width);
-  // 画面の小さい人は、はみ出した部分をスクロールして見る
-  await expect
-    .poll(() => pane(guest, 2).locator(".pane-terminal").evaluate((e) => e.scrollWidth > e.clientWidth))
-    .toBe(true);
+  expect(hostBox.width).toBeLessThan(small.width);
+  expect(await overflows(host)).toBe(false);
 });

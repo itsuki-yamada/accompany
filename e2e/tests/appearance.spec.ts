@@ -160,7 +160,7 @@ test("保存した設定が読めないときは、既定の見え方で開く",
   expect(await fontSizeOf(page)).toBe(defaults.fontSize);
 });
 
-test("フォントを大きくすると、自分の表示領域に収まる列数・行数が小さくなる。ほかの参加者のほうが多く収まるなら、その大きさのまま、大きくした人はスクロールして見る", async ({
+test("フォントを大きくすると、自分の表示領域に収まる列数・行数が小さくなり、ほかの参加者の端末もその大きさになって、周りが余白になる", async ({
   browser,
 }) => {
   accompany = await startAccompany(sizeReporter);
@@ -179,16 +179,19 @@ test("フォントを大きくすると、自分の表示領域に収まる列�
   expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
   expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
 
-  // フォントが既定の大きさの参加者が入ると、その人の表示領域（一番大きい）に合わせた大きさになる
+  // フォントが既定の大きさの参加者が入っても、端末は一番小さい表示領域（大きくした人）に合わせたまま
   const guest = await openAsParticipant(browser, accompany.url);
 
-  await expect.poll(() => commandSize(host)).toEqual(before);
-  await expect.poll(() => commandSize(guest)).toEqual(before);
-  await expect(host.locator(".xterm-rows > div")).toHaveCount(before.rows);
-  // フォントの大きさはそれぞれのまま。大きくした人は、はみ出した部分をスクロールして見る
+  await expect.poll(() => commandSize(guest)).toEqual(after);
+  await guest.waitForTimeout(500);
+  expect(await commandSize(host)).toEqual(after);
+  await expect(guest.locator(".xterm-rows > div")).toHaveCount(after.rows);
+  // フォントの大きさはそれぞれのまま。どちらもはみ出さず、既定の大きさの人は端末の周りが余白になる
   expect(await fontSizeOf(host)).toBe("30px");
   expect(await fontSizeOf(guest)).not.toBe("30px");
-  await expect
-    .poll(() => host.locator(".pane-terminal").evaluate((e) => e.scrollWidth > e.clientWidth))
-    .toBe(true);
+  for (const page of [host, guest]) {
+    expect(
+      await page.locator(".pane-terminal").evaluate((e) => e.scrollWidth > e.clientWidth || e.scrollHeight > e.clientHeight),
+    ).toBe(false);
+  }
 });
