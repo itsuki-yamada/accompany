@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { startAccompany, type Accompany } from "./accompany";
+import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
 import { boxOf, expectPaneToShow, pane, panes } from "./panes";
 
 // 分割した画面で、フォーカスしているターミナルが自分の枠に収まらないときは、そのターミナルを自分の画面だけで拡大して見る。
@@ -17,12 +17,13 @@ const modifiers = ["Meta+Shift", "Control+Shift"] as const;
 let accompany: Accompany | undefined;
 
 test.afterEach(async () => {
+  await closeContexts();
   await accompany?.stop();
   accompany = undefined;
 });
 
 async function openAsParticipant(browser: Browser, url: string, viewport = large) {
-  const context = await browser.newContext({ viewport });
+  const context = await newContext(browser, { viewport });
   const page = await context.newPage();
   await page.goto(url);
   await expect(panes(page).first().locator(".xterm-rows")).not.toBeEmpty();

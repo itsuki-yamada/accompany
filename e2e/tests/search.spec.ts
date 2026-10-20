@@ -1,10 +1,11 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { startAccompany, type Accompany } from "./accompany";
+import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
 import { expectPaneToShow, pane } from "./panes";
 
 let accompany: Accompany | undefined;
 
 test.afterEach(async () => {
+  await closeContexts();
   await accompany?.stop();
 });
 
@@ -215,7 +216,7 @@ test("バーの検索ボタンで開くと、そのターミナルにフォー�
 });
 
 async function openAsParticipant(browser: Browser, url: string) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const context = await newContext(browser, { viewport: { width: 1280, height: 720 } });
   const page = await context.newPage();
   await open(page, url);
   return page;

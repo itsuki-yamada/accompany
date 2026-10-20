@@ -1,5 +1,5 @@
 import { expect, test, type Browser } from "@playwright/test";
-import { startAccompany, type Accompany } from "./accompany";
+import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
 import { terminalScreen, typeInTerminal } from "./terminal";
 
 const fakeAgent = ["--", "bun", "e2e/fixtures/fake-agent.ts"];
@@ -7,12 +7,13 @@ const fakeAgent = ["--", "bun", "e2e/fixtures/fake-agent.ts"];
 let accompany: Accompany | undefined;
 
 test.afterEach(async () => {
+  await closeContexts();
   await accompany?.stop();
 });
 
 // 参加者ごとに別のブラウザコンテキストで開き、端末が表示されるまで待つ
 async function openAsParticipant(browser: Browser, url: string) {
-  const context = await browser.newContext();
+  const context = await newContext(browser);
   const page = await context.newPage();
   await page.goto(url);
   await expect(terminalScreen(page)).toBeVisible();

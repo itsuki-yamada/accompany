@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { startAccompany, type Accompany } from "./accompany";
+import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
 import { terminalScreen } from "./terminal";
 
 // 端末の大きさを表示し続ける偽のエージェント
@@ -9,11 +9,12 @@ const viewport = { width: 1280, height: 720 };
 let accompany: Accompany | undefined;
 
 test.afterEach(async () => {
+  await closeContexts();
   await accompany?.stop();
 });
 
 async function openAsParticipant(browser: Browser, url: string) {
-  const context = await browser.newContext({ viewport });
+  const context = await newContext(browser, { viewport });
   const page = await context.newPage();
   await page.goto(url);
   await expect(terminalScreen(page)).toContainText("size:");
@@ -149,7 +150,7 @@ test("保存した設定が読めないときは、既定の見え方で開く",
   const reference = await openAsParticipant(browser, accompany.url);
   const defaults = { colors: await terminalColors(reference), fontSize: await fontSizeOf(reference) };
 
-  const context = await browser.newContext({ viewport });
+  const context = await newContext(browser, { viewport });
   await context.addInitScript(() => localStorage.setItem("accompany.appearance", "{壊れた値"));
   const page = await context.newPage();
   await page.goto(accompany.url);

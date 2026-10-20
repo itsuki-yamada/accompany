@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { startAccompany, type Accompany } from "./accompany";
+import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
 import { boxOf, expectPaneToShow, pane } from "./panes";
 
 // 最初のターミナルは、出力を出してから止まる偽のエージェント（「work」で 3 秒、「longwork」で 6 秒作業する）。
@@ -15,11 +15,12 @@ const modifiers = ["Meta+Shift", "Control+Shift"] as const;
 let accompany: Accompany | undefined;
 
 test.afterEach(async () => {
+  await closeContexts();
   await accompany?.stop();
 });
 
 async function openAsParticipant(browser: Browser, url: string) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const context = await newContext(browser, { viewport: { width: 1280, height: 720 } });
   const page = await context.newPage();
   await page.goto(url);
   await expectPaneToShow(page, 1, "Busy Agent ready");
@@ -264,7 +265,7 @@ test("サイドメニューは、ボタンとショートカットで参加者�
 
 test("ウィンドウが狭いときは、最初はサイドメニューを隠しておき、ボタンで出せる", async ({ browser }) => {
   accompany = await startAccompany(busyAgent, titleShell);
-  const context = await browser.newContext({ viewport: { width: 800, height: 720 } });
+  const context = await newContext(browser, { viewport: { width: 800, height: 720 } });
   const page = await context.newPage();
   await page.goto(accompany.url);
   await expectPaneToShow(page, 1, "Busy Agent ready");

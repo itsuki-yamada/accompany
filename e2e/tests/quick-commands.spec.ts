@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { startAccompany, type Accompany } from "./accompany";
+import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
 import { expectPaneToShow, pane } from "./panes";
 import { terminalScreen } from "./terminal";
 
@@ -10,11 +10,12 @@ const pasteReporter = ["--", "bun", "e2e/fixtures/paste-reporter.ts"];
 let accompany: Accompany | undefined;
 
 test.afterEach(async () => {
+  await closeContexts();
   await accompany?.stop();
 });
 
 async function open(browser: Browser, url: string, ready: string) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const context = await newContext(browser, { viewport: { width: 1280, height: 720 } });
   const page = await context.newPage();
   await page.goto(url);
   await expect(terminalScreen(page)).toContainText(ready);

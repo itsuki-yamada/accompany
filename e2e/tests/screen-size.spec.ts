@@ -2,7 +2,7 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { startAccompany, type Accompany } from "./accompany";
+import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
 import { terminalScreen } from "./terminal";
 
 // 端末のサイズを左上に、目印の言葉と URL を右下の隅に表示し続ける偽のエージェント
@@ -18,6 +18,7 @@ let accompany: Accompany | undefined;
 let tmp: string | undefined;
 
 test.afterEach(async () => {
+  await closeContexts();
   await accompany?.stop();
   accompany = undefined;
   if (tmp) rmSync(tmp, { recursive: true, force: true });
@@ -30,7 +31,7 @@ async function openAsParticipant(
   viewport: typeof large,
   permissions: string[] = [],
 ) {
-  const context = await browser.newContext({ viewport, permissions });
+  const context = await newContext(browser, { viewport, permissions });
   const page = await context.newPage();
   await page.goto(url);
   await expect(terminalScreen(page)).toContainText("size:");
@@ -43,6 +44,19 @@ async function commandSize(page: Page) {
   const sizes = [...((await terminalScreen(page).textContent()) ?? "").matchAll(/size: (\d+)x(\d+)/g)];
   const last = sizes.at(-1);
   return last ? `${last[1]}x${last[2]}` : "";
+}
+
+// 偽のエージェントが、条件に合うサイズを描き終えるのを待って、そのサイズを返す（既定は、起動時の 80x24 から変わったもの）。
+// 端末の大きさが変わってから描き直すまでの間は、サイズが画面にないことがある。行が減ると、xterm は
+// カーソルのある最後の行を残して上の行をスクロールバックに送るので、左上のサイズの行が見えなくなる
+async function waitForSize(page: Page, accept: (size: string) => boolean = (size) => size !== "80x24") {
+  // 落ちたときに、最後に読んだサイズがメッセージに出るようにする（待つ時間は expect.poll の既定と同じ 5 秒）
+  let size = "";
+  await expect(async () => {
+    size = await commandSize(page);
+    expect(size !== "" && accept(size), `最後に読んだサイズ: "${size}"`).toBe(true);
+  }).toPass({ timeout: 5_000 });
+  return size;
 }
 
 function parse(size: string) {
@@ -107,8 +121,7 @@ async function chooseOverflow(page: Page, label: string) {
 async function openLargeAndSmall(browser: Browser, permissions: string[] = []) {
   accompany = await startAccompany(cornerReporter);
   const host = await openAsParticipant(browser, accompany.url, large, permissions);
-  await expect.poll(() => commandSize(host)).not.toBe("80x24");
-  const size = await commandSize(host);
+  const size = await waitForSize(host);
   const guest = await openAsParticipant(browser, accompany.url, small, permissions);
   await expect.poll(() => scrollable(guest)).toBe(true);
   return { host, guest, size };
@@ -147,7 +160,7 @@ test("1 人で開くと、端末がブラウザの画面いっぱいの大きさ
 
   const host = await openAsParticipant(browser, accompany.url, large);
 
-  await expect.poll(() => commandSize(host)).not.toBe("80x24");
+  await waitForSize(host);
   await expectTerminalToFitIn(host);
   // 画面いっぱい = サイドメニューとツールバーを除いた、ターミナルを並べる領域いっぱい
   const area = (await host.getByRole("main").boundingBox())!;
@@ -178,14 +191,12 @@ test("画面の小さい人が参加しても端末の大きさは変わらず�
 test("画面の大きい人が参加すると、全員の端末がその人の画面に合わせて大きくなる", async ({ browser }) => {
   accompany = await startAccompany(cornerReporter);
   const host = await openAsParticipant(browser, accompany.url, small);
-  await expect.poll(() => commandSize(host)).not.toBe("80x24");
-  const hostAlone = parse(await commandSize(host));
+  const hostAlone = parse(await waitForSize(host));
   expect(await scrollable(host)).toBe(false);
 
   const guest = await openAsParticipant(browser, accompany.url, large);
 
-  await expect.poll(async () => parse(await commandSize(guest)).cols).toBeGreaterThan(hostAlone.cols);
-  const shared = await commandSize(guest);
+  const shared = await waitForSize(guest, (size) => parse(size).cols > hostAlone.cols);
   expect(parse(shared).rows).toBeGreaterThan(hostAlone.rows);
   await expect.poll(() => commandSize(host)).toBe(shared);
   await expectTerminalToFitIn(guest);
@@ -198,10 +209,9 @@ test("画面の大きい人が参加すると、全員の端末がその人の�
 test("画面の大きい人が抜けると、残った人の画面に合わせた大きさに戻る", async ({ browser }) => {
   accompany = await startAccompany(cornerReporter);
   const host = await openAsParticipant(browser, accompany.url, small);
-  await expect.poll(() => commandSize(host)).not.toBe("80x24");
-  const hostAlone = await commandSize(host);
+  const hostAlone = await waitForSize(host);
   const guest = await openAsParticipant(browser, accompany.url, large);
-  await expect.poll(() => commandSize(host)).not.toBe(hostAlone);
+  await waitForSize(host, (size) => size !== hostAlone);
 
   await guest.context().close();
 
@@ -212,12 +222,11 @@ test("画面の大きい人が抜けると、残った人の画面に合わせ�
 test("ブラウザのウィンドウの大きさを変えると、端末の大きさも合わせて変わる", async ({ browser }) => {
   accompany = await startAccompany(cornerReporter);
   const host = await openAsParticipant(browser, accompany.url, large);
-  await expect.poll(() => commandSize(host)).not.toBe("80x24");
-  const before = await commandSize(host);
+  const before = await waitForSize(host);
 
   await host.setViewportSize(small);
 
-  await expect.poll(() => commandSize(host)).not.toBe(before);
+  await waitForSize(host, (size) => size !== before);
   await expectTerminalToFitIn(host);
 });
 
@@ -226,7 +235,7 @@ test("フル HD より大きい画面では、端末はフル HD の大きさま
 
   const page = await openAsParticipant(browser, accompany.url, huge);
 
-  await expect.poll(() => commandSize(page)).not.toBe("80x24");
+  await waitForSize(page);
   const box = (await page.locator(".xterm-screen").boundingBox())!;
   expect(box.width).toBeLessThanOrEqual(1920);
   expect(box.height).toBeLessThanOrEqual(1080);
@@ -239,7 +248,7 @@ test("フル HD より大きい画面では、端末はフル HD の大きさま
 test("参加者が大きすぎる大きさを伝えても、端末は 512 列・256 行までにする", async ({ browser }) => {
   accompany = await startAccompany(cornerReporter);
   const page = await openAsParticipant(browser, accompany.url, large);
-  await expect.poll(() => commandSize(page)).not.toBe("80x24");
+  await waitForSize(page);
 
   // 改造したブラウザや、1 文字の大きさを小さく測る不具合などで、大きすぎる値が届いたとき
   await page.evaluate(

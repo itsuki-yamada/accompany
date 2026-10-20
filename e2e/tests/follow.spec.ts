@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { startAccompany, type Accompany } from "./accompany";
+import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
 import { expectPaneToShow, pane } from "./panes";
 
 const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
@@ -7,11 +7,12 @@ const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
 let accompany: Accompany | undefined;
 
 test.afterEach(async () => {
+  await closeContexts();
   await accompany?.stop();
 });
 
 async function openAsParticipant(browser: Browser, url: string) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const context = await newContext(browser, { viewport: { width: 1280, height: 720 } });
   const page = await context.newPage();
   await page.goto(url);
   await expectPaneToShow(page, 1, "Fake Shell ready");
@@ -269,7 +270,7 @@ test("自分の画面で拡大していても、相手が隠れているター�
   await pane(host, 1).getByRole("button", { name: "右に分割" }).click();
   await expectPaneToShow(host, 2, "Fake Shell ready");
   await clickPane(host, 1);
-  const context = await browser.newContext({ viewport: { width: 800, height: 720 } });
+  const context = await newContext(browser, { viewport: { width: 800, height: 720 } });
   const guest = await context.newPage();
   await guest.goto(accompany.url);
   await expectPaneToShow(guest, 1, "Fake Shell ready");
