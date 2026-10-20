@@ -152,7 +152,7 @@ export class Sidebar {
 
   private renderSessions({ tabs, active, titles, statuses, members, you }: SidebarState) {
     const all = agentStatuses(tabs.flatMap((tab) => terminalIds(tab.layout)), statuses);
-    this.summary.replaceChildren(counts(all, true));
+    this.summary.replaceChildren(counts(all));
     this.groups.replaceChildren(
       ...tabs.map((tab) => {
         const group = document.createElement("div");
@@ -259,13 +259,13 @@ function agentStatuses(ids: string[], statuses: Record<string, AgentStatus>) {
   return ids.flatMap((id) => (statuses[id] ? [statuses[id]] : []));
 }
 
-// 状態ごとの件数（例: 作業中 1・未確認 1・指示待ち 2）。always なら 0 件の状態も出す
-function counts(statuses: AgentStatus[], always = false) {
+// 状態ごとの件数（例: 作業中 1・未確認 1・指示待ち 2）。0 件の状態は出さない
+function counts(statuses: AgentStatus[]) {
   const element = document.createElement("span");
   element.className = "status-counts";
   for (const status of ["working", "done", "idle"] as const) {
     const count = statuses.filter((s) => s === status).length;
-    if (count === 0 && !always) continue;
+    if (count === 0) continue;
     const item = document.createElement("span");
     item.className = "status-count";
     item.dataset.status = status;

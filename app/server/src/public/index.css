@@ -480,6 +480,11 @@ body {
   font-weight: bold;
 }
 
+.pane-status[data-status="done"] {
+  background: var(--agent-color);
+  border-color: var(--agent-color);
+}
+
 /* よく使うコマンドの登録・編集・削除の画面。ターミナルのバーの「コマンド」のメニューから開く */
 .quick-commands {
   width: min(560px, calc(100vw - 32px));

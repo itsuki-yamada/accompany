@@ -241,6 +241,8 @@ export class TerminalSession {
     const next = found.foreground;
     this.foreground = next;
     if (!next.agent) {
+      // エージェントが前面でなくなったら、未確認も消す（docs/adr/74-unseen-done.md）
+      this.unseen = false;
       if (previous?.agent) this.onStatus();
       return;
     }
