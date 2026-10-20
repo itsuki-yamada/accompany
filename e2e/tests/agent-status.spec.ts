@@ -315,9 +315,10 @@ test("シェルから起動したエージェントを見分けて状態を出�
   expect(await statusHistory(page)).not.toContain("作業中");
   expect(await notificationTitles(page)).toEqual([]);
 
-  // 指示を出せば、作業中を経て指示待ちになり、通知が出る
+  // 指示を出せば、作業中を経て終わり、通知が出る。ページが見えていないので、終わると未確認になる
   await typeInPane(page, 1, "work\n");
-  await workUntilDone(page, 1);
+  await expect(agentStatus(page, 1)).toHaveText("作業中", { timeout: 5_000 });
+  await expect(agentStatus(page, 1)).toHaveText("未確認", { timeout: 10_000 });
   await expect.poll(() => notificationTitles(page)).toEqual(["ターミナル 1: 指示待ち"]);
 
   // エージェントを終えてシェルに戻ると、状態を出さなくなる
