@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "playwright test"
+    "test": "playwright test tests/links.spec.ts tests/screen-size.spec.ts --repeat-each=30"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0"
