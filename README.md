@@ -1,6 +1,6 @@
 # Accompany（同行）
 
-AI コーディングエージェントのターミナルをブラウザで共有する Web UI サーバー。VS Code Live Share の「サーバーの共有（Share server）」と組み合わせて、エージェントを交えたリモート・ペアプログラミングを楽にするための、エスケープハッチ。
+AI コーディングエージェントのターミナルをブラウザで共有する Web UI サーバー。VS Code Live Share の「サーバーの共有（Share server）」と組み合わせて、エージェントを交えたリモート・ペアプログラミングを楽にするエスケープハッチ（逃げ道）。
 
 Live Share の共有ターミナルで Claude Code などの TUI のエージェントを動かすと、描画が崩れたり、ホストとゲストの画面がずれたりする。そんなときは、ホストのマシンで Accompany を起動し、そのポートを Live Share の「サーバーの共有」でゲストに渡す。ゲストは自分のブラウザで `http://localhost:<ポート>` を開くだけで、ホストと同じエージェントのターミナルを見て、同じように操作できる。
 
@@ -27,7 +27,7 @@ Live Share の共有ターミナルで Claude Code などの TUI のエージェ
 
 ![ホストの画面: エージェントが作業中](docs/images/working.png)
 
-同じ Workspace を、Live Share のサーバーの共有でつないだゲストのブラウザで見た画面。エージェントが作業を終え、指示待ちに変わっている。配置と出力はホストと同じで、フォーカスの位置だけが人ごとに違う。
+同じ Workspace を、ゲストのブラウザで見た画面。Live Share のサーバーの共有と同じように、別のポートで受けて Accompany へ TCP のまま転送し、そのポートで開いた。エージェントが作業を終え、指示待ちに変わっている。配置と出力はホストと同じで、フォーカスの位置だけが人ごとに違う。
 
 ![ゲストの画面: エージェントが指示待ち](docs/images/waiting.png)
 
@@ -98,17 +98,19 @@ Bun 1.3 までは、画面の JS と CSS が読み込まれず、画面が空に
 3. ホストが、Live Share のビュー（アクティビティバーの Live Share、またはエクスプローラーの Live Share）で **Share server**（サーバーの共有）を選び、Accompany のポート（既定は `3000`。`--port` で変えたときはその番号）を入力する。名前は任意（`Accompany` など）
 4. ゲストは、Live Share のビューの **Shared Servers** の一覧から Accompany を選ぶ（ブラウザで開く）か、自分のブラウザで `http://localhost:3000` を開く
 
-- ゲストの手元でそのポートが既に使われていると、Live Share は別のポートを割り当てる。そのときは **Shared Servers** の一覧に出るリンクを開く。ポート番号が変わっても、Accompany は問題なく動く（下記）
+- ゲストの手元でそのポートが既に使われていると、Live Share は別のポートを割り当てる。そのときは **Shared Servers** の一覧に出るリンクを開く。ポート番号が変わっても、Accompany の制限には弾かれないはず（下記）
 - 共有をやめるときは、ホストが **Shared Servers** の一覧で **Unshare server** を選ぶ。Live Share のセッションを終えると、共有も終わる
 - ゲストは、ホストのマシンでコマンドを実行できるようになる（Live Share の読み書きできるターミナルの共有と同じ）。信頼できる相手とだけ共有する
+- ゲストの画面がつながらないときは、ホスト側で `localhost` が IPv6（`::1`）に解決されている可能性がある。Accompany は `127.0.0.1` だけで待ち受けている
 - Live Share の操作は、公式ドキュメントの [Share a server](https://learn.microsoft.com/en-us/visualstudio/liveshare/use/share-server-visual-studio-code#share-a-server) を参照
 
-### Host・Origin の制限で弾かれない理由
+### Host・Origin の制限で弾かれないはずの理由
 
 Accompany は、ほかのサイトのページから端末を操作されないよう、WebSocket とアップロードを、Host が loopback（`localhost`・`127.0.0.1`・`[::1]`）で、Origin が Host と同じものに限っている（[接続の制限](#接続の制限)）。Live Share のサーバーの共有は、ゲストの手元の localhost のポートを、ホストの Accompany のポートへ TCP のまま転送する。そのため、
 
-- ゲストのブラウザは `http://localhost:<ゲスト側のポート>` を開いているので、Host は `localhost:<ゲスト側のポート>`、Origin は `http://localhost:<ゲスト側のポート>` になる。Host は loopback で、Origin は Host と同じなので、受け付けられる
-- 制限は Host のホスト名と、Origin が Host と同じかだけを見て、ポート番号そのものは見ない。画面の JS も、開いているページと同じホストとポート（`location.host`）に WebSocket をつなぐ。そのため、ゲスト側でポート番号が変わっても弾かれない
+- ゲストのブラウザは `http://localhost:<ゲスト側のポート>` を開いているので、Host は `localhost:<ゲスト側のポート>`、Origin は `http://localhost:<ゲスト側のポート>` になる。Host は loopback で、Origin は Host と同じなので、受け付けられるはず
+- 制限は Host のホスト名と、Origin が Host と同じかだけを見て、ポート番号そのものは見ない。画面の JS も、開いているページと同じホストとポート（`location.host`）に WebSocket をつなぐ。そのため、ゲスト側でポート番号が変わっても弾かれないはず
+- 実際の Live Share ではまだ確かめていない。手元では、別のポートで受けて TCP のまま転送するプロキシ越しに、表示・入力・Workspace の操作ができることを確かめた
 
 ## 仕組み
 
