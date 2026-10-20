@@ -21,7 +21,8 @@ export type WorkspaceEvent =
   | { type: "presence"; members: Member[] }
   // ターミナルごとの、コマンドが設定したタイトル（ターミナルの ID → タイトル。空のものは含めない）
   | { type: "titles"; titles: Record<string, string> }
-  // ターミナルごとのエージェントの状態。エージェントが前面で動いているターミナルだけを含める
+  // ターミナルごとのエージェントの状態。エージェントが前面で動いているターミナルだけを含める。
+  // 作業が終わってまだ誰も見ていないものは done（docs/adr/74-unseen-done.md）
   | { type: "status"; statuses: Record<string, AgentStatus> }
   // 参加者全員で共有する、よく使うコマンドの一覧
   | { type: "commands"; commands: QuickCommand[] };
@@ -33,6 +34,8 @@ const colors = ["#4fc3f7", "#ffb74d", "#81c784", "#f06292", "#ba68c8", "#fff176"
 export class Workspace {
   private terminals = new Map<string, TerminalSession>();
   private members = new Map<Listener, Member>();
+  // ページが見えている参加者。フォーカス先と合わせて、未確認を消すか決める（docs/adr/74-unseen-done.md）
+  private visibleMembers = new Set<Member>();
   private nextMemberId = 1;
   // ターミナルとタブの番号は画面に出るので、分割の節とは別に数えて 1, 2, 3 と続ける
   private nextId = 1;
@@ -125,9 +128,17 @@ export class Workspace {
       focus: (terminalId: string) => {
         member.terminal = terminalId;
         this.notifyPresence();
+        this.updateSeen();
+      },
+      // ページが見えているか。参加したときは、届くまで見えていないとみなす
+      visible: (visible: boolean) => {
+        if (visible) this.visibleMembers.add(member);
+        else this.visibleMembers.delete(member);
+        this.updateSeen();
       },
       leave: () => {
         this.members.delete(listener);
+        this.visibleMembers.delete(member);
         this.notifyPresence();
       },
     };
@@ -266,6 +277,8 @@ export class Workspace {
     const event = this.tabsEvent();
     this.members.forEach((_, l) => l(event));
     this.onChange();
+    // 表示中のタブが変わると、見ているターミナルも変わる
+    this.updateSeen();
   }
 
   private titlesEvent(): WorkspaceEvent {
@@ -296,9 +309,28 @@ export class Workspace {
     return statuses;
   }
 
+  // 作業が終わったときに見ている人がいれば、未確認にしないで配る
   private notifyStatus() {
+    this.clearSeen();
     const statuses = this.statuses();
     this.members.forEach((_, l) => l({ type: "status", statuses }));
+  }
+
+  private updateSeen() {
+    if (this.clearSeen()) this.notifyStatus();
+  }
+
+  // 誰か 1 人でも見ているターミナルの未確認を消す。見ている = 表示中のタブにあり、その参加者がフォーカスしていて、
+  // ページが見えている。消したものがあれば true
+  private clearSeen() {
+    const tab = this.tabs.find((t) => t.id === this.active);
+    const shown = new Set(tab ? terminalIds(tab.layout) : []);
+    let changed = false;
+    for (const member of this.visibleMembers) {
+      const id = member.terminal;
+      if (id && shown.has(id) && this.terminals.get(id)?.markSeen()) changed = true;
+    }
+    return changed;
   }
 
   private commandsEvent(): WorkspaceEvent {

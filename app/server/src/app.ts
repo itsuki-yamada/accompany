@@ -44,7 +44,7 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
   app.use("/api/*", sameOriginOnly);
 
   // タブと分割の配置、参加者ごとのフォーカス先、よく使うコマンドの一覧を全員に配り、タブの追加・切り替え・閉じる、
-  // 分割・閉じる・割合の変更・フォーカスの移動、よく使うコマンドの登録・編集・削除を受け付ける
+  // 分割・閉じる・割合の変更・フォーカスの移動・ページが見えているか、よく使うコマンドの登録・編集・削除を受け付ける
   app.get(
     "/ws/workspace",
     upgradeWebSocket(() => {
@@ -69,6 +69,8 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
             workspace.closeTab(String(message.tab));
           } else if (message?.type === "focus") {
             member?.focus(String(message.terminal));
+          } else if (message?.type === "visibility") {
+            member?.visible(message.visible === true);
           } else if (message?.type === "add-command" || message?.type === "update-command") {
             const command = parseQuickCommand(message);
             if (!command) return;

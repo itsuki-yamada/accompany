@@ -62,6 +62,8 @@ export class TerminalSession {
   // 調べている最中に入出力があった。調べ終えたら調べ直す（最中に前面が替わったかもしれないので）
   private detectAgain = false;
   private killed = false;
+  // 作業が終わってから、まだ誰も見ていない（docs/adr/74-unseen-done.md）。保存はしない
+  private unseen = false;
 
   constructor(
     private command: string[],
@@ -80,8 +82,9 @@ export class TerminalSession {
   ) {
     this.onOutput = onOutput;
     this.onStatus = onStatus;
-    // エージェントが前面にいないときの判定の変化は知らせない
-    this.activity = new ActivityMonitor(() => {
+    // エージェントが前面にいないときの判定の変化は知らせない。作業中から指示待ちに変わったら、誰かが見るまで未確認にする
+    this.activity = new ActivityMonitor((status) => {
+      this.unseen = status === "idle";
       if (this.foreground?.agent) onStatus();
     });
     this.screen.loadAddon(this.serializer);
@@ -188,7 +191,15 @@ export class TerminalSession {
 
   // エージェントの状態。エージェントが前面で動いていなければ undefined
   get status(): AgentStatus | undefined {
-    return this.foreground?.agent ? this.activity.status : undefined;
+    if (!this.foreground?.agent) return undefined;
+    return this.activity.status === "idle" && this.unseen ? "done" : this.activity.status;
+  }
+
+  // 誰かが見たので、未確認を消す。表示が変わった（未確認だった）なら true
+  markSeen() {
+    const changed = this.status === "done";
+    this.unseen = false;
+    return changed;
   }
 
   kill() {
@@ -236,6 +247,7 @@ export class TerminalSession {
     // エージェントが前面になった（別のエージェントに替わった）ら、そこから判定を始める
     if (!previous?.agent || previous.pgid !== next.pgid) {
       this.activity.reset();
+      this.unseen = false;
       this.onStatus();
     }
   }
