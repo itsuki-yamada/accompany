@@ -38,10 +38,14 @@ hono・xterm・Playwright などの依存パッケージ（`app/server` と `e2e
 ## 決定
 
 - 2 にする。直下に `renovate.json` を置く
-- 週 1 回（月曜の 9 時まで、日本時間）。major 以外（minor・patch・SHA の更新）は 1 つの PR「`chore(deps): major 以外の依存を上げる`」にまとめ、major は依存ごとに「`chore(deps): hono を v5 にする`」のような PR にする
+- 週 1 回（月曜の 0 時から 9 時まで、日本時間。`schedule` は cron で `* 0-8 * * 1`）。major 以外（minor・patch・SHA の更新）は 1 つの PR「`chore(deps): major 以外の依存 を上げる`」にまとめ、major は依存ごとに「`chore(deps): hono を v5 にする`」のような PR にする。ただし、同じリポジトリから出る xterm のパッケージ（`@xterm/*`）は、`config:recommended` の `group:monorepos` により、major も「`chore(deps): xterm monorepo を上げる (major)`」の 1 つの PR にまとまる（同時に上げないと組み合わせが合わないので、そのほうがよい）
 - npm のパッケージは、公開から 3 日たった版だけを PR にする（`security:minimumReleaseAgeNpm`）
 - ワークフローの `uses:` は、すべてコミットの SHA に固定し、末尾に版のコメント（`# v7.0.1`）を付ける。Renovate が SHA とコメントを一緒に上げる
-- 脆弱性の修正は、GitHub の Dependabot alerts を Renovate が読み、週 1 回の予定を待たずに PR にする（Renovate の `vulnerabilityAlerts`、既定で有効）。Dependabot security updates は使わない（Renovate と同じ PR が二重に届くのを避ける。bun の security updates には Dependabot が対応していない）
+- 脆弱性の修正は、週 1 回の予定を待たずに PR にする（Renovate の `vulnerabilityAlerts`、既定で有効）。脆弱性は 2 つから拾う
+  - GitHub の Dependabot alerts: GitHub の dependency graph が見つけた依存の alert を、Renovate が読む。dependency graph は bun.lock に対応していないので、見つかるのは package.json に書いた直接の依存だけ。GitHub Actions は、版を SHA で固定すると alert が出ない（alert は semver の版を指したものだけ）
+  - OSV（`osvVulnerabilityAlerts: true`。Renovate が osv.dev のデータを直接引く。Renovate では experimental）: package.json の直接の依存のうち、版を固定したもの（`@xterm/*`、`@playwright/test`）。`^4.13.13` のような範囲で書いた hono は調べない（Dependabot alerts のほうで拾う）。GitHub Actions、mise.toml の Bun は、Renovate の OSV の対象外
+  - どちらでも拾えないもの: bun.lock の間接的な依存、mise.toml の Bun、SHA で固定した GitHub Actions。これらは週 1 回の版の更新で追いつく
+- Dependabot security updates は使わない（Renovate と同じ PR が二重に届くのを避ける。bun の security updates には Dependabot が対応していない）
 - 届いた PR は、同じリポジトリのブランチ（`renovate/…`）からの PR なので、`e2e.yml` の `pull_request` でふつうに E2E が流れる。通ったらマージする
 
 ## 理由
@@ -51,6 +55,7 @@ hono・xterm・Playwright などの依存パッケージ（`app/server` と `e2e
 - PR のタイトルを、このリポジトリのコミットメッセージ（日本語の Conventional Commits）に合わせられる
 - GitHub App のインストールは、持ち主が一度だけ行えばよい
 - 依存が少なく（app/server に 6 つ、e2e に 1 つ、Actions が 4 つ）、major 以外を 1 つにまとめれば、週に 1〜2 本の PR で済む。major は破壊的な変更があり得るので、1 つずつ E2E で確かめる
+- 脆弱性の alert は 1 つの仕組みでは拾いきれない。dependency graph と OSV を合わせ、拾えないものは週 1 回の更新で上げる
 - 公開直後の版には、乗っ取られたパッケージが紛れることがある。3 日待てば、多くは見つかって取り下げられる
 - タグ（`@v7`）は、あとから別のコミットに付け替えられる。SHA に固定すれば、確かめたコードだけが動く
 
@@ -58,5 +63,6 @@ hono・xterm・Playwright などの依存パッケージ（`app/server` と `e2e
 
 - 持ち主が Mend Renovate の GitHub App をこのリポジトリにインストールするまで、PR は届かない。インストールすると、Renovate が設定を確かめ、Issue「依存の更新の一覧（Renovate）」を作って、届く予定の PR を一覧にする
 - Renovate の PR は、Project には自動で入らない
+- 間接的な依存と Bun、Actions の脆弱性は、alert では知らされない。週 1 回の更新の PR をためずにマージする
 - bun.lock の間接的な依存だけの更新（lock file maintenance）はしない。いまは直接の依存がほとんど間接的な依存を持たない。必要になったら有効にする
 - Actions の SHA 固定は、ワークフローを足すときにも守る（Renovate は、固定されていない `uses:` を固定する PR を出す）
