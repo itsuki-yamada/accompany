@@ -2,9 +2,10 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { upgradeWebSocket } from "hono/bun";
 import { createMiddleware } from "hono/factory";
+import { parseMinWindow } from "./min-window";
 import { parseQuickCommand } from "./quick-commands";
 import { scrollback } from "./scrollback";
-import { clampSize, maxSize, type Participant, type Size } from "./terminal";
+import { clampSize, maxSize, type Participant, type Requested } from "./terminal";
 import { maxUploadBytes, type Uploads } from "./uploads";
 import type { Position, SelectionRange, Workspace } from "./workspace";
 
@@ -23,11 +24,17 @@ const sameOriginOnly = createMiddleware(async (c, next) => {
   await next();
 });
 
-// ブラウザから届く制御メッセージ。大きさは 1 以上の整数だけを受け付け、上限（maxSize）を超えるものは上限に丸める
-function parseSize(message: { cols?: unknown; rows?: unknown }): Size | undefined {
-  const { cols, rows } = message;
-  const valid = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) >= 1;
-  return valid(cols) && valid(rows) ? clampSize({ cols, rows }) : undefined;
+// ブラウザから届く制御メッセージ。表示領域に収まる大きさ（cols・rows）は 1 以上、下限のウィンドウに収まる大きさ
+// （minCols・minRows。docs/adr/99-smallest-size.md）は 0 以上の整数だけを受け付け、上限（maxSize）を超えるものは上限に丸める。
+// 下限の大きさがない（下限を送らない古いブラウザ）ときは、min なしで受け付ける
+function parseSize(message: Record<string, unknown>): Requested | undefined {
+  const { cols, rows, minCols, minRows } = message;
+  const valid = (n: unknown, min: number): n is number => Number.isSafeInteger(n) && (n as number) >= min;
+  if (!valid(cols, 1) || !valid(rows, 1)) return;
+  const fits = clampSize({ cols, rows });
+  if (minCols === undefined && minRows === undefined) return { fits };
+  if (!valid(minCols, 0) || !valid(minRows, 0)) return;
+  return { fits, min: clampSize({ cols: minCols, rows: minRows }) };
 }
 
 // 選択範囲として受け付ける行の数。ブラウザの端末のバッファは、スクロールバックと画面の行数（上限は maxSize.rows）まで
@@ -68,7 +75,8 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
 
   // タブと分割の配置、参加者ごとのフォーカス先と選択範囲・ペアプロモードで追従している相手・スクロール位置、
   // よく使うコマンドの一覧を全員に配り、タブの追加・切り替え・閉じる、分割・閉じる・割合の変更・フォーカスの移動・選択範囲・
-  // ページが見えているか、ペアプロモードの開始・終了とスクロール位置、よく使うコマンドの登録・編集・削除を受け付ける
+  // ページが見えているか、ペアプロモードの開始・終了とスクロール位置、よく使うコマンドの登録・編集・削除、
+  // 端末の大きさの下限の変更を受け付ける
   app.get(
     "/ws/workspace",
     upgradeWebSocket(() => {
@@ -112,6 +120,9 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
             else workspace.updateCommand(String(message.id), command);
           } else if (message?.type === "remove-command") {
             workspace.removeCommand(String(message.id));
+          } else if (message?.type === "set-min-window") {
+            const minWindow = parseMinWindow(message);
+            if (minWindow) workspace.setMinWindow(minWindow);
           }
         },
         onClose: () => member?.leave(),

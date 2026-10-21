@@ -376,9 +376,9 @@ test("Workspace の切り替えより先に相手のフォーカス先が届い�
 test("自分の画面で拡大していても、相手が隠れているターミナルへ移るとそこへ移り、枠に収まらなければそのターミナルを拡大する", async ({
   browser,
 }) => {
-  // 端末の大きさは画面の大きい host に合わせるので、画面の小さい guest では分割した枠に収まらず、
-  // フォーカスしているターミナルを拡大する（docs/adr/68-zoom.md）
-  accompany = await startAccompany([], fakeShell);
+  // 端末の大きさは、host の枠に入る範囲で下限（幅 480 のウィンドウに収まる列数）まで広げるので、画面の小さい guest では
+  // 分割した枠に収まらず、フォーカスしているターミナルを拡大する（docs/adr/68-zoom.md、docs/adr/99-smallest-size.md）
+  accompany = await startAccompany([], fakeShell, { minWindow: "480x0" });
   const host = await openAsParticipant(browser, accompany.url);
   await pane(host, 1).getByRole("button", { name: "右に分割" }).click();
   await expectPaneToShow(host, 2, "Fake Shell ready");

@@ -1,4 +1,5 @@
 import type { AgentStatus } from "./activity";
+import { defaultMinWindow, type WindowSize } from "./min-window";
 import { maxQuickCommands, type QuickCommand, type QuickCommandInput } from "./quick-commands";
 import type { SavedSession, SavedTerminal } from "./session-store";
 import { type Restored, TerminalSession } from "./terminal";
@@ -41,7 +42,9 @@ export type WorkspaceEvent =
   // 作業が終わってまだ誰も見ていないものは done（docs/adr/74-unseen-done.md）
   | { type: "status"; statuses: Record<string, AgentStatus> }
   // 参加者全員で共有する、よく使うコマンドの一覧
-  | { type: "commands"; commands: QuickCommand[] };
+  | { type: "commands"; commands: QuickCommand[] }
+  // 端末の大きさの下限（ウィンドウの大きさ。docs/adr/99-smallest-size.md）
+  | ({ type: "min-window" } & WindowSize);
 type Listener = (event: WorkspaceEvent) => void;
 
 const colors = ["#4fc3f7", "#ffb74d", "#81c784", "#f06292", "#ba68c8", "#fff176"];
@@ -62,6 +65,10 @@ export class Workspace {
   // 起動時のコマンドを動かしているターミナル
   private initialTerminal: string | undefined;
   commands: QuickCommand[] = [];
+  // 端末の大きさの下限。参加者全員に効く設定（docs/adr/99-smallest-size.md）
+  minWindow: WindowSize;
+  // 保存する下限。起動オプションで渡した下限はその起動のあいだだけ使い、保存しない。設定の画面で変えたものは保存する
+  private savedMinWindow: WindowSize | undefined;
   tabs: Tab[] = [];
   active: string;
   // 保存すべき変化（配置・出力・よく使うコマンド）があったときに呼ぶ
@@ -71,12 +78,16 @@ export class Workspace {
   // 保存したもの（saved）があれば、配置とスクロールバックを戻す。戻したターミナルはシェルを新しく起動し、
   // 起動時のコマンドを動かしていたターミナルだけは、今回の起動時のコマンドを動かす。
   // 起動時のコマンドが指定されていて（initialCommand）、そのターミナルを閉じていたときは、新しいタブで動かす。
-  // initialCommand を省略したときは、起動時のコマンドもシェルにする
+  // initialCommand を省略したときは、起動時のコマンドもシェルにする。
+  // 端末の大きさの下限は、起動オプション（minWindow）、保存したもの、既定の順に使う
   constructor(
     initialCommand: string[] | undefined,
     private shellCommand: string[],
     saved?: SavedSession,
+    minWindow?: WindowSize,
   ) {
+    this.savedMinWindow = saved?.minWindow;
+    this.minWindow = minWindow ?? saved?.minWindow ?? defaultMinWindow;
     if (!saved) {
       const tab = this.createTab(initialCommand ?? shellCommand);
       this.active = tab.id;
@@ -122,6 +133,7 @@ export class Workspace {
       active: this.active,
       terminals,
       commands: this.commands,
+      ...(this.savedMinWindow && { minWindow: this.savedMinWindow }),
     };
   }
 
@@ -139,6 +151,7 @@ export class Workspace {
     listener(this.titlesEvent());
     listener({ type: "status", statuses: this.statuses() });
     listener(this.commandsEvent());
+    listener(this.minWindowEvent());
     this.notifyPresence();
     return {
       focus: (terminalId: string) => {
@@ -261,6 +274,16 @@ export class Workspace {
     const before = this.commands.length;
     this.commands = this.commands.filter((c) => c.id !== id);
     if (this.commands.length !== before) this.notifyCommands();
+  }
+
+  // 端末の大きさの下限を変え、全員に配る。各ブラウザが列数・行数に直して、ターミナルに伝え直す
+  setMinWindow(minWindow: WindowSize) {
+    this.savedMinWindow = minWindow;
+    if (minWindow.width === this.minWindow.width && minWindow.height === this.minWindow.height) return this.onChange();
+    this.minWindow = minWindow;
+    const event = this.minWindowEvent();
+    this.members.forEach((_, l) => l(event));
+    this.onChange();
   }
 
   killAll() {
@@ -388,6 +411,10 @@ export class Workspace {
 
   private commandsEvent(): WorkspaceEvent {
     return { type: "commands", commands: this.commands };
+  }
+
+  private minWindowEvent(): WorkspaceEvent {
+    return { type: "min-window", ...this.minWindow };
   }
 
   private notifyCommands() {

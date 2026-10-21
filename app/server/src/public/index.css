@@ -325,7 +325,7 @@ body[data-pair-mode="following"] .pane-bar {
 }
 
 /* ターミナルの検索バー。参加者ごとに、ターミナルの右上に重ねて開く。
-   ターミナルの表示領域を狭めると、端末の大きさ（参加者のうち一番大きい表示領域に合わせる）が変わり、
+   ターミナルの表示領域を狭めると、端末の大きさ（参加者の表示領域から決める）が変わり、
    ほかの参加者の画面にも影響するので、重ねて表示する */
 .pane {
   position: relative;
@@ -975,4 +975,12 @@ body[data-pair-mode="following"] .pane-bar {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+
+/* 参加者全員に効く設定（端末の大きさの下限。docs/adr/99-smallest-size.md）。自分だけの設定と線で分ける */
+.min-window-settings {
+  max-width: 320px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #444;
 }

@@ -5,23 +5,38 @@ import { parseArgs } from "node:util";
 import { websocket } from "hono/bun";
 import { createApp } from "./app";
 import index from "./public/index.html";
+import { maxMinWindow, parseMinWindowOption } from "./min-window";
 import { SessionStore, stateDir } from "./session-store";
 import { Uploads } from "./uploads";
 import { Workspace } from "./workspace";
 
-// accompany [--port <port>] [--fresh] [-- <command...>]
+// accompany [--port <port>] [--fresh] [--min-window <幅>x<高さ>] [-- <command...>]
 // --fresh: 前回の画面の配置とスクロールバックを戻さずに、新しく始める
+// --min-window: 端末の大きさの下限を、ウィンドウの大きさ（ピクセル）で指定する。保存した下限より優先し、保存はしない
+// （docs/adr/99-smallest-size.md）
 const { values, positionals } = parseArgs({
-  options: { port: { type: "string", default: "3000" }, fresh: { type: "boolean", default: false } },
+  options: {
+    port: { type: "string", default: "3000" },
+    fresh: { type: "boolean", default: false },
+    "min-window": { type: "string" },
+  },
   allowPositionals: true,
 });
+const minWindowOption = values["min-window"];
+const minWindow = minWindowOption === undefined ? undefined : parseMinWindowOption(minWindowOption);
+if (minWindowOption !== undefined && !minWindow) {
+  console.error(
+    `Accompany: --min-window は「幅x高さ」（例: 480x1080。幅 0〜${maxMinWindow.width}、高さ 0〜${maxMinWindow.height} の整数）で指定してください: ${minWindowOption}`,
+  );
+  process.exit(1);
+}
 
 const shell = [process.env.SHELL ?? "/bin/sh"];
 // 画面の配置とスクロールバックは、起動したディレクトリごとに保存し、次に起動したときに戻す（docs/adr/34-session-restore.md）
 const cwd = process.cwd();
 const store = new SessionStore(stateDir(), cwd);
 const saved = values.fresh ? undefined : store.load();
-const workspace = new Workspace(positionals.length > 0 ? positionals : undefined, shell, saved);
+const workspace = new Workspace(positionals.length > 0 ? positionals : undefined, shell, saved, minWindow);
 const uploads = new Uploads();
 const app = createApp(workspace, uploads);
 

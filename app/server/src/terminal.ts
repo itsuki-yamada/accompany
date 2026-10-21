@@ -8,9 +8,9 @@ import { TrimmedLines } from "./trimmed-lines";
 
 export type Size = { cols: number; rows: number };
 
-// 端末の大きさの上限。端末の大きさは参加者のうち一番大きいものに合わせるので、1 人から大きすぎる値が届くと
-// （改造したブラウザや、1 文字の大きさを小さく測る不具合など）、全員の端末とサーバー側の画面がその大きさになる。
-// フル HD を最小のフォント（8px）で埋めても収まる大きさで切り詰める（docs/adr/51-largest-size.md）
+// 端末の大きさの上限。大きすぎる値が届くと（改造したブラウザや、1 文字の大きさを小さく測る不具合など）、
+// 全員の端末とサーバー側の画面がその大きさになりうる。フル HD を最小のフォント（8px）で埋めても収まる大きさで切り詰める
+// （docs/adr/51-largest-size.md、docs/adr/99-smallest-size.md）
 export const maxSize: Size = { cols: 512, rows: 256 };
 
 export function clampSize({ cols, rows }: Size): Size {
@@ -25,9 +25,13 @@ export type Message =
   | { type: "trimmed"; lines: number };
 type Listener = (message: Message) => void;
 
+// 参加者のブラウザから届く大きさ。fits は表示領域（フル HD までとみなす）に収まる大きさ、
+// min は下限のウィンドウで開いたときの表示領域に収まる大きさ（docs/adr/99-smallest-size.md）。
+// 下限を送らない（#99 より前の）ブラウザは min がない
+export type Requested = { fits: Size; min?: Size };
+
 export type Participant = {
-  // 参加者のブラウザの表示領域（フル HD までとみなす）に収まる大きさを伝える
-  resize: (size: Size) => void;
+  resize: (requested: Requested) => void;
   detach: () => void;
 };
 
@@ -46,10 +50,10 @@ export type Restored = Size & { scrollback: string };
 export class TerminalSession {
   private proc: Subprocess | undefined;
   private listeners = new Set<Listener>();
-  // 端末の大きさは、参加者のうち一番大きい表示領域に合わせる。表示領域の小さい参加者は、
-  // はみ出した部分をスクロールするか、縮小して見る（docs/adr/51-largest-size.md）
+  // 端末の大きさは、参加者のうち一番小さい表示領域に合わせる。ページを見ていない参加者も含める。
+  // 下限より表示領域の小さい参加者は、はみ出した部分をスクロールするか、縮小して見る（docs/adr/99-smallest-size.md）
   private size: Size = { cols: 80, rows: 24 };
-  private requestedSizes = new Map<Listener, Size>();
+  private requestedSizes = new Map<Listener, Requested>();
   // 途中から参加したブラウザに現在の画面を送るため、PTY の出力をサーバー側の端末にも反映しておく
   private screen = new Terminal({ ...this.size, scrollback, allowProposedApi: true });
   private serializer = new SerializeAddon();
@@ -169,14 +173,14 @@ export class TerminalSession {
     }
 
     return {
-      resize: (size) => {
-        this.requestedSizes.set(receive, size);
-        this.fitToLargest();
+      resize: (requested) => {
+        this.requestedSizes.set(receive, requested);
+        this.fitToSmallest();
       },
       detach: () => {
         this.listeners.delete(receive);
         this.requestedSizes.delete(receive);
-        this.fitToLargest();
+        this.fitToSmallest();
       },
     };
   }
@@ -273,13 +277,19 @@ export class TerminalSession {
     }
   }
 
-  private fitToLargest() {
-    const sizes = [...this.requestedSizes.values()];
-    if (sizes.length === 0) return;
-    const size = {
-      cols: Math.max(...sizes.map((s) => s.cols)),
-      rows: Math.max(...sizes.map((s) => s.rows)),
+  // 向きごとに、一番小さい参加者に収まる大きさを、下限まで広げる。ただし一番大きい参加者に収まる大きさは超えない。
+  // 下限は参加者ごとに列数・行数に直したもののうち一番小さいものを使う。下限を送らない参加者は、下限の計算から外す。
+  // 誰も送っていなければ、下限なし（docs/adr/99-smallest-size.md）
+  private fitToSmallest() {
+    const requested = [...this.requestedSizes.values()];
+    if (requested.length === 0) return;
+    const fit = (key: keyof Size) => {
+      const fits = requested.map((r) => r.fits[key]);
+      const mins = requested.flatMap((r) => (r.min ? [r.min[key]] : []));
+      const min = mins.length > 0 ? Math.min(...mins) : 0;
+      return Math.min(Math.max(...fits), Math.max(Math.min(...fits), min));
     };
+    const size = clampSize({ cols: fit("cols"), rows: fit("rows") });
     if (size.cols === this.size.cols && size.rows === this.size.rows) return;
     this.size = size;
     this.screen.resize(size.cols, size.rows);

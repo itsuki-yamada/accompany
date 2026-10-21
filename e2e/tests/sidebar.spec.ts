@@ -280,31 +280,35 @@ test("ウィンドウが狭いときは、最初はサイドメニューを隠�
   await expect(sidebar(page)).toBeVisible();
 });
 
-test("サイドメニューを出す・隠すと表示領域が変わり、枠に収まらなくなった参加者の画面では自動で拡大する", async ({
+test("サイドメニューを出す・隠すと表示領域が変わり、枠が下限より狭くなった参加者の画面では自動で拡大する", async ({
   browser,
 }) => {
-  accompany = await startAccompany(busyAgent, titleShell);
+  // 下限（幅 600 のウィンドウに収まる列数）は、サイドメニューを隠して左右に分割した枠には収まり、
+  // サイドメニューを出して分割した枠には収まらない（docs/adr/99-smallest-size.md）
+  accompany = await startAccompany(busyAgent, titleShell, { minWindow: "600x0" });
   const host = await openAsParticipant(browser, accompany.url);
   const guest = await openAsParticipant(browser, accompany.url);
+  await sidebarToggle(host).click();
+  await sidebarToggle(guest).click();
   await splitRight(host, 1, 2);
   await expectPaneToShow(guest, 2, "Title setter ready");
   await input(guest, 1).focus();
   const zoomed = (page: Page) => pane(page, 1).getByText("拡大中");
 
-  // 同じ画面の大きさなので、どちらの枠にも収まる
+  // どちらもサイドメニューを隠しているので、どちらの枠にも収まる
   await expect(zoomed(guest)).toBeHidden();
 
-  // host がサイドメニューを隠すと、端末は host の広くなった枠に合わせて大きくなり、guest の枠には収まらない
-  await sidebarToggle(host).click();
+  // guest がサイドメニューを出すと、guest の枠は下限より狭くなり、端末が収まらない
+  await sidebarToggle(guest).click();
   await expect(zoomed(guest)).toBeVisible();
   await expect(zoomed(host)).toBeHidden();
 
-  // guest も隠すと、また収まって元の分割の表示に戻る
+  // guest がまた隠すと、収まって元の分割の表示に戻る
   await sidebarToggle(guest).click();
   await expect(zoomed(guest)).toBeHidden();
   await expect(pane(guest, 2)).toBeVisible();
 
-  // guest が出し直すとまた拡大し、host も出し直すと戻る
+  // guest が出し直すとまた拡大し、host も出すと、全員の枠が下限より狭くなって一番広い枠に合わせるので、収まって戻る
   await sidebarToggle(guest).click();
   await expect(zoomed(guest)).toBeVisible();
   await sidebarToggle(host).click();

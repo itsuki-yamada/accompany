@@ -25,13 +25,18 @@ export function newStateDir() {
 }
 
 // 保存先は、既定ではテストごとに使い捨てのディレクトリにする。前のテストや開発者自身の状態を復元しないため。
-// 再起動をまたいで同じ保存先を使うテストは、env で ACCOMPANY_STATE_DIR を渡す
+// 再起動をまたいで同じ保存先を使うテストは、env で ACCOMPANY_STATE_DIR を渡す。
+// 端末の大きさの下限（ウィンドウの大きさ）は、既定では 0x0（下限なし）にして起動する。既定の下限（480×1080）は
+// テストの画面（1280×720）より縦に大きく、下限を確かめるテストのほかは、参加者の画面に合わせた大きさで確かめたいため。
+// 下限を指定するテストは minWindow で渡し、既定の下限や保存した下限で起動するテストは null を渡す（docs/adr/99-smallest-size.md）
 export function startAccompany(
   args: string[] = [],
   env: Record<string, string> = {},
+  { minWindow = "0x0" }: { minWindow?: string | null } = {},
 ): Promise<Accompany> {
   const portArgs = args.includes("--port") ? [] : ["--port", testPort()];
-  const command = [process.env.ACCOMPANY_CMD ?? defaultCommand, ...portArgs, ...args].join(" ");
+  const minWindowArgs = minWindow === null || args.includes("--min-window") ? [] : ["--min-window", minWindow];
+  const command = [process.env.ACCOMPANY_CMD ?? defaultCommand, ...portArgs, ...minWindowArgs, ...args].join(" ");
   const ownStateDir = env.ACCOMPANY_STATE_DIR ? undefined : newStateDir();
   const child: ChildProcess = spawn(command, {
     cwd: repoRoot,
