@@ -327,7 +327,9 @@ test("下限より画面の小さい人は、文字の大きさはそのまま�
   expect(await scrollable(host, "any")).toBe(false);
   // 文字の大きさは同じ
   expect(await fontSizeOf(guest)).toBe(await fontSizeOf(host));
-  // 右下の隅は、スクロールすると見える
+  // 右下の隅は、左上までスクロールしていると見えず、スクロールすると見える。開いたときは一番下にスクロールしているので
+  // （docs/adr/116-overflow-scroll-bottom.md）、先に左上までスクロールする
+  await scrollTo(guest, "start");
   expect(await isVisible(guest, await cornerPoint(guest, 0))).toBe(false);
   await scrollTo(guest, "end");
   expect(await isVisible(guest, await cornerPoint(guest, 0))).toBe(true);
