@@ -8,8 +8,20 @@ export type Layout =
   | { type: "terminal"; id: string }
   | { type: "split"; id: string; direction: "row" | "column"; ratio: number; children: [Layout, Layout] };
 
-// 参加者。認証がまだないので、接続順に「参加者 N」と呼び、色を割り当てる
-export type Member = { id: number; name: string; color: string; terminal?: string };
+// ターミナルの選択範囲。位置は列と、出力の始めからの行の番号（バッファの行に、スクロールバックから押し出された行の数を足したもの。
+// 代替画面ではバッファの行）。end の列は含まない
+export type Position = { x: number; y: number };
+export type SelectionRange = { start: Position; end: Position };
+
+// 参加者。認証がまだないので、接続順に「参加者 N」と呼び、色を割り当てる。
+// selections は、ターミナルごとの、その参加者が選択している範囲（docs/adr/94-remote-selection.md）
+export type Member = {
+  id: number;
+  name: string;
+  color: string;
+  terminal?: string;
+  selections: Record<string, SelectionRange>;
+};
 
 // タブ。それぞれが独立した分割の配置を持つ
 export type Tab = { id: string; name: string; layout: Layout };
@@ -116,7 +128,7 @@ export class Workspace {
   // 参加者として加わる。返り値でフォーカス先を伝えたり、抜けたりする
   join(listener: Listener) {
     const id = this.nextMemberId++;
-    const member: Member = { id, name: `参加者 ${id}`, color: colors[(id - 1) % colors.length]! };
+    const member: Member = { id, name: `参加者 ${id}`, color: colors[(id - 1) % colors.length]!, selections: {} };
     this.members.set(listener, member);
     listener({ type: "welcome", you: id });
     listener(this.tabsEvent());
@@ -135,6 +147,14 @@ export class Workspace {
         if (visible) this.visibleMembers.add(member);
         else this.visibleMembers.delete(member);
         this.updateSeen();
+      },
+      // ターミナルでの選択範囲を、ほかの参加者にも見せる。range がなければ選択をやめた
+      // （閉じたターミナルの選択も、ブラウザがやめたと伝えてくるので消す）
+      select: (terminalId: string, range: SelectionRange | undefined) => {
+        if (range && this.terminals.has(terminalId)) member.selections[terminalId] = range;
+        else if (!range && Object.hasOwn(member.selections, terminalId)) delete member.selections[terminalId];
+        else return;
+        this.notifyPresence();
       },
       leave: () => {
         this.members.delete(listener);
@@ -161,10 +181,7 @@ export class Workspace {
     const index = this.tabs.findIndex((t) => t.id === tabId);
     if (index < 0 || this.tabs.length === 1) return;
     const [tab] = this.tabs.splice(index, 1);
-    for (const id of terminalIds(tab!.layout)) {
-      this.terminals.get(id)?.kill();
-      this.terminals.delete(id);
-    }
+    for (const id of terminalIds(tab!.layout)) this.removeTerminal(id);
     // 表示中のタブを閉じたときは、右隣（なければ左隣）のタブを表示する
     if (this.active === tabId) this.active = this.tabs[Math.min(index, this.tabs.length - 1)]!.id;
     this.notify();
@@ -192,8 +209,7 @@ export class Workspace {
     const parent = findParentOf(tab.layout, terminalId);
     if (!parent) return;
     const sibling = parent.children.find((c) => !(c.type === "terminal" && c.id === terminalId))!;
-    this.terminals.get(terminalId)?.kill();
-    this.terminals.delete(terminalId);
+    this.removeTerminal(terminalId);
     this.replace(tab, parent, sibling);
   }
 
@@ -252,6 +268,20 @@ export class Workspace {
         { restored, onOutput: () => this.onChange() },
       ),
     );
+  }
+
+  // ターミナルを終了し、参加者がそのターミナルで選択していた範囲も消す。ブラウザもターミナルを抜けたときに
+  // 選択をやめたと伝えてくるが、伝え返さない参加者の分が残らないように、ここでも消す
+  private removeTerminal(id: string) {
+    this.terminals.get(id)?.kill();
+    this.terminals.delete(id);
+    let changed = false;
+    for (const member of this.members.values()) {
+      if (!Object.hasOwn(member.selections, id)) continue;
+      delete member.selections[id];
+      changed = true;
+    }
+    if (changed) this.notifyPresence();
   }
 
   private tabOfTerminal(terminalId: string) {

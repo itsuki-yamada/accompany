@@ -3,6 +3,8 @@ import { Terminal } from "@xterm/headless";
 import type { Subprocess } from "bun";
 import { ActivityMonitor, type AgentStatus } from "./activity";
 import { type Foreground, foregroundOf } from "./agent-detect";
+import { scrollback } from "./scrollback";
+import { TrimmedLines } from "./trimmed-lines";
 
 export type Size = { cols: number; rows: number };
 
@@ -15,8 +17,12 @@ export function clampSize({ cols, rows }: Size): Size {
   return { cols: Math.min(cols, maxSize.cols), rows: Math.min(rows, maxSize.rows) };
 }
 
-// ブラウザに送るもの。出力と端末の大きさの変更は、この順番どおりに届ける
-export type Message = { type: "output"; data: Uint8Array } | { type: "resize"; size: Size };
+// ブラウザに送るもの。出力と端末の大きさの変更は、この順番どおりに届ける。
+// trimmed は、つないだときに送る画面の書き出しより前に、スクロールバックから押し出されていた行の数（docs/adr/94-remote-selection.md）
+export type Message =
+  | { type: "output"; data: Uint8Array }
+  | { type: "resize"; size: Size }
+  | { type: "trimmed"; lines: number };
 type Listener = (message: Message) => void;
 
 export type Participant = {
@@ -45,10 +51,15 @@ export class TerminalSession {
   private size: Size = { cols: 80, rows: 24 };
   private requestedSizes = new Map<Listener, Size>();
   // 途中から参加したブラウザに現在の画面を送るため、PTY の出力をサーバー側の端末にも反映しておく
-  private screen = new Terminal({ ...this.size, allowProposedApi: true });
+  private screen = new Terminal({ ...this.size, scrollback, allowProposedApi: true });
   private serializer = new SerializeAddon();
+  private trimmed = new TrimmedLines(this.screen);
   // 書き出した画面にはカーソルの表示・非表示が含まれないため、DECTCEM（CSI ? 25 h/l）を見て自分で追う
   private cursorHidden = false;
+  // 書き出した画面にはマウスの報告の形式も含まれないため、SGR 形式（CSI ? 1006 h/l、ピクセル単位は 1016）を見て自分で追う。
+  // 戻さないと、途中から参加した人のブラウザは従来の形式で報告し（xterm.js はそれを onData ではなく onBinary で出す）、
+  // Claude Code などにドラッグやクリックが届かない（docs/adr/94-remote-selection.md）
+  private mouseEncoding: 1006 | 1016 | undefined;
   // コマンドが OSC 0 / OSC 2 で設定したタイトル。ブラウザに出す前に sanitizeTitle で整える
   title = "";
   private activity: ActivityMonitor;
@@ -99,9 +110,12 @@ export class TerminalSession {
       this.title = sanitized;
       this.onTitleChange();
     });
-    for (const [final, hidden] of [["h", false], ["l", true]] as const) {
+    for (const [final, enabled] of [["h", true], ["l", false]] as const) {
       this.screen.parser.registerCsiHandler({ prefix: "?", final }, (params) => {
-        if (params.includes(25)) this.cursorHidden = hidden;
+        if (params.includes(25)) this.cursorHidden = !enabled;
+        for (const mode of [1006, 1016] as const) {
+          if (params.includes(mode)) this.mouseEncoding = enabled ? mode : undefined;
+        }
         return false;
       });
     }
@@ -109,6 +123,7 @@ export class TerminalSession {
     // コマンドが残したタイトルもここで消す（docs/adr/33-context-menu.md）
     this.screen.parser.registerEscHandler({ final: "c" }, () => {
       this.cursorHidden = false;
+      this.mouseEncoding = undefined;
       if (this.title !== "") {
         this.title = "";
         this.onTitleChange();
@@ -126,7 +141,11 @@ export class TerminalSession {
     this.listeners.add(receive);
     this.screen.write("", () => {
       listener({ type: "resize", size: this.size });
-      const snapshot = this.serializer.serialize() + (this.cursorHidden ? "\x1b[?25l" : "");
+      listener({ type: "trimmed", lines: this.trimmed.count });
+      const snapshot =
+        this.serializer.serialize() +
+        (this.cursorHidden ? "\x1b[?25l" : "") +
+        (this.mouseEncoding ? `\x1b[?${this.mouseEncoding}h` : "");
       if (snapshot) listener({ type: "output", data: encoder.encode(snapshot) });
       pending.forEach(listener);
       restored = true;

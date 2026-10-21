@@ -1,5 +1,7 @@
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { Terminal } from "@xterm/xterm";
+import { Terminal, type IMarker } from "@xterm/xterm";
+import { scrollback } from "../scrollback";
+import { TrimmedLines } from "../trimmed-lines";
 import { themeColors, type Appearance } from "./appearance";
 import { acceptFileDrop } from "./file-drop";
 import { isSearchKey, SearchBar } from "./search";
@@ -25,6 +27,27 @@ export type PaneActions = {
   manageCommands: () => void;
   // ほかの参加者をフォローする（フォロー中ならやめる）
   follow: (member: number) => void;
+  // このターミナルでの自分の選択範囲が変わったとき。選択をやめたときやターミナルを抜けたときは undefined
+  selected: (range: SelectionRange | undefined) => void;
+};
+
+// ターミナルの選択範囲。位置は列と、出力の始めからの行の番号（バッファの行に、スクロールバックから押し出された行の数を足したもの。
+// 代替画面ではバッファの行）。end の列は含まない
+export type SelectionRange = { start: { x: number; y: number }; end: { x: number; y: number } };
+
+// ほかの参加者が、このターミナルで選択している範囲（docs/adr/94-remote-selection.md）
+export type RemoteSelection = { name: string; color: string; range: SelectionRange };
+
+// ほかの参加者の選択範囲を、受け取ったときの行に置いた印（marker）で覚えておく。
+// 印は出力でスクロールバックが押し出されても、同じ行についていく。buffer は、受け取ったときの画面（通常・代替）、
+// key は受け取った範囲（変わったものだけ置き直すため）
+type PlacedSelection = {
+  key: string;
+  name: string;
+  color: string;
+  buffer: "normal" | "alternate";
+  start: { x: number; marker: IMarker };
+  end: { x: number; marker: IMarker };
 };
 
 // このターミナルで動いているエージェントの状態。サーバーが判定して全員に配る。
@@ -74,6 +97,18 @@ export class Pane {
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
   // 開いている右クリックメニューを閉じる。ターミナルがなくなったら、メニューも閉じる
   private closeMenu = () => {};
+  // ほかの参加者の選択範囲。受け取ったものと、行に印を置いたもの、それを描く層
+  private receivedSelections: RemoteSelection[] = [];
+  private remoteSelectionsKey = "[]";
+  private remoteSelections: PlacedSelection[] = [];
+  private remoteLayer = document.createElement("div");
+  // つないだときに届く現在の画面（スクロールバックを含む）を書き終えたか。書き終えるまでは、選択範囲の行に印を置けない
+  private restored = false;
+  // スクロールバックから押し出された行の数。選択範囲の行は、これを足した「出力の始めからの行の番号」でやりとりする
+  private trimmed: TrimmedLines;
+  private firstOutput = true;
+  // 最後にサーバーに伝えた自分の選択範囲
+  private sentSelection = "null";
 
   constructor(id: string, actions: PaneActions, appearance: Appearance) {
     this.appearance = appearance;
@@ -90,6 +125,8 @@ export class Pane {
     this.terminal = new Terminal({
       // 検索のヒットの強調（decorations）に、xterm の試験的な API を使う
       allowProposedApi: true,
+      // スクロールバックの行数は、サーバー側の画面と揃える（選択範囲のバッファの行の番号を合わせるため）
+      scrollback,
       theme: themeColors(appearance),
       fontSize: appearance.fontSize,
       linkHandler: links,
@@ -164,6 +201,17 @@ export class Pane {
       event.preventDefault();
       this.terminal.focus();
     });
+    // ほかの参加者の選択範囲は、自分の選択範囲（xterm の .xterm-selection）と同じく、文字の上に半透明で重ねる。
+    // 描き直し（スクロール・出力・フォントの大きさの変更）のたびに位置を計算し直す
+    this.remoteLayer.className = "remote-selections";
+    this.remoteLayer.setAttribute("aria-hidden", "true");
+    this.terminal.element?.querySelector(".xterm-screen")?.append(this.remoteLayer);
+    this.terminal.onRender(() => this.drawRemoteSelections());
+    this.trimmed = new TrimmedLines(this.terminal);
+    this.terminal.onSelectionChange(() => this.sendSelection());
+    // スクロールバックがいっぱいのとき、xterm は古い行を押し出して選択範囲の行を詰めるが、選択の変化は知らせない。
+    // 選択した行が押し出されて選択がなくなったときも知らせないので、出力のたびに読み直し、変わっていれば送り直す
+    this.terminal.onWriteParsed(() => this.sendSelection());
 
     this.socket = new WebSocket(`${protocol}//${location.host}/ws/terminals/${id}`);
     this.socket.binaryType = "arraybuffer";
@@ -175,7 +223,16 @@ export class Pane {
           this.terminal.resize(message.cols, message.rows);
           this.fitToArea();
           actions.resized();
+        } else if (message.type === "trimmed" && this.firstOutput) {
+          // 途中から開いたときは、サーバー側の画面がそれまでに押し出していた行の数から数え始める
+          this.trimmed.count = message.lines;
         }
+      } else if (this.firstOutput) {
+        this.firstOutput = false;
+        this.terminal.write(new Uint8Array(event.data), () => {
+          this.restored = true;
+          this.placeRemoteSelections();
+        });
       } else {
         this.terminal.write(new Uint8Array(event.data));
       }
@@ -343,7 +400,19 @@ export class Pane {
     this.terminal.focus();
   }
 
+  // ほかの参加者の選択範囲を出す。参加者の情報は誰かが動くたびに届くので、変わったときだけ置き直す
+  setRemoteSelections(selections: RemoteSelection[]) {
+    const key = JSON.stringify(selections);
+    if (key === this.remoteSelectionsKey) return;
+    this.remoteSelectionsKey = key;
+    this.receivedSelections = selections;
+    if (this.restored) this.placeRemoteSelections();
+  }
+
   dispose() {
+    // ターミナルを抜けると自分の選択もなくなるので、ほかの参加者の画面からも消す
+    this.sendSelection(true);
+    this.disposeRemoteSelections();
     clearTimeout(this.noticeTimer);
     this.closeMenu();
     this.resizeObserver.disconnect();
@@ -442,6 +511,108 @@ export class Pane {
   // 端末の大きさに満たない余白も、ターミナルの背景色で塗る
   private paintBackground(container: HTMLElement, appearance: Appearance) {
     container.style.background = themeColors(appearance).background ?? "";
+  }
+
+  // 自分の選択範囲を、行を出力の始めからの行の番号にして伝える。leaving はターミナルを抜けるとき（選択をやめたと伝える）
+  private sendSelection(leaving = false) {
+    const position = leaving ? undefined : this.terminal.getSelectionPosition();
+    const offset = this.trimmedOffset();
+    const range = position && {
+      start: { x: position.start.x, y: position.start.y + offset },
+      end: { x: position.end.x, y: position.end.y + offset },
+    };
+    const key = JSON.stringify(range ?? null);
+    if (key === this.sentSelection) return;
+    this.sentSelection = key;
+    this.actions.selected(range);
+  }
+
+  // 受け取った選択範囲の行に印を置く。印は、カーソルの行からの相対で置く
+  // 範囲が変わっていない参加者の分は、置いてある印をそのまま使う。受け取ったときの行で置き直すと、
+  // そのあとにスクロールバックが押し出された分だけ、違う行に出る
+  private placeRemoteSelections() {
+    const previous = new Map(this.remoteSelections.map((placed) => [placed.key, placed]));
+    this.remoteSelections = [];
+    const buffer = this.terminal.buffer.active;
+    const mark = (y: number) =>
+      this.terminal.registerMarker(y - this.trimmedOffset() - (buffer.baseY + buffer.cursorY));
+    for (const selection of this.receivedSelections) {
+      const { name, color, range } = selection;
+      const key = JSON.stringify(selection);
+      const kept = previous.get(key);
+      if (kept) {
+        previous.delete(key);
+        this.remoteSelections.push(kept);
+        continue;
+      }
+      const start = mark(range.start.y);
+      const end = mark(range.end.y);
+      if (!start || !end) {
+        start?.dispose();
+        end?.dispose();
+        continue;
+      }
+      this.remoteSelections.push({
+        key,
+        name,
+        color,
+        buffer: buffer.type,
+        start: { x: range.start.x, marker: start },
+        end: { x: range.end.x, marker: end },
+      });
+    }
+    for (const { start, end } of previous.values()) {
+      start.marker.dispose();
+      end.marker.dispose();
+    }
+    this.drawRemoteSelections();
+  }
+
+  // バッファの行と、出力の始めからの行の番号の差。代替画面にはスクロールバックがないので 0
+  private trimmedOffset() {
+    return this.terminal.buffer.active.type === "normal" ? this.trimmed.count : 0;
+  }
+
+  private disposeRemoteSelections() {
+    for (const { start, end } of this.remoteSelections) {
+      start.marker.dispose();
+      end.marker.dispose();
+    }
+    this.remoteSelections = [];
+  }
+
+  // 表示領域に入っている行だけ、行ごとに 1 つの要素で描く。選択した画面（通常・代替）と違う画面を表示しているときや、
+  // 終わりの行がスクロールバックから押し出されたときは出さない。始まりの行だけが押し出されたときは、先頭の行から描く
+  private drawRemoteSelections() {
+    const cell = cellSize(this.terminal);
+    const buffer = this.terminal.buffer.active;
+    const { cols, rows } = this.terminal;
+    const elements: HTMLElement[] = [];
+    for (const selection of this.remoteSelections) {
+      const { start, end } = selection;
+      if (!cell || selection.buffer !== buffer.type || end.marker.isDisposed) continue;
+      const startY = start.marker.isDisposed ? 0 : start.marker.line;
+      const startX = start.marker.isDisposed ? 0 : start.x;
+      const endY = end.marker.line;
+      for (let y = Math.max(startY, buffer.viewportY); y <= Math.min(endY, buffer.viewportY + rows - 1); y++) {
+        const from = Math.min(y === startY ? startX : 0, cols);
+        const to = Math.min(y === endY ? end.x : cols, cols);
+        if (to <= from) continue;
+        const element = document.createElement("div");
+        element.className = "remote-selection";
+        element.dataset.member = selection.name;
+        element.style.left = `${from * cell.width}px`;
+        element.style.top = `${(y - buffer.viewportY) * cell.height}px`;
+        element.style.width = `${(to - from) * cell.width}px`;
+        element.style.height = `${cell.height}px`;
+        element.style.setProperty("--selection-color", selection.color);
+        // 参加者の色（#rrggbb）を半透明にして重ね、下の文字が読めるようにする
+        element.style.backgroundColor = `${selection.color}59`;
+        elements.push(element);
+      }
+    }
+    if (elements.length === 0 && this.remoteLayer.childElementCount === 0) return;
+    this.remoteLayer.replaceChildren(...elements);
   }
 
   private send(data: string) {
