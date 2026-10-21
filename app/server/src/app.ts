@@ -3,6 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { upgradeWebSocket } from "hono/bun";
 import { createMiddleware } from "hono/factory";
 import { parseQuickCommand } from "./quick-commands";
+import { scrollback } from "./scrollback";
 import { clampSize, maxSize, type Participant, type Size } from "./terminal";
 import { maxUploadBytes, type Uploads } from "./uploads";
 import type { Position, SelectionRange, Workspace } from "./workspace";
@@ -29,11 +30,11 @@ function parseSize(message: { cols?: unknown; rows?: unknown }): Size | undefine
   return valid(cols) && valid(rows) ? clampSize({ cols, rows }) : undefined;
 }
 
-// 選択範囲として受け付けるバッファの行の数。ブラウザの端末のバッファは、スクロールバック（xterm.js の既定で 1000 行）と
-// 画面の行数（上限は maxSize.rows）まで
-const maxSelectionLines = 1000 + maxSize.rows;
+// 選択範囲として受け付ける行の数。ブラウザの端末のバッファは、スクロールバックと画面の行数（上限は maxSize.rows）まで
+const maxSelectionLines = scrollback + maxSize.rows;
 
-// ブラウザから届く選択範囲。列と行は 0 以上の整数で、端末に収まるものだけを受け付け、始まりが終わりより後ろのものは捨てる。
+// ブラウザから届く選択範囲。列は 0 以上で端末の列数の上限まで、行は 0 以上の整数（出力の始めからの行の番号なので、上限は設けない）。
+// 範囲の行の数がバッファに収まらないもの、始まりが終わりより後ろのものは捨てる。
 // start と end がどちらもなければ、選択をやめた（null）
 function parseSelection(message: { start?: unknown; end?: unknown }): SelectionRange | null | undefined {
   const { start, end } = message;
@@ -42,11 +43,12 @@ function parseSelection(message: { start?: unknown; end?: unknown }): SelectionR
     Number.isSafeInteger(n) && (n as number) >= 0 && (n as number) <= max;
   const position = (value: unknown): Position | undefined => {
     const { x, y } = (value ?? {}) as { x?: unknown; y?: unknown };
-    return valid(x, maxSize.cols) && valid(y, maxSelectionLines - 1) ? { x, y } : undefined;
+    return valid(x, maxSize.cols) && valid(y, Number.MAX_SAFE_INTEGER) ? { x, y } : undefined;
   };
   const from = position(start);
   const to = position(end);
   if (!from || !to || from.y > to.y || (from.y === to.y && from.x > to.x)) return undefined;
+  if (to.y - from.y >= maxSelectionLines) return undefined;
   return { start: from, end: to };
 }
 
@@ -121,7 +123,7 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
           participant = session.attach((message) =>
             message.type === "output"
               ? ws.send(message.data)
-              : ws.send(JSON.stringify({ type: "resize", ...message.size })),
+              : ws.send(JSON.stringify(message.type === "resize" ? { type: "resize", ...message.size } : message)),
           );
         },
         onMessage: (event) => {

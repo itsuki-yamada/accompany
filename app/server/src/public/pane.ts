@@ -1,5 +1,7 @@
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal, type IMarker } from "@xterm/xterm";
+import { scrollback } from "../scrollback";
+import { TrimmedLines } from "../trimmed-lines";
 import { themeColors, type Appearance } from "./appearance";
 import { acceptFileDrop } from "./file-drop";
 import { isSearchKey, SearchBar } from "./search";
@@ -29,15 +31,18 @@ export type PaneActions = {
   selected: (range: SelectionRange | undefined) => void;
 };
 
-// ターミナルの選択範囲。位置は列と、スクロールバックを含めたバッファの行（0 から数える）。end の列は含まない
+// ターミナルの選択範囲。位置は列と、出力の始めからの行の番号（バッファの行に、スクロールバックから押し出された行の数を足したもの。
+// 代替画面ではバッファの行）。end の列は含まない
 export type SelectionRange = { start: { x: number; y: number }; end: { x: number; y: number } };
 
 // ほかの参加者が、このターミナルで選択している範囲（docs/adr/94-remote-selection.md）
 export type RemoteSelection = { name: string; color: string; range: SelectionRange };
 
 // ほかの参加者の選択範囲を、受け取ったときの行に置いた印（marker）で覚えておく。
-// 印は出力でスクロールバックが押し出されても、同じ行についていく。buffer は、受け取ったときの画面（通常・代替）
+// 印は出力でスクロールバックが押し出されても、同じ行についていく。buffer は、受け取ったときの画面（通常・代替）、
+// key は受け取った範囲（変わったものだけ置き直すため）
 type PlacedSelection = {
+  key: string;
   name: string;
   color: string;
   buffer: "normal" | "alternate";
@@ -99,6 +104,8 @@ export class Pane {
   private remoteLayer = document.createElement("div");
   // つないだときに届く現在の画面（スクロールバックを含む）を書き終えたか。書き終えるまでは、選択範囲の行に印を置けない
   private restored = false;
+  // スクロールバックから押し出された行の数。選択範囲の行は、これを足した「出力の始めからの行の番号」でやりとりする
+  private trimmed: TrimmedLines;
   private firstOutput = true;
   // 最後にサーバーに伝えた自分の選択範囲
   private sentSelection = "null";
@@ -118,6 +125,8 @@ export class Pane {
     this.terminal = new Terminal({
       // 検索のヒットの強調（decorations）に、xterm の試験的な API を使う
       allowProposedApi: true,
+      // スクロールバックの行数は、サーバー側の画面と揃える（選択範囲のバッファの行の番号を合わせるため）
+      scrollback,
       theme: themeColors(appearance),
       fontSize: appearance.fontSize,
       linkHandler: links,
@@ -198,7 +207,11 @@ export class Pane {
     this.remoteLayer.setAttribute("aria-hidden", "true");
     this.terminal.element?.querySelector(".xterm-screen")?.append(this.remoteLayer);
     this.terminal.onRender(() => this.drawRemoteSelections());
-    this.terminal.onSelectionChange(() => this.sendSelection(this.terminal.getSelectionPosition()));
+    this.trimmed = new TrimmedLines(this.terminal);
+    this.terminal.onSelectionChange(() => this.sendSelection());
+    // スクロールバックがいっぱいのとき、xterm は古い行を押し出して選択範囲の行を詰めるが、選択の変化は知らせない。
+    // 選択した行が押し出されて選択がなくなったときも知らせないので、出力のたびに読み直し、変わっていれば送り直す
+    this.terminal.onWriteParsed(() => this.sendSelection());
 
     this.socket = new WebSocket(`${protocol}//${location.host}/ws/terminals/${id}`);
     this.socket.binaryType = "arraybuffer";
@@ -210,6 +223,9 @@ export class Pane {
           this.terminal.resize(message.cols, message.rows);
           this.fitToArea();
           actions.resized();
+        } else if (message.type === "trimmed" && this.firstOutput) {
+          // 途中から開いたときは、サーバー側の画面がそれまでに押し出していた行の数から数え始める
+          this.trimmed.count = message.lines;
         }
       } else if (this.firstOutput) {
         this.firstOutput = false;
@@ -385,7 +401,6 @@ export class Pane {
   }
 
   // ほかの参加者の選択範囲を出す。参加者の情報は誰かが動くたびに届くので、変わったときだけ置き直す
-  // （置き直すと、受け取ったあとにスクロールバックが押し出された分だけ、行がずれる）
   setRemoteSelections(selections: RemoteSelection[]) {
     const key = JSON.stringify(selections);
     if (key === this.remoteSelectionsKey) return;
@@ -396,7 +411,7 @@ export class Pane {
 
   dispose() {
     // ターミナルを抜けると自分の選択もなくなるので、ほかの参加者の画面からも消す
-    this.sendSelection(undefined);
+    this.sendSelection(true);
     this.disposeRemoteSelections();
     clearTimeout(this.noticeTimer);
     this.closeMenu();
@@ -498,7 +513,14 @@ export class Pane {
     container.style.background = themeColors(appearance).background ?? "";
   }
 
-  private sendSelection(range: SelectionRange | undefined) {
+  // 自分の選択範囲を、行を出力の始めからの行の番号にして伝える。leaving はターミナルを抜けるとき（選択をやめたと伝える）
+  private sendSelection(leaving = false) {
+    const position = leaving ? undefined : this.terminal.getSelectionPosition();
+    const offset = this.trimmedOffset();
+    const range = position && {
+      start: { x: position.start.x, y: position.start.y + offset },
+      end: { x: position.end.x, y: position.end.y + offset },
+    };
     const key = JSON.stringify(range ?? null);
     if (key === this.sentSelection) return;
     this.sentSelection = key;
@@ -506,11 +528,23 @@ export class Pane {
   }
 
   // 受け取った選択範囲の行に印を置く。印は、カーソルの行からの相対で置く
+  // 範囲が変わっていない参加者の分は、置いてある印をそのまま使う。受け取ったときの行で置き直すと、
+  // そのあとにスクロールバックが押し出された分だけ、違う行に出る
   private placeRemoteSelections() {
-    this.disposeRemoteSelections();
+    const previous = new Map(this.remoteSelections.map((placed) => [placed.key, placed]));
+    this.remoteSelections = [];
     const buffer = this.terminal.buffer.active;
-    const mark = (y: number) => this.terminal.registerMarker(y - (buffer.baseY + buffer.cursorY));
-    for (const { name, color, range } of this.receivedSelections) {
+    const mark = (y: number) =>
+      this.terminal.registerMarker(y - this.trimmedOffset() - (buffer.baseY + buffer.cursorY));
+    for (const selection of this.receivedSelections) {
+      const { name, color, range } = selection;
+      const key = JSON.stringify(selection);
+      const kept = previous.get(key);
+      if (kept) {
+        previous.delete(key);
+        this.remoteSelections.push(kept);
+        continue;
+      }
       const start = mark(range.start.y);
       const end = mark(range.end.y);
       if (!start || !end) {
@@ -519,6 +553,7 @@ export class Pane {
         continue;
       }
       this.remoteSelections.push({
+        key,
         name,
         color,
         buffer: buffer.type,
@@ -526,7 +561,16 @@ export class Pane {
         end: { x: range.end.x, marker: end },
       });
     }
+    for (const { start, end } of previous.values()) {
+      start.marker.dispose();
+      end.marker.dispose();
+    }
     this.drawRemoteSelections();
+  }
+
+  // バッファの行と、出力の始めからの行の番号の差。代替画面にはスクロールバックがないので 0
+  private trimmedOffset() {
+    return this.terminal.buffer.active.type === "normal" ? this.trimmed.count : 0;
   }
 
   private disposeRemoteSelections() {

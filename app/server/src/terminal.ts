@@ -3,6 +3,8 @@ import { Terminal } from "@xterm/headless";
 import type { Subprocess } from "bun";
 import { ActivityMonitor, type AgentStatus } from "./activity";
 import { type Foreground, foregroundOf } from "./agent-detect";
+import { scrollback } from "./scrollback";
+import { TrimmedLines } from "./trimmed-lines";
 
 export type Size = { cols: number; rows: number };
 
@@ -15,8 +17,12 @@ export function clampSize({ cols, rows }: Size): Size {
   return { cols: Math.min(cols, maxSize.cols), rows: Math.min(rows, maxSize.rows) };
 }
 
-// ブラウザに送るもの。出力と端末の大きさの変更は、この順番どおりに届ける
-export type Message = { type: "output"; data: Uint8Array } | { type: "resize"; size: Size };
+// ブラウザに送るもの。出力と端末の大きさの変更は、この順番どおりに届ける。
+// trimmed は、つないだときに送る画面の書き出しより前に、スクロールバックから押し出されていた行の数（docs/adr/94-remote-selection.md）
+export type Message =
+  | { type: "output"; data: Uint8Array }
+  | { type: "resize"; size: Size }
+  | { type: "trimmed"; lines: number };
 type Listener = (message: Message) => void;
 
 export type Participant = {
@@ -45,8 +51,9 @@ export class TerminalSession {
   private size: Size = { cols: 80, rows: 24 };
   private requestedSizes = new Map<Listener, Size>();
   // 途中から参加したブラウザに現在の画面を送るため、PTY の出力をサーバー側の端末にも反映しておく
-  private screen = new Terminal({ ...this.size, allowProposedApi: true });
+  private screen = new Terminal({ ...this.size, scrollback, allowProposedApi: true });
   private serializer = new SerializeAddon();
+  private trimmed = new TrimmedLines(this.screen);
   // 書き出した画面にはカーソルの表示・非表示が含まれないため、DECTCEM（CSI ? 25 h/l）を見て自分で追う
   private cursorHidden = false;
   // 書き出した画面にはマウスの報告の形式も含まれないため、SGR 形式（CSI ? 1006 h/l、ピクセル単位は 1016）を見て自分で追う。
@@ -134,6 +141,7 @@ export class TerminalSession {
     this.listeners.add(receive);
     this.screen.write("", () => {
       listener({ type: "resize", size: this.size });
+      listener({ type: "trimmed", lines: this.trimmed.count });
       const snapshot =
         this.serializer.serialize() +
         (this.cursorHidden ? "\x1b[?25l" : "") +

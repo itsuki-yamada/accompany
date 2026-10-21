@@ -8,7 +8,8 @@ export type Layout =
   | { type: "terminal"; id: string }
   | { type: "split"; id: string; direction: "row" | "column"; ratio: number; children: [Layout, Layout] };
 
-// ターミナルの選択範囲。位置は列と、スクロールバックを含めたバッファの行（0 から数える）。end の列は含まない
+// ターミナルの選択範囲。位置は列と、出力の始めからの行の番号（バッファの行に、スクロールバックから押し出された行の数を足したもの。
+// 代替画面ではバッファの行）。end の列は含まない
 export type Position = { x: number; y: number };
 export type SelectionRange = { start: Position; end: Position };
 
@@ -180,10 +181,7 @@ export class Workspace {
     const index = this.tabs.findIndex((t) => t.id === tabId);
     if (index < 0 || this.tabs.length === 1) return;
     const [tab] = this.tabs.splice(index, 1);
-    for (const id of terminalIds(tab!.layout)) {
-      this.terminals.get(id)?.kill();
-      this.terminals.delete(id);
-    }
+    for (const id of terminalIds(tab!.layout)) this.removeTerminal(id);
     // 表示中のタブを閉じたときは、右隣（なければ左隣）のタブを表示する
     if (this.active === tabId) this.active = this.tabs[Math.min(index, this.tabs.length - 1)]!.id;
     this.notify();
@@ -211,8 +209,7 @@ export class Workspace {
     const parent = findParentOf(tab.layout, terminalId);
     if (!parent) return;
     const sibling = parent.children.find((c) => !(c.type === "terminal" && c.id === terminalId))!;
-    this.terminals.get(terminalId)?.kill();
-    this.terminals.delete(terminalId);
+    this.removeTerminal(terminalId);
     this.replace(tab, parent, sibling);
   }
 
@@ -271,6 +268,20 @@ export class Workspace {
         { restored, onOutput: () => this.onChange() },
       ),
     );
+  }
+
+  // ターミナルを終了し、参加者がそのターミナルで選択していた範囲も消す。ブラウザもターミナルを抜けたときに
+  // 選択をやめたと伝えてくるが、伝え返さない参加者の分が残らないように、ここでも消す
+  private removeTerminal(id: string) {
+    this.terminals.get(id)?.kill();
+    this.terminals.delete(id);
+    let changed = false;
+    for (const member of this.members.values()) {
+      if (!Object.hasOwn(member.selections, id)) continue;
+      delete member.selections[id];
+      changed = true;
+    }
+    if (changed) this.notifyPresence();
   }
 
   private tabOfTerminal(terminalId: string) {
