@@ -1,6 +1,7 @@
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { Terminal } from "@xterm/headless";
 import type { Subprocess } from "bun";
+import path from "node:path";
 import { ActivityMonitor, type AgentStatus } from "./activity";
 import { type Foreground, foregroundOf, ps } from "./agent-detect";
 import { processCwd } from "./process-cwd";
@@ -162,7 +163,11 @@ export class TerminalSession {
 
     // 起動直後の出力を取りこぼさないよう、最初にブラウザがつながったときに起動する
     if (!this.proc) {
-      this.proc = Bun.spawn(this.command, {
+      const command = [...this.command];
+      if (this.cwd && command[0] && !path.isAbsolute(command[0])) {
+        command[0] = path.resolve(command[0]);
+      }
+      this.proc = Bun.spawn(command, {
         cwd: this.cwd,
         terminal: {
           ...this.size,

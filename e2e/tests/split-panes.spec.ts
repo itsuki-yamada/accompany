@@ -132,13 +132,13 @@ test("分割・入力・大きさの変更・閉じる操作が、参加者全�
 });
 
 test("cd でディレクトリを移動して分割すると、新しいシェルがそのディレクトリで始まる", async ({ browser }) => {
-  accompany = await startAccompany([], { SHELL: "/bin/sh" });
+  accompany = await startAccompany([], { SHELL: "e2e/fixtures/cd-shell" });
   const page = await openAsParticipant(browser, accompany.url);
 
   await typeInPane(page, 1, "cd /tmp\n");
   await pane(page, 1).getByRole("button", { name: "右に分割" }).click();
 
-  await expect(panes(page)).toHaveCount(2);
+  await expectPaneToShow(page, 2, "Fake Shell ready");
   await typeInPane(page, 2, "pwd\n");
   await expectPaneToShow(page, 2, "/tmp");
 });
