@@ -1,3 +1,5 @@
+import { commandOutput } from "./command-output";
+
 // ターミナルの前面で、エージェントが動いているかを見分ける（docs/adr/70-agent-detection.md）
 
 // エージェントとみなすコマンドの名前
@@ -36,21 +38,8 @@ export type Foreground = { pgid: number; agent: boolean };
 // ps がこの時間で終わらなければ止めて、調べられなかったものとする（止まったままの ps を待ち続けないため）
 const psTimeoutMs = 2000;
 
-async function ps(args: string[]) {
-  const proc = Bun.spawn(["ps", ...args], { stdout: "pipe", stderr: "ignore" });
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      proc.kill();
-      reject(new Error("ps timed out"));
-    }, psTimeoutMs);
-  });
-  try {
-    const read = Promise.all([new Response(proc.stdout).text(), proc.exited]).then(([out]) => out);
-    return await Promise.race([read, timeout]);
-  } finally {
-    clearTimeout(timer);
-  }
+function ps(args: string[]) {
+  return commandOutput(["ps", ...args], psTimeoutMs);
 }
 
 // pid のプロセスを制御端末に持つプロセスを ps で調べ、前面のプロセスグループ（tpgid）に属するものの引数を見る。

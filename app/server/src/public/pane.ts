@@ -229,7 +229,10 @@ export class Pane {
     this.remoteLayer.className = "remote-selections";
     this.remoteLayer.setAttribute("aria-hidden", "true");
     this.terminal.element?.querySelector(".xterm-screen")?.append(this.remoteLayer);
-    this.terminal.onRender(() => this.drawRemoteSelections());
+    this.terminal.onRender(() => {
+      this.drawRemoteSelections();
+      this.remeasure();
+    });
     this.trimmed = new TrimmedLines(this.terminal);
     this.terminal.onSelectionChange(() => this.sendSelection());
     // スクロールバックがいっぱいのとき、xterm は古い行を押し出して選択範囲の行を詰めるが、選択の変化は知らせない。
@@ -681,6 +684,15 @@ export class Pane {
 
   private send(data: string) {
     this.socket.send(JSON.stringify({ type: "input", data }));
+  }
+
+  // 1 文字の大きさは、開いた直後に測ったものと、描いたあとに測り直したものとで違うことがある（Linux の Chromium で、
+  // 9px と 9.03px など）。開いた直後の大きさで伝えたままだと、端末が表示領域から 1 文字分近くはみ出すので、変わったら伝え直す
+  private remeasure() {
+    if (this.terminal.options.fontSize !== this.appearance.fontSize) return;
+    const cell = cellSize(this.terminal);
+    if (!cell || (cell.width === this.cell?.width && cell.height === this.cell.height)) return;
+    this.sendSize();
   }
 
   // 自分の表示領域（フル HD まで）に、設定したフォントの大きさで収まる列数・行数と、下限のウィンドウで開いたときの

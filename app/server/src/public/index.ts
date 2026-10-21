@@ -357,7 +357,8 @@ function runShortcut(terminal: string, shortcut: Shortcut) {
       return;
     }
     case "new-tab":
-      return send({ type: "new-tab" });
+      // 新しいタブは、キー入力の先のターミナルのカレントディレクトリで始める（docs/adr/109-inherit-cwd.md）
+      return send({ type: "new-tab", terminal });
     case "next-tab":
     case "previous-tab": {
       if (!current) return;
