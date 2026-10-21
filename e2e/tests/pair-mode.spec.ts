@@ -403,86 +403,187 @@ test("自分の画面で拡大していても、相手が隠れているター�
   await expect(pane(host, 2).getByText("拡大中")).toBeHidden();
 });
 
-// スクロールの追従。起動時のコマンドで画面に収まらない量を出力し、スクロールバックを作る
-async function startScrollSession(browser: Browser) {
-  accompany = await startAccompany(["--", "bun", "e2e/fixtures/long-output.ts"], fakeShell);
+// スクロールの追従。起動時のコマンド（command）の出力で、スクロールバックを作る。
+// 参加者ごとに、届いた presence を記録し（「動かない」ことを確かめる前に、相手の位置が届いたのを待つため）、
+// dropScroll の間は、その参加者が送るスクロール位置をサーバーに届けない
+type Participant = { page: Page; presence: Member[][]; dropScroll: boolean };
+type Member = { id: number; following?: number; scroll?: { terminal: string; offset: number } };
+const longOutput = ["--", "bun", "e2e/fixtures/long-output.ts"];
+
+async function startScrollSession(browser: Browser, command = longOutput, ready = "line 200") {
+  accompany = await startAccompany(command, fakeShell);
   const open = async () => {
     const context = await newContext(browser, { viewport: { width: 1280, height: 720 } });
     const page = await context.newPage();
+    const participant: Participant = { page, presence: [], dropScroll: false };
+    await page.routeWebSocket(/\/ws\/workspace$/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((message) => {
+        if (participant.dropScroll && JSON.parse(message.toString()).type === "scroll") return;
+        server.send(message);
+      });
+      server.onMessage((message) => {
+        const event = JSON.parse(message.toString());
+        if (event.type === "presence") participant.presence.push(event.members);
+        ws.send(message);
+      });
+    });
     await page.goto(accompany!.url);
-    await expectPaneToShow(page, 1, "line 200");
-    return page;
+    await expectPaneToShow(page, 1, ready);
+    return participant;
   };
   const host = await open();
   const guest = await open();
   return { host, guest };
 }
 
-const firstLine = /line 1(?!\d)/;
-
-// ホイールで一番上（line 1 が見えるところ）まで戻す
-async function scrollToTop(page: Page) {
-  await pane(page, 1).locator(".xterm-screen").hover();
-  await expect(async () => {
-    for (let i = 0; i < 10; i++) await page.mouse.wheel(0, -2000);
-    await expect(pane(page, 1).locator(".xterm-rows")).toContainText(firstLine, { timeout: 100 });
-  }).toPass();
+// その参加者に最後に届いた presence での、参加者 id のスクロール位置
+function scrollOf(participant: Participant, id: number) {
+  return participant.presence.at(-1)?.find((m) => m.id === id)?.scroll?.offset;
 }
 
-async function scrollToBottom(page: Page) {
+function rows(page: Page) {
+  return pane(page, 1).locator(".xterm-rows");
+}
+
+const firstLine = /line 1(?!\d)/;
+
+// ホイールで一番上（line 1 が見えるところ）まで戻す。ホイール 1 回では 3 行ほどしか動かないので、戻り切る回数（200 行より多く）を続けて回す
+async function scrollToTop(page: Page) {
   await pane(page, 1).locator(".xterm-screen").hover();
-  await expect(async () => {
-    for (let i = 0; i < 10; i++) await page.mouse.wheel(0, 2000);
-    await expect(pane(page, 1).locator(".xterm-rows")).toContainText("line 200", { timeout: 100 });
-  }).toPass();
+  for (let i = 0; i < 80; i++) await page.mouse.wheel(0, -2000);
+  await expect(rows(page)).toContainText(firstLine);
+}
+
+async function scrollToBottom(page: Page, last = "line 200") {
+  await pane(page, 1).locator(".xterm-screen").hover();
+  for (let i = 0; i < 80; i++) await page.mouse.wheel(0, 2000);
+  await expect(rows(page)).toContainText(last);
 }
 
 test("ペアプロモードの間は、相手のスクロール位置にも追従する", async ({ browser }) => {
-  const { host, guest } = await startScrollSession(browser);
+  const { host: h, guest: g } = await startScrollSession(browser);
+  const [host, guest] = [h.page, g.page];
   // 追従する前のスクロールは、相手に影響しない
   await scrollToTop(host);
-  await expect(pane(guest, 1).locator(".xterm-rows")).not.toContainText(firstLine);
+  await expect(rows(guest)).not.toContainText(firstLine);
 
   // 始めたときに、相手のいまのスクロール位置に合わせる
   await toolbarPairButton(guest, "参加者 1").click();
-  await expect(pane(guest, 1).locator(".xterm-rows")).toContainText(firstLine);
+  await expect(rows(guest)).toContainText(firstLine);
 
   await scrollToBottom(host);
-  await expect(pane(guest, 1).locator(".xterm-rows")).toContainText("line 200");
-  await expect(pane(guest, 1).locator(".xterm-rows")).not.toContainText(firstLine);
+  await expect(rows(guest)).toContainText("line 200");
+  await expect(rows(guest)).not.toContainText(firstLine);
 
   await scrollToTop(host);
-  await expect(pane(guest, 1).locator(".xterm-rows")).toContainText(firstLine);
+  await expect(rows(guest)).toContainText(firstLine);
 
-  // 追従されている側は、追従している人のスクロールには合わせない
+  // 追従されている側は、追従している人のスクロールには合わせない（追従している人が動いたのを見てから確かめる）
   await pane(guest, 1).locator(".xterm-screen").hover();
   await guest.mouse.wheel(0, 300);
-  await expect(pane(host, 1).locator(".xterm-rows")).toContainText(firstLine);
+  await expect(rows(guest)).not.toContainText(firstLine);
+  await expect(rows(host)).toContainText(firstLine);
 });
 
 test("自分でスクロールすると、ペアプロモードのまま、スクロールの追従だけを止め、戻すボタンで相手の位置に戻る", async ({
   browser,
 }) => {
-  const { host, guest } = await startScrollSession(browser);
+  const { host: h, guest: g } = await startScrollSession(browser);
+  const [host, guest] = [h.page, g.page];
   await toolbarPairButton(guest, "参加者 1").click();
   await scrollToTop(host);
-  await expect(pane(guest, 1).locator(".xterm-rows")).toContainText(firstLine);
+  await expect(rows(guest)).toContainText(firstLine);
 
   // 自分でスクロールしても、ペアプロモードはやめず、スクロールの追従を止めていることを出す
   await scrollToBottom(guest);
   await expect(followIndicator(guest)).toContainText("参加者 1 の画面に追従中");
   await expect(followIndicator(guest)).toContainText("スクロールは追従していません");
 
-  // 相手がスクロールしても、自分の位置は動かない
+  // 相手がスクロールしても、自分の位置は動かない（相手の新しい位置が届いてから確かめる）
+  const before = scrollOf(g, 1);
   await pane(host, 1).locator(".xterm-screen").hover();
   await host.mouse.wheel(0, 300);
-  await expect(pane(host, 1).locator(".xterm-rows")).not.toContainText(firstLine);
-  await expect(pane(guest, 1).locator(".xterm-rows")).toContainText("line 200");
+  await expect(rows(host)).not.toContainText(firstLine);
+  await expect.poll(() => scrollOf(g, 1)).not.toBe(before);
+  await expect(rows(guest)).toContainText("line 200");
 
   // 戻すと、相手のいまの位置に合わせ、また追従する
   await followIndicator(guest).getByRole("button", { name: "相手のスクロール位置に戻る" }).click();
   await expect(followIndicator(guest)).not.toContainText("スクロールは追従していません");
-  await expect(pane(guest, 1).locator(".xterm-rows")).not.toContainText("line 200");
+  await expect(rows(guest)).not.toContainText("line 200");
   await scrollToBottom(host);
-  await expect(pane(guest, 1).locator(".xterm-rows")).toContainText("line 200");
+  await expect(rows(guest)).toContainText("line 200");
+});
+
+test("一番下でホイールを回して画面が動かなければ、出力が流れても、スクロールの追従は止めない", async ({ browser }) => {
+  // 出力し続けるコマンドで、一番下にいる間も画面が流れ続ける
+  const { host: h, guest: g } = await startScrollSession(
+    browser,
+    ["--", "bun", "e2e/fixtures/long-ticker.ts"],
+    "tick 1",
+  );
+  const [host, guest] = [h.page, g.page];
+  await toolbarPairButton(guest, "参加者 1").click();
+  await expect(followedIndicator(host)).toBeVisible();
+
+  // 一番下で下へ回しても画面は動かない。回している間も、そのあとも、出力は流れる
+  await pane(guest, 1).locator(".xterm-screen").hover();
+  for (let i = 0; i < 5; i++) {
+    await guest.mouse.wheel(0, 300);
+    await guest.waitForTimeout(100);
+  }
+  const tick = Number((await rows(guest).innerText()).match(/tick (\d+)\s*$/)?.[1]);
+  await expect(rows(guest)).toContainText(`tick ${tick + 3}`);
+  await expect(followIndicator(guest)).not.toContainText("スクロールは追従していません");
+
+  // 相手がスクロールすれば、追従する
+  await scrollToTop(host);
+  await expect.poll(() => scrollOf(g, 1)).toBeGreaterThan(0);
+  await expect(rows(guest)).toContainText(firstLine);
+});
+
+test("スクロールバーを押してしばらくしてからドラッグしても、自分でスクロールしたものとして、追従を止める", async ({
+  browser,
+}) => {
+  const { host: h, guest: g } = await startScrollSession(browser);
+  const [host, guest] = [h.page, g.page];
+  await toolbarPairButton(guest, "参加者 1").click();
+  await expect(followedIndicator(host)).toBeVisible();
+
+  // スクロールバーはターミナルの上にマウスがあるときに出る
+  await pane(guest, 1).locator(".xterm-screen").hover();
+  const slider = pane(guest, 1).locator(".scrollbar.vertical .slider");
+  await expect(slider).toBeVisible();
+  const box = (await slider.boundingBox())!;
+  await guest.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await guest.mouse.down();
+  await guest.waitForTimeout(800);
+  await guest.mouse.move(box.x + box.width / 2, 0, { steps: 10 });
+  await guest.mouse.up();
+
+  await expect(rows(guest)).toContainText(firstLine);
+  await expect(followIndicator(guest)).toContainText("スクロールは追従していません");
+});
+
+test("ペアプロモードをやめたあとの古いスクロール位置には、始め直しても飛ばない", async ({ browser }) => {
+  const { host: h, guest: g } = await startScrollSession(browser);
+  const [host, guest] = [h.page, g.page];
+  await toolbarPairButton(guest, "参加者 1").click();
+  await scrollToTop(host);
+  await expect(rows(guest)).toContainText(firstLine);
+
+  // やめたあとに相手が一番下へ戻る。追従されていないので、相手の位置は送られない
+  await stopButton(guest).click();
+  await expect(followedIndicator(host)).toHaveCount(0);
+  await scrollToBottom(host);
+  await scrollToBottom(guest);
+
+  // 始め直したとき、相手がいまの位置を送るより先に、やめる前の位置（一番上）へ飛ばない。
+  // 相手がいまの位置を送っても届かないようにして、サーバーに古い位置が残っていないことを確かめる
+  h.dropScroll = true;
+  await toolbarPairButton(guest, "参加者 1").click();
+  await expect.poll(() => g.presence.at(-1)?.find((m) => m.id === 2)?.following).toBe(1);
+  expect(scrollOf(g, 1)).toBeUndefined();
+  await expect(rows(guest)).toContainText("line 200");
 });
