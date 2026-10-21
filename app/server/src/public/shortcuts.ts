@@ -39,6 +39,10 @@ const bindings: Binding[] = [
   { label: "サイドメニューへ移る", code: "KeyE", key: "E", repeat: false, shortcut: { type: "focus-sidebar" } },
 ];
 
+// 一覧にだけ出すマウスの操作（xterm が扱う）。マウスの報告モードを使うアプリの上で、アプリにマウスを渡さずに選択する
+// （docs/adr/114-force-selection.md）
+const mouseActions = [{ label: "範囲を強制して選択", mac: "Option+ドラッグ", other: "Shift+ドラッグ" }];
+
 // ショートカットのキーなら、その操作を返す。押し続けて繰り返し届いた keydown のうち、繰り返さない操作は ignore にする
 // （キーは止めるが、操作はしない）
 export function shortcutFor(event: KeyboardEvent): Shortcut | "ignore" | undefined {
@@ -87,6 +91,10 @@ export function shortcutList() {
     const { mac, other } = keysOf(binding);
     const row = body.insertRow();
     for (const text of [binding.label, mac, other]) row.insertCell().textContent = text;
+  }
+  for (const { label, mac, other } of mouseActions) {
+    const row = body.insertRow();
+    for (const text of [label, mac, other]) row.insertCell().textContent = text;
   }
   list.append(heading, note, table);
   return list;
