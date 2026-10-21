@@ -42,8 +42,8 @@ export class MinWindowSettings {
     this.element.append(
       heading,
       note,
-      field(`ウィンドウの幅（0〜${maxWidth} ピクセル）`, this.width, "下限のウィンドウの幅"),
-      field(`ウィンドウの高さ（0〜${maxHeight} ピクセル）`, this.height, "下限のウィンドウの高さ"),
+      field(`ウィンドウの幅（0〜${maxWidth}px）`, this.width, "下限のウィンドウの幅"),
+      field(`ウィンドウの高さ（0〜${maxHeight}px）`, this.height, "下限のウィンドウの高さ"),
     );
   }
 
