@@ -100,6 +100,7 @@ export class Pane {
   private cell: CellSize | undefined;
   private socket: WebSocket;
   private resizeObserver: ResizeObserver;
+  private bottomObserver: ResizeObserver;
   private search: SearchBar;
   private notice = document.createElement("div");
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -120,6 +121,9 @@ export class Pane {
   // 最後にホイールを回した（スクロールバーから手を離した）時刻と、スクロールバーを押しているか
   private userScrollAt = -Infinity;
   private draggingScrollbar = false;
+  // 端末が表示領域からはみ出しているとき、枠のスクロールを一番下（最新の行が見える位置）に保つか。
+  // 表示し直したターミナルは一番下から見せ、自分で上にスクロールしたら、一番下に戻すまで保たない（docs/adr/116-overflow-scroll-bottom.md）
+  private stickToBottom = true;
   private releaseScrollbar = () => {
     if (!this.draggingScrollbar) return;
     this.draggingScrollbar = false;
@@ -250,6 +254,7 @@ export class Pane {
         this.firstOutput = false;
         this.terminal.write(new Uint8Array(event.data), () => {
           this.restored = true;
+          this.keepAtBottom();
           this.placeRemoteSelections();
         });
       } else {
@@ -326,6 +331,11 @@ export class Pane {
       actions.resized();
     });
     this.resizeObserver.observe(container);
+    // 表示領域や、端末の大きさ（サーバーが決める）・フォントの大きさが変わって、はみ出す量が変わったときも、一番下に保つ
+    this.bottomObserver = new ResizeObserver(() => this.keepAtBottom());
+    this.bottomObserver.observe(container);
+    if (this.terminal.element) this.bottomObserver.observe(this.terminal.element);
+    container.addEventListener("scroll", () => (this.stickToBottom = isAtBottom(container)), { passive: true });
   }
 
   // フォーカスしている参加者を、バーに名前で出す。自分がフォーカスしていれば枠を自分の色で強調する。
@@ -467,6 +477,7 @@ export class Pane {
     clearTimeout(this.noticeTimer);
     this.closeMenu();
     this.resizeObserver.disconnect();
+    this.bottomObserver.disconnect();
     window.removeEventListener("pointerup", this.releaseScrollbar);
     window.removeEventListener("pointercancel", this.releaseScrollbar);
     this.socket.close();
@@ -706,6 +717,11 @@ export class Pane {
     return { width: Math.max(0, width), height: Math.max(0, height) };
   }
 
+  // 枠のスクロールを一番下に保つときは、一番下までスクロールする
+  private keepAtBottom() {
+    if (this.stickToBottom) this.container.scrollTop = this.container.scrollHeight;
+  }
+
   // 「画面に収める（縮小）」のときは、端末全体が表示領域に収まるまでフォントを小さくして描く。
   // CSS の transform で縮めると、xterm がマウスの位置から文字の位置を求める計算がずれるので、フォントの大きさで縮める
   private fitToArea() {
@@ -800,6 +816,11 @@ function openLink(_event: MouseEvent, uri: string) {
   if (!opened) return;
   opened.opener = null;
   opened.location.href = url.href;
+}
+
+// 枠のスクロールが一番下にあるか（はみ出していないときも含む）
+function isAtBottom(element: HTMLElement) {
+  return element.scrollTop + element.clientHeight >= element.scrollHeight - 1;
 }
 
 // 表示領域（フル HD まで）に収まる列数・行数。xterm のスクロールバックのスクロールバーの分をあける。
