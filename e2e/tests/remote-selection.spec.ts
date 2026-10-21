@@ -15,8 +15,15 @@ test.afterEach(async () => {
   await accompany?.stop();
 });
 
-async function openAsParticipant(browser: Browser, url: string, ready = "Fake Shell ready") {
+// platform を渡すと、ブラウザが報告する OS（navigator.platform）をそれにする。xterm は、選択を強制する修飾キーを
+// これで決める（macOS は Option、それ以外は Shift）
+async function openAsParticipant(browser: Browser, url: string, ready = "Fake Shell ready", platform?: string) {
   const context = await newContext(browser, { viewport: { width: 1280, height: 720 } });
+  if (platform) {
+    await context.addInitScript((platform) => {
+      Object.defineProperty(navigator, "platform", { get: () => platform });
+    }, platform);
+  }
   const page = await context.newPage();
   await page.goto(url);
   await expectPaneToShow(page, 1, ready);
@@ -304,6 +311,39 @@ test("選択した行がスクロールバックから押し出されると、�
   const late = await openAsParticipant(browser, accompany.url, "row 2300");
   await expect(row(late, numbered(2300))).toBeVisible();
   await expect(remoteSelection(late)).toHaveCount(0);
+});
+
+test("マウスの報告モードを使うアプリの上でも、修飾キーを押しながらドラッグすると選択できる", async ({ browser }) => {
+  accompany = await startAccompany(["--", "bun", "e2e/fixtures/mouse-reporter.ts"]);
+  // 開発機の OS によらず確かめられるように、OS を固定する
+  const linux = await openAsParticipant(browser, accompany.url, "Mouse reporter ready", "Linux x86_64");
+  const guest = await openAsParticipant(browser, accompany.url, "Mouse reporter ready", "Linux x86_64");
+
+  // 修飾キーなしのドラッグは、アプリ（mouse-reporter）にマウスの報告（SGR 形式、ESC [ <）として届き、選択にはならない
+  await selectText(linux, "Mouse reporter ready", "Mouse reporter");
+  await expectPaneToShow(linux, 1, "keys: 1b 5b 3c");
+  await expect(ownSelection(linux)).toHaveCount(0);
+
+  // Windows / Linux では、Shift を押しながらドラッグすると選択できる。ほかの参加者にも見える
+  await linux.keyboard.down("Shift");
+  await selectText(linux, "Mouse reporter ready", "Mouse reporter");
+  await linux.keyboard.up("Shift");
+  await expect(ownSelection(linux)).not.toHaveCount(0);
+  await expect(remoteSelection(guest)).not.toHaveCount(0);
+  await expectSameBox(remoteSelection(guest), ownSelection(linux));
+
+  // 抜けると選択範囲が消える。このあと guest に出る範囲は、macOS の参加者のものだけになる
+  await linux.context().close();
+  await expect(remoteSelection(guest)).toHaveCount(0);
+
+  // macOS では、Option を押しながらドラッグすると選択できる
+  const mac = await openAsParticipant(browser, accompany.url, "Mouse reporter ready", "MacIntel");
+  await mac.keyboard.down("Alt");
+  await selectText(mac, "Mouse reporter ready", "Mouse reporter");
+  await mac.keyboard.up("Alt");
+  await expect(ownSelection(mac)).not.toHaveCount(0);
+  await expect(remoteSelection(guest)).not.toHaveCount(0);
+  await expectSameBox(remoteSelection(guest), ownSelection(mac));
 });
 
 test("全画面の TUI（代替画面）の上でも、ほかの参加者の選択範囲が出る", async ({ browser }) => {

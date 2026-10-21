@@ -263,6 +263,10 @@ test("ショートカットの一覧を、ツールバーのボタンとツー�
     "前の Workspace",
     "⌘⇧R",
     "Ctrl+Shift+.",
+    // マウスの報告モードを使うアプリ（Codex など）の上で選択する方法
+    "範囲を強制して選択",
+    "Option+ドラッグ",
+    "Shift+ドラッグ",
   ]) {
     await expect(list).toContainText(text);
   }
