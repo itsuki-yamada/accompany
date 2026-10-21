@@ -164,7 +164,7 @@ export class TerminalSession {
     // 起動直後の出力を取りこぼさないよう、最初にブラウザがつながったときに起動する
     if (!this.proc) {
       const command = [...this.command];
-      if (this.cwd && command[0] && !path.isAbsolute(command[0])) {
+      if (this.cwd && command[0] && (command[0].includes("/") || command[0].includes("\\"))) {
         command[0] = path.resolve(command[0]);
       }
       this.proc = Bun.spawn(command, {

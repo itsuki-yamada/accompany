@@ -803,8 +803,8 @@ function openLink(_event: MouseEvent, uri: string) {
 // 収まらないときは 0（呼び出し側で、端末の最小の大きさにする）
 function cellsIn(area: { width: number; height: number }, cell: CellSize) {
   return {
-    cols: Math.max(0, Math.floor((Math.min(area.width, maxArea.width) - scrollbarWidth) / cell.width)),
-    rows: Math.max(0, Math.floor(Math.min(area.height, maxArea.height) / cell.height)),
+    cols: Math.max(0, Math.floor((Math.min(area.width, maxArea.width) - scrollbarWidth - 0.5) / cell.width)),
+    rows: Math.max(0, Math.floor((Math.min(area.height, maxArea.height) - 0.5) / cell.height)),
   };
 }
 
