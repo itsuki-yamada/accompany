@@ -67,6 +67,8 @@ export class Workspace {
   commands: QuickCommand[] = [];
   // 端末の大きさの下限。参加者全員に効く設定（docs/adr/99-smallest-size.md）
   minWindow: WindowSize;
+  // 保存する下限。起動オプションで渡した下限はその起動のあいだだけ使い、保存しない。設定の画面で変えたものは保存する
+  private savedMinWindow: WindowSize | undefined;
   tabs: Tab[] = [];
   active: string;
   // 保存すべき変化（配置・出力・よく使うコマンド）があったときに呼ぶ
@@ -84,6 +86,7 @@ export class Workspace {
     saved?: SavedSession,
     minWindow?: WindowSize,
   ) {
+    this.savedMinWindow = saved?.minWindow;
     this.minWindow = minWindow ?? saved?.minWindow ?? defaultMinWindow;
     if (!saved) {
       const tab = this.createTab(initialCommand ?? shellCommand);
@@ -130,7 +133,7 @@ export class Workspace {
       active: this.active,
       terminals,
       commands: this.commands,
-      minWindow: this.minWindow,
+      ...(this.savedMinWindow && { minWindow: this.savedMinWindow }),
     };
   }
 
@@ -275,7 +278,8 @@ export class Workspace {
 
   // 端末の大きさの下限を変え、全員に配る。各ブラウザが列数・行数に直して、ターミナルに伝え直す
   setMinWindow(minWindow: WindowSize) {
-    if (minWindow.width === this.minWindow.width && minWindow.height === this.minWindow.height) return;
+    this.savedMinWindow = minWindow;
+    if (minWindow.width === this.minWindow.width && minWindow.height === this.minWindow.height) return this.onChange();
     this.minWindow = minWindow;
     const event = this.minWindowEvent();
     this.members.forEach((_, l) => l(event));

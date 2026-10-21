@@ -25,10 +25,12 @@ export type Message =
   | { type: "trimmed"; lines: number };
 type Listener = (message: Message) => void;
 
+// 参加者のブラウザから届く大きさ。fits は表示領域（フル HD までとみなす）に収まる大きさ、
+// min は下限のウィンドウで開いたときの表示領域に収まる大きさ（docs/adr/99-smallest-size.md）
+export type Requested = { fits: Size; min: Size };
+
 export type Participant = {
-  // 参加者のブラウザの表示領域（フル HD までとみなす）に収まる大きさを伝える。下限のウィンドウに収まる大きさより小さければ、
-  // ブラウザがその大きさに広げて伝える（docs/adr/99-smallest-size.md）
-  resize: (size: Size) => void;
+  resize: (requested: Requested) => void;
   detach: () => void;
 };
 
@@ -50,7 +52,7 @@ export class TerminalSession {
   // 端末の大きさは、参加者のうち一番小さい表示領域に合わせる。ページを見ていない参加者も含める。
   // 下限より表示領域の小さい参加者は、はみ出した部分をスクロールするか、縮小して見る（docs/adr/99-smallest-size.md）
   private size: Size = { cols: 80, rows: 24 };
-  private requestedSizes = new Map<Listener, Size>();
+  private requestedSizes = new Map<Listener, Requested>();
   // 途中から参加したブラウザに現在の画面を送るため、PTY の出力をサーバー側の端末にも反映しておく
   private screen = new Terminal({ ...this.size, scrollback, allowProposedApi: true });
   private serializer = new SerializeAddon();
@@ -170,8 +172,8 @@ export class TerminalSession {
     }
 
     return {
-      resize: (size) => {
-        this.requestedSizes.set(receive, size);
+      resize: (requested) => {
+        this.requestedSizes.set(receive, requested);
         this.fitToSmallest();
       },
       detach: () => {
@@ -274,13 +276,17 @@ export class TerminalSession {
     }
   }
 
+  // 向きごとに、一番小さい参加者に収まる大きさを、下限まで広げる。ただし一番大きい参加者に収まる大きさは超えない。
+  // 下限は参加者ごとに列数・行数に直したもののうち一番小さいものを使う（docs/adr/99-smallest-size.md）
   private fitToSmallest() {
-    const sizes = [...this.requestedSizes.values()];
-    if (sizes.length === 0) return;
-    const size = {
-      cols: Math.min(...sizes.map((s) => s.cols)),
-      rows: Math.min(...sizes.map((s) => s.rows)),
+    const requested = [...this.requestedSizes.values()];
+    if (requested.length === 0) return;
+    const fit = (key: keyof Size) => {
+      const fits = requested.map((r) => r.fits[key]);
+      const min = Math.min(...requested.map((r) => r.min[key]));
+      return Math.min(Math.max(...fits), Math.max(Math.min(...fits), min));
     };
+    const size = clampSize({ cols: fit("cols"), rows: fit("rows") });
     if (size.cols === this.size.cols && size.rows === this.size.rows) return;
     this.size = size;
     this.screen.resize(size.cols, size.rows);

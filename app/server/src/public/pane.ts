@@ -669,19 +669,26 @@ export class Pane {
     this.socket.send(JSON.stringify({ type: "input", data }));
   }
 
-  // 自分の表示領域（フル HD まで）に、設定したフォントの大きさで収まる列数・行数を伝える。
-  // 下限のウィンドウで開いたときの表示領域に収まる列数・行数のほうが大きければ、そちらを伝える（docs/adr/99-smallest-size.md）。
-  // 拡大中は、拡大で広がった表示領域ではなく、元の分割での表示領域で計算する。拡大するのは枠に収まらないときなので、
-  // 広がった表示領域を伝えると、自分が一番小さい表示領域のとき、ほかの参加者の端末まで大きくなる（docs/adr/68-zoom.md）
+  // 自分の表示領域（フル HD まで）に、設定したフォントの大きさで収まる列数・行数と、下限のウィンドウで開いたときの
+  // 表示領域に収まる列数・行数を伝える。サーバーは、一番小さい参加者に収まる大きさを、一番大きい参加者に収まる大きさを
+  // 超えない範囲で下限まで広げる（docs/adr/99-smallest-size.md）。
+  // 拡大中は、拡大で広がった表示領域ではなく、元の分割での表示領域で計算する。広がった表示領域を伝えると、
+  // ほかの参加者の端末まで大きくなる（docs/adr/68-zoom.md）
   private sendSize() {
     if (this.terminal.options.fontSize === this.appearance.fontSize) this.cell = cellSize(this.terminal) ?? this.cell;
     const area = this.splitArea();
     if (!this.cell || !area || this.socket.readyState !== WebSocket.OPEN) return;
     const fits = cellsIn(area, this.cell);
-    const bound = cellsIn(this.minArea(), this.cell);
-    const cols = Math.max(2, fits.cols, bound.cols);
-    const rows = Math.max(1, fits.rows, bound.rows);
-    this.socket.send(JSON.stringify({ type: "resize", cols, rows }));
+    const min = cellsIn(this.minArea(), this.cell);
+    this.socket.send(
+      JSON.stringify({
+        type: "resize",
+        cols: Math.max(2, fits.cols),
+        rows: Math.max(1, fits.rows),
+        minCols: min.cols,
+        minRows: min.rows,
+      }),
+    );
   }
 
   // 下限のウィンドウで Accompany を開いたときの、ターミナルの表示領域。ウィンドウの大きさから、ブラウザの枠

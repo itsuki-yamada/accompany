@@ -1,6 +1,6 @@
 // 端末の大きさの下限。ウィンドウの大きさ（ピクセル）で持ち、参加者全員に効く。サーバーが持って全員に配り、保存する。
-// 各ブラウザは、このウィンドウで Accompany を開いたときの表示領域に、自分のフォントの大きさで収まる列数・行数を求め、
-// 自分の表示領域に収まる列数・行数がそれより小さければ、下限の列数・行数を伝える（docs/adr/99-smallest-size.md）
+// 各ブラウザは、このウィンドウで Accompany を開いたときの表示領域に、自分のフォントの大きさで収まる列数・行数を求めて、
+// 自分の表示領域に収まる列数・行数と一緒にサーバーに伝える（docs/adr/99-smallest-size.md）
 export type WindowSize = { width: number; height: number };
 
 // サーバーの上限（app/server/src/min-window.ts の maxMinWindow）と同じ。0 は下限なし
@@ -24,7 +24,7 @@ export class MinWindowSettings {
     heading.textContent = "端末の大きさの下限";
     const note = document.createElement("p");
     note.textContent =
-      "端末は参加者のうち一番小さい画面に合わせますが、このウィンドウの大きさに収まる大きさより小さくはしません。参加者全員に効き、Accompany に保存します";
+      "端末は参加者のうち一番小さい画面に合わせますが、一番大きい人の画面に入る範囲で、このウィンドウに収まる大きさまで広げます。参加者全員に効き、Accompany に保存します";
     this.width = numberInput(maxWidth);
     this.height = numberInput(maxHeight);
     for (const input of [this.width, this.height]) {

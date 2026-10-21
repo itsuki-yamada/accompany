@@ -5,7 +5,7 @@ import { createMiddleware } from "hono/factory";
 import { parseMinWindow } from "./min-window";
 import { parseQuickCommand } from "./quick-commands";
 import { scrollback } from "./scrollback";
-import { clampSize, maxSize, type Participant, type Size } from "./terminal";
+import { clampSize, maxSize, type Participant, type Requested } from "./terminal";
 import { maxUploadBytes, type Uploads } from "./uploads";
 import type { Position, SelectionRange, Workspace } from "./workspace";
 
@@ -24,11 +24,14 @@ const sameOriginOnly = createMiddleware(async (c, next) => {
   await next();
 });
 
-// ブラウザから届く制御メッセージ。大きさは 1 以上の整数だけを受け付け、上限（maxSize）を超えるものは上限に丸める
-function parseSize(message: { cols?: unknown; rows?: unknown }): Size | undefined {
-  const { cols, rows } = message;
-  const valid = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) >= 1;
-  return valid(cols) && valid(rows) ? clampSize({ cols, rows }) : undefined;
+// ブラウザから届く制御メッセージ。表示領域に収まる大きさ（cols・rows）は 1 以上、下限のウィンドウに収まる大きさ
+// （minCols・minRows。docs/adr/99-smallest-size.md）は 0 以上の整数だけを受け付け、上限（maxSize）を超えるものは上限に丸める。
+// 下限の大きさがないときは、下限なし（0）とみなす
+function parseSize(message: Record<string, unknown>): Requested | undefined {
+  const { cols, rows, minCols = 0, minRows = 0 } = message;
+  const valid = (n: unknown, min: number): n is number => Number.isSafeInteger(n) && (n as number) >= min;
+  if (!valid(cols, 1) || !valid(rows, 1) || !valid(minCols, 0) || !valid(minRows, 0)) return;
+  return { fits: clampSize({ cols, rows }), min: clampSize({ cols: minCols, rows: minRows }) };
 }
 
 // 選択範囲として受け付ける行の数。ブラウザの端末のバッファは、スクロールバックと画面の行数（上限は maxSize.rows）まで
