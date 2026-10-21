@@ -158,6 +158,9 @@ test("下限は保存し、再起動しても残る", async ({ browser }) => {
   const page = await openAsParticipant(browser, accompany.url);
   await setMinWindow(page, { width: 1900, height: 400 });
   await expect.poll(() => scrollable(page)).toEqual({ x: true, y: false });
+  // 幅と高さを 1 つずつ変えるので、コマンドに最後の大きさが届くのを待つ
+  const rendered = page.locator(".xterm-rows > div");
+  await expect.poll(async () => parse(await commandSize(page)).rows).toBe(await rendered.count());
   const size = await commandSize(page);
   await page.context().close();
   await accompany.stop();

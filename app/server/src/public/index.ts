@@ -1,4 +1,5 @@
 import { appearanceSettings, loadAppearance, type Appearance } from "./appearance";
+import { MinWindowSettings } from "./min-window";
 import { notifyDone, requestPermissionOnFirstInteraction } from "./notify";
 import { Pane, type AgentStatus, type SelectionRange, type Viewer } from "./pane";
 import { QuickCommands } from "./quick-commands";
@@ -36,11 +37,17 @@ document.body.append(shortcuts);
 
 // 配色とフォントの大きさは参加者ごと（docs/adr/36-appearance.md）。変えたら表示中の全ターミナルに反映する
 let appearance: Appearance = loadAppearance();
-const settings = appearanceSettings(appearance, (changed) => {
-  appearance = changed;
-  panes.forEach((pane) => pane.setAppearance(appearance));
-  updateZoom();
-});
+// 端末の大きさの下限は参加者全員の設定で、サーバーが持って全員に配る（docs/adr/99-smallest-size.md）
+const minWindow = new MinWindowSettings((size) => send({ type: "set-min-window", ...size }));
+const settings = appearanceSettings(
+  appearance,
+  (changed) => {
+    appearance = changed;
+    panes.forEach((pane) => pane.setAppearance(appearance));
+    updateZoom();
+  },
+  minWindow.element,
+);
 document.body.append(settings);
 
 // 参加者とそのフォーカス先、ターミナルごとの選択範囲、ペアプロモードで追従している相手、スクロール位置。
@@ -159,6 +166,9 @@ socket.onmessage = (event) => {
     showStatuses();
   } else if (message.type === "commands") {
     quickCommands.set(message.commands);
+  } else if (message.type === "min-window") {
+    minWindow.set({ width: message.width, height: message.height });
+    panes.forEach((pane) => pane.refit());
   } else if (message.type === "tabs") {
     if (dragging) deferredTabs = message;
     else renderTabs(message);
@@ -272,6 +282,7 @@ function paneFor(id: string) {
       },
       shortcut: (shortcut) => runShortcut(id, shortcut),
       commands: () => quickCommands.list,
+      minWindow: () => minWindow.current,
       manageCommands: () => quickCommands.open(),
       follow: (member) => (following === member ? stopFollowing() : startFollowing(member)),
       selected: (range) => send({ type: "select", terminal: id, ...range }),

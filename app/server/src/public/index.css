@@ -976,3 +976,11 @@ body[data-pair-mode="following"] .pane-bar {
   flex-wrap: wrap;
   gap: 4px;
 }
+
+/* 参加者全員に効く設定（端末の大きさの下限。docs/adr/99-smallest-size.md）。自分だけの設定と線で分ける */
+.min-window-settings {
+  max-width: 320px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #444;
+}

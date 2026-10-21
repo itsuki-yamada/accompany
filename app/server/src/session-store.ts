@@ -2,11 +2,13 @@ import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
+import { parseMinWindow, type WindowSize } from "./min-window";
 import { parseQuickCommand, type QuickCommand } from "./quick-commands";
 import { clampSize, type Size } from "./terminal";
 import type { Layout } from "./workspace";
 
-// 再起動しても戻す、画面の配置とターミナルごとのスクロールバック、よく使うコマンド（docs/adr/34-session-restore.md）
+// 再起動しても戻す、画面の配置とターミナルごとのスクロールバック、よく使うコマンド（docs/adr/34-session-restore.md）、
+// 端末の大きさの下限（docs/adr/99-smallest-size.md）
 export type SavedTerminal = Size & {
   // サーバー側の画面を書き出したもの（xterm の SerializeAddon）
   scrollback: string;
@@ -22,6 +24,8 @@ export type SavedSession = {
   active: string;
   terminals: Record<string, SavedTerminal>;
   commands: QuickCommand[];
+  // 下限を保存する前の版のファイルにはない
+  minWindow?: WindowSize;
 };
 
 // スクロールバックには秘密が含まれうるので、本人だけが読み書きできるようにする
@@ -116,7 +120,8 @@ export function parseSavedSession(data: unknown): SavedSession | undefined {
     if (command && !commands.some((x) => x.id === c.id)) commands.push({ id: c.id as string, ...command });
   }
 
-  return { version: 1, cwd: String(data.cwd ?? ""), tabs, active, terminals, commands };
+  const minWindow = parseMinWindow(data.minWindow);
+  return { version: 1, cwd: String(data.cwd ?? ""), tabs, active, terminals, commands, ...(minWindow && { minWindow }) };
 }
 
 function parseLayout(node: unknown, seen: Set<string>, depth: number): Layout | undefined {

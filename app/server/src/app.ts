@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { upgradeWebSocket } from "hono/bun";
 import { createMiddleware } from "hono/factory";
+import { parseMinWindow } from "./min-window";
 import { parseQuickCommand } from "./quick-commands";
 import { scrollback } from "./scrollback";
 import { clampSize, maxSize, type Participant, type Size } from "./terminal";
@@ -68,7 +69,8 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
 
   // タブと分割の配置、参加者ごとのフォーカス先と選択範囲・ペアプロモードで追従している相手・スクロール位置、
   // よく使うコマンドの一覧を全員に配り、タブの追加・切り替え・閉じる、分割・閉じる・割合の変更・フォーカスの移動・選択範囲・
-  // ページが見えているか、ペアプロモードの開始・終了とスクロール位置、よく使うコマンドの登録・編集・削除を受け付ける
+  // ページが見えているか、ペアプロモードの開始・終了とスクロール位置、よく使うコマンドの登録・編集・削除、
+  // 端末の大きさの下限の変更を受け付ける
   app.get(
     "/ws/workspace",
     upgradeWebSocket(() => {
@@ -112,6 +114,9 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
             else workspace.updateCommand(String(message.id), command);
           } else if (message?.type === "remove-command") {
             workspace.removeCommand(String(message.id));
+          } else if (message?.type === "set-min-window") {
+            const minWindow = parseMinWindow(message);
+            if (minWindow) workspace.setMinWindow(minWindow);
           }
         },
         onClose: () => member?.leave(),

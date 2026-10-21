@@ -6,6 +6,7 @@ import { themeColors, type Appearance } from "./appearance";
 import { acceptFileDrop } from "./file-drop";
 import { isSearchKey, SearchBar } from "./search";
 import { showContextMenu } from "./context-menu";
+import type { WindowSize } from "./min-window";
 import { firstLine, type QuickCommand } from "./quick-commands";
 import { shortcutFor, withKeys, type Shortcut } from "./shortcuts";
 
@@ -31,6 +32,8 @@ export type PaneActions = {
   selected: (range: SelectionRange | undefined) => void;
   // スクロール位置が変わったとき。user は、自分でスクロールした（ホイール・スクロールバー）か
   scrolled: (user: boolean) => void;
+  // 端末の大きさの下限（ウィンドウの大きさ）。サーバーから届くまでは undefined（docs/adr/99-smallest-size.md）
+  minWindow: () => WindowSize | undefined;
 };
 
 // ターミナルの選択範囲。位置は列と、出力の始めからの行の番号（バッファの行に、スクロールバックから押し出された行の数を足したもの。
@@ -79,6 +82,7 @@ type CellSize = { width: number; height: number };
 // 1 つのターミナルの表示。配置が変わっても同じ要素と接続を使い回す
 export class Pane {
   readonly element = document.createElement("section");
+  private bar = document.createElement("div");
   private closeButton: HTMLButtonElement;
   private zoomButton: HTMLButtonElement;
   private zoomLabel = document.createElement("span");
@@ -147,7 +151,7 @@ export class Pane {
     this.element.className = "pane";
     this.element.setAttribute("aria-label", `ターミナル ${id}`);
 
-    const bar = document.createElement("div");
+    const bar = this.bar;
     bar.className = "pane-bar";
     const title = document.createElement("span");
     title.className = "pane-title";
@@ -311,8 +315,8 @@ export class Pane {
       true,
     );
 
-    // 端末の大きさは参加者のうち一番大きい表示領域に合わせるため、自分の表示領域に収まる大きさをサーバーに伝え、
-    // サーバーが決めた大きさで描く。表示領域に収まらない部分は、スクロールするか縮小して見る
+    // 端末の大きさは参加者のうち一番小さい表示領域に合わせるため、自分の表示領域に収まる大きさ（下限より小さければ下限）を
+    // サーバーに伝え、サーバーが決めた大きさで描く。表示領域に収まらない部分は、スクロールするか縮小して見る
     this.resizeObserver = new ResizeObserver(() => {
       this.sendSize();
       this.fitToArea();
@@ -385,6 +389,11 @@ export class Pane {
     this.paintBackground(this.container, appearance);
     this.sendSize();
     this.fitToArea();
+  }
+
+  // 端末の大きさの下限が変わったので、伝える大きさを計算し直す
+  refit() {
+    this.sendSize();
   }
 
   setClosable(closable: boolean) {
@@ -661,15 +670,30 @@ export class Pane {
   }
 
   // 自分の表示領域（フル HD まで）に、設定したフォントの大きさで収まる列数・行数を伝える。
-  // 拡大中は、拡大で広がった表示領域ではなく、元の分割での表示領域で計算する。広がった表示領域を伝えると、
-  // 自分が一番大きい表示領域のとき、ほかの参加者の端末まで大きくなる（docs/adr/68-zoom.md）
+  // 下限のウィンドウで開いたときの表示領域に収まる列数・行数のほうが大きければ、そちらを伝える（docs/adr/99-smallest-size.md）。
+  // 拡大中は、拡大で広がった表示領域ではなく、元の分割での表示領域で計算する。拡大するのは枠に収まらないときなので、
+  // 広がった表示領域を伝えると、自分が一番小さい表示領域のとき、ほかの参加者の端末まで大きくなる（docs/adr/68-zoom.md）
   private sendSize() {
     if (this.terminal.options.fontSize === this.appearance.fontSize) this.cell = cellSize(this.terminal) ?? this.cell;
     const area = this.splitArea();
     if (!this.cell || !area || this.socket.readyState !== WebSocket.OPEN) return;
-    const cols = Math.max(2, Math.floor((Math.min(area.width, maxArea.width) - scrollbarWidth) / this.cell.width));
-    const rows = Math.max(1, Math.floor(Math.min(area.height, maxArea.height) / this.cell.height));
+    const fits = cellsIn(area, this.cell);
+    const bound = cellsIn(this.minArea(), this.cell);
+    const cols = Math.max(2, fits.cols, bound.cols);
+    const rows = Math.max(1, fits.rows, bound.rows);
     this.socket.send(JSON.stringify({ type: "resize", cols, rows }));
+  }
+
+  // 下限のウィンドウで Accompany を開いたときの、ターミナルの表示領域。ウィンドウの大きさから、ブラウザの枠
+  // （タブやアドレスバーなど。ウィンドウの外寸と内寸の差）と、Accompany のツールバーとペインのバーの実寸を引く。
+  // サイドメニューは、狭いウィンドウでは隠して使うものとして引かない。幅・高さが 0 になる向きには下限を掛けない
+  private minArea() {
+    const min = this.actions.minWindow();
+    if (!min) return { width: 0, height: 0 };
+    const toolbar = document.getElementById("tabs")?.offsetHeight ?? 0;
+    const width = min.width - Math.max(0, window.outerWidth - window.innerWidth) - (this.element.offsetWidth - this.container.offsetWidth);
+    const height = min.height - Math.max(0, window.outerHeight - window.innerHeight) - toolbar - this.bar.offsetHeight;
+    return { width: Math.max(0, width), height: Math.max(0, height) };
   }
 
   // 「画面に収める（縮小）」のときは、端末全体が表示領域に収まるまでフォントを小さくして描く。
@@ -766,6 +790,15 @@ function openLink(_event: MouseEvent, uri: string) {
   if (!opened) return;
   opened.opener = null;
   opened.location.href = url.href;
+}
+
+// 表示領域（フル HD まで）に収まる列数・行数。xterm のスクロールバックのスクロールバーの分をあける。
+// 収まらないときは 0（呼び出し側で、端末の最小の大きさにする）
+function cellsIn(area: { width: number; height: number }, cell: CellSize) {
+  return {
+    cols: Math.max(0, Math.floor((Math.min(area.width, maxArea.width) - scrollbarWidth) / cell.width)),
+    rows: Math.max(0, Math.floor(Math.min(area.height, maxArea.height) / cell.height)),
+  };
 }
 
 // 1 文字の幅と高さ。@xterm/addon-fit と同じく、xterm の内部の値を使う
