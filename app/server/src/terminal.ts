@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/headless";
 import type { Subprocess } from "bun";
 import { ActivityMonitor, type AgentStatus } from "./activity";
 import { type Foreground, foregroundOf } from "./agent-detect";
+import { processCwd } from "./process-cwd";
 import { scrollback } from "./scrollback";
 import { TrimmedLines } from "./trimmed-lines";
 
@@ -79,6 +80,7 @@ export class TerminalSession {
   private killed = false;
   // 作業が終わってから、まだ誰も見ていない（docs/adr/74-unseen-done.md）。保存はしない
   private unseen = false;
+  private startDir: string | undefined;
 
   constructor(
     private command: string[],
@@ -93,8 +95,11 @@ export class TerminalSession {
       restored,
       // コマンドが出力したときに呼ぶ（保存のきっかけにする）
       onOutput = () => {},
-    }: { restored?: Restored; onOutput?: () => void } = {},
+      // コマンドを起動するディレクトリ。省略したときや、起動できなかったときは Accompany を起動したディレクトリ
+      cwd,
+    }: { restored?: Restored; onOutput?: () => void; cwd?: string } = {},
   ) {
+    this.startDir = cwd;
     this.onOutput = onOutput;
     this.onStatus = onStatus;
     // エージェントが前面にいないときの判定の変化は知らせない。作業中から指示待ちに変わったら、誰かが見るまで未確認にする
@@ -157,18 +162,21 @@ export class TerminalSession {
 
     // 起動直後の出力を取りこぼさないよう、最初にブラウザがつながったときに起動する
     if (!this.proc) {
-      this.proc = Bun.spawn(this.command, {
-        terminal: {
-          ...this.size,
-          data: (_terminal, data) => {
-            this.screen.write(data);
-            this.activity.output();
-            this.scheduleDetect();
-            this.broadcast({ type: "output", data });
-            this.onOutput();
+      this.proc = this.spawn((cwd) =>
+        Bun.spawn(this.command, {
+          cwd,
+          terminal: {
+            ...this.size,
+            data: (_terminal, data) => {
+              this.screen.write(data);
+              this.activity.output();
+              this.scheduleDetect();
+              this.broadcast({ type: "output", data });
+              this.onOutput();
+            },
           },
-        },
-      });
+        }),
+      );
       this.proc.exited.then(() => this.onExit());
     }
 
@@ -183,6 +191,27 @@ export class TerminalSession {
         this.fitToSmallest();
       },
     };
+  }
+
+  // 調べてから起動するまでの間に、起動するディレクトリが消えていることがある。そのときは Bun.spawn が例外を投げるので、
+  // Accompany を起動したディレクトリで起動し直す（docs/adr/109-inherit-cwd.md）
+  private spawn(start: (cwd?: string) => Subprocess) {
+    if (this.startDir) {
+      try {
+        return start(this.startDir);
+      } catch {}
+    }
+    return start();
+  }
+
+  // 分割や新しいタブで、続きのシェルを始めるディレクトリ。前面のプロセス（なければコマンド自身）のカレントディレクトリで、
+  // 分からなければ undefined。まだ起動していなければ、起動するディレクトリ（docs/adr/109-inherit-cwd.md）
+  async cwd() {
+    const pid = this.proc?.pid;
+    if (pid === undefined) return this.startDir;
+    // 前面のプロセスグループの番号は、そのグループのリーダーのプロセスの番号
+    const found = await foregroundOf(pid, this.tty);
+    return (found && (await processCwd(found.foreground.pgid))) ?? (await processCwd(pid));
   }
 
   write(data: string) {

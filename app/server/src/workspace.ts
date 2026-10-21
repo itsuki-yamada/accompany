@@ -154,6 +154,9 @@ export class Workspace {
     listener(this.minWindowEvent());
     this.notifyPresence();
     return {
+      // 新しいタブを開く。キーボードショートカットではキー入力の先のターミナル（terminalId）を、
+      // それ以外では最後にフォーカスしたターミナルを、自分がフォーカスしているターミナルとする
+      newTab: (terminalId?: string) => this.newTab(terminalId ?? member.terminal),
       focus: (terminalId: string) => {
         member.terminal = terminalId;
         this.notifyPresence();
@@ -200,9 +203,11 @@ export class Workspace {
     };
   }
 
-  // 新しいタブはシェルのターミナル 1 つで始め、そのタブを表示する
-  newTab() {
-    this.active = this.createTab(this.shellCommand).id;
+  // 新しいタブはシェルのターミナル 1 つで始め、そのタブを表示する。シェルは terminalId のターミナルのカレントディレクトリで始め、
+  // ターミナルがない・分からないときは Accompany を起動したディレクトリで始める（docs/adr/109-inherit-cwd.md）
+  async newTab(terminalId?: string) {
+    const cwd = terminalId === undefined ? undefined : await this.terminals.get(terminalId)?.cwd();
+    this.active = this.createTab(this.shellCommand, cwd).id;
     this.notify();
   }
 
@@ -223,11 +228,14 @@ export class Workspace {
     this.notify();
   }
 
-  split(terminalId: string, direction: "row" | "column") {
+  // 分割したシェルは、分割元のターミナルのカレントディレクトリで始める（docs/adr/109-inherit-cwd.md）
+  async split(terminalId: string, direction: "row" | "column") {
+    const cwd = await this.terminals.get(terminalId)?.cwd();
+    // 調べている間に、分割元のターミナルやそのタブが閉じられていることがあるので、調べたあとに探す
     const tab = this.tabOfTerminal(terminalId);
     const target = tab && findTerminal(tab.layout, terminalId);
     if (!tab || !target) return;
-    const added = this.createTerminal(this.shellCommand);
+    const added = this.createTerminal(this.shellCommand, cwd);
     this.replace(tab, target, {
       type: "split",
       id: `split-${this.nextSplitId++}`,
@@ -290,20 +298,20 @@ export class Workspace {
     this.terminals.forEach((t) => t.kill());
   }
 
-  private createTab(command: string[]) {
+  private createTab(command: string[], cwd?: string) {
     const id = String(this.nextTabId++);
-    const tab: Tab = { id, name: `Workspace ${id}`, layout: this.createTerminal(command) };
+    const tab: Tab = { id, name: `Workspace ${id}`, layout: this.createTerminal(command, cwd) };
     this.tabs.push(tab);
     return tab;
   }
 
-  private createTerminal(command: string[]): Layout {
+  private createTerminal(command: string[], cwd?: string): Layout {
     const id = String(this.nextId++);
-    this.addTerminal(id, command);
+    this.addTerminal(id, command, undefined, cwd);
     return { type: "terminal", id };
   }
 
-  private addTerminal(id: string, command: string[], restored?: Restored) {
+  private addTerminal(id: string, command: string[], restored?: Restored, cwd?: string) {
     this.terminals.set(
       id,
       new TerminalSession(
@@ -311,7 +319,7 @@ export class Workspace {
         () => this.close(id),
         () => this.notifyTitles(),
         () => this.notifyStatus(),
-        { restored, onOutput: () => this.onChange() },
+        { restored, onOutput: () => this.onChange(), cwd },
       ),
     );
   }
