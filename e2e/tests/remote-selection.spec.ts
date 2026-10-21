@@ -57,8 +57,16 @@ async function textBox(page: Page, line: string, text: string) {
 }
 
 // 行の中の text を、マウスでドラッグして選択する
+// 出力が続いている間は xterm が行の要素を作り直すので、測った要素が外れていると大きさが 0 になる（そのまま押すと、
+// 端末の外を押してページの文字を選んでしまう）。大きさのある位置を測れるまで測り直す
 async function selectText(page: Page, line: string, text: string) {
-  const box = await textBox(page, line, text);
+  let box = await textBox(page, line, text);
+  await expect
+    .poll(async () => {
+      box = await textBox(page, line, text);
+      return box.width > 0 && box.height > 0;
+    })
+    .toBe(true);
   const y = box.y + box.height / 2;
   await page.mouse.move(box.x + 1, y);
   await page.mouse.down();
@@ -149,7 +157,10 @@ test("出力で画面がスクロールしても、ほかの参加者の選択�
   const { host, guest } = await startSession(browser);
   // 画面に収まらないだけ出力し、スクロールバックがある状態で選択する
   for (let i = 1; i <= 30; i++) await typeInPane(guest, 1, `line ${i}\n`);
-  await expectPaneToShow(host, 1, "line 30");
+  // 入力の表示（エコー）と cat の出力の 2 回ずつ出るので、最後の行が 2 回出るまで待ってから選択する
+  const shown = async (text: string) =>
+    ((await pane(host, 1).locator(".xterm-rows").textContent()) ?? "").split(text).length - 1;
+  await expect.poll(() => shown("line 30")).toBe(2);
   await selectText(host, "line 28", "line 28");
   await expect(remoteSelection(guest)).not.toHaveCount(0);
   await expectSameBox(remoteSelection(guest), ownSelection(host));
