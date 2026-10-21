@@ -88,6 +88,10 @@ export function shortcutList() {
     const row = body.insertRow();
     for (const text of [binding.label, mac, other]) row.insertCell().textContent = text;
   }
+  const mouseSelectionRow = body.insertRow();
+  for (const text of ["アプリ上での範囲選択（Codex など）", "Option + ドラッグ", "Shift + ドラッグ"]) {
+    mouseSelectionRow.insertCell().textContent = text;
+  }
   list.append(heading, note, table);
   return list;
 }

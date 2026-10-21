@@ -60,6 +60,15 @@ async function textBox(page: Page, line: string | RegExp, text: string) {
 // 出力が続いている間は xterm が行の要素を作り直すので、測った要素が外れていると大きさが 0 になる（そのまま押すと、
 // 端末の外を押してページの文字を選んでしまう）。大きさのある位置を測れるまで測り直す
 async function selectText(page: Page, line: string | RegExp, text: string) {
+  return selectTextWithModifiers(page, line, text, []);
+}
+
+async function selectTextWithModifiers(
+  page: Page,
+  line: string | RegExp,
+  text: string,
+  modifiers: ("Shift" | "Alt")[] = [],
+) {
   let box = await textBox(page, line, text);
   await expect
     .poll(async () => {
@@ -68,10 +77,12 @@ async function selectText(page: Page, line: string | RegExp, text: string) {
     })
     .toBe(true);
   const y = box.y + box.height / 2;
+  for (const mod of modifiers) await page.keyboard.down(mod);
   await page.mouse.move(box.x + 1, y);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width - 1, y, { steps: 5 });
   await page.mouse.up();
+  for (const mod of modifiers) await page.keyboard.up(mod);
 }
 
 // ほかの参加者の選択範囲の表示
@@ -316,6 +327,24 @@ test("全画面の TUI（代替画面）の上でも、ほかの参加者の選�
   await expect(remoteSelection(guest)).not.toHaveCount(0);
   await expect(remoteSelection(guest).first()).toHaveCSS("background-color", hostColor);
   await expectSameBox(remoteSelection(guest), ownSelection(host));
+});
+
+test("マウス報告モードを有効にしたアプリ（Codex など）の上でも、修飾キー（Shift）を押しながらドラッグすると選択できる", async ({
+  browser,
+}) => {
+  accompany = await startAccompany(["--", "bun", "e2e/fixtures/mouse-reporter.ts"]);
+  const host = await openAsParticipant(browser, accompany.url, "Mouse reporter ready");
+  const guest = await openAsParticipant(browser, accompany.url, "Mouse reporter ready");
+
+  // 修飾キーなしでドラッグすると、アプリにマウスイベントが送信され、選択が行われない
+  await selectText(host, "Mouse reporter ready", "reporter");
+  await expect(pane(host, 1).locator(".xterm-rows")).toContainText("keys:");
+  await expect(ownSelection(host)).toHaveCount(0);
+
+  // 修飾キー（Shift）を押しながらドラッグすると強制選択でき、相手の画面にも同期される
+  await selectTextWithModifiers(host, "Mouse reporter ready", "reporter", ["Shift"]);
+  await expect(ownSelection(host)).not.toHaveCount(0);
+  await expect(remoteSelection(guest)).not.toHaveCount(0);
 });
 
 test("ターミナルを閉じると、そのターミナルでの選択範囲はサーバーからも消える", async ({ browser }) => {

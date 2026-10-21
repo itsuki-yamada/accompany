@@ -146,6 +146,8 @@ export class Pane {
       theme: themeColors(appearance),
       fontSize: appearance.fontSize,
       linkHandler: links,
+      // マウスの報告モードを使うアプリ（Codex や Claude Code など）の上でも、macOS では Option、Windows/Linux では Shift を押しながらドラッグすると強制選択できるようにする
+      macOptionClickForcesSelection: true,
     });
     this.search = new SearchBar(this.terminal, () => this.revealSelection());
     this.element.className = "pane";
