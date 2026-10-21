@@ -14,13 +14,17 @@ export type Position = { x: number; y: number };
 export type SelectionRange = { start: Position; end: Position };
 
 // 参加者。認証がまだないので、接続順に「参加者 N」と呼び、色を割り当てる。
-// selections は、ターミナルごとの、その参加者が選択している範囲（docs/adr/94-remote-selection.md）
+// selections は、ターミナルごとの、その参加者が選択している範囲（docs/adr/94-remote-selection.md）。
+// following はペアプロモードで追従している参加者、scroll はフォーカス先のターミナルのスクロール位置
+// （一番下から何行戻しているか）。scroll は追従されているあいだだけ届く（docs/adr/93-pair-mode.md）
 export type Member = {
   id: number;
   name: string;
   color: string;
   terminal?: string;
   selections: Record<string, SelectionRange>;
+  following?: number;
+  scroll?: { terminal: string; offset: number };
 };
 
 // タブ。それぞれが独立した分割の配置を持つ
@@ -156,9 +160,28 @@ export class Workspace {
         else return;
         this.notifyPresence();
       },
+      // ペアプロモードで追従する参加者を変える。自分といない参加者は追従できないので、やめたものとする
+      follow: (memberId: number | undefined) => {
+        const target = [...this.members.values()].find((m) => m.id === memberId && m !== member);
+        if (member.following === target?.id) return;
+        const previous = member.following;
+        member.following = target?.id;
+        this.forgetScroll(previous);
+        this.notifyPresence();
+      },
+      scroll: (terminalId: string, offset: number) => {
+        if (member.scroll?.terminal === terminalId && member.scroll.offset === offset) return;
+        member.scroll = { terminal: terminalId, offset };
+        this.notifyPresence();
+      },
+      // 抜けた参加者に追従していた人は、ペアプロモードをやめたものとする
       leave: () => {
         this.members.delete(listener);
         this.visibleMembers.delete(member);
+        this.members.forEach((m) => {
+          if (m.following === member.id) m.following = undefined;
+        });
+        this.forgetScroll(member.following);
         this.notifyPresence();
       },
     };
@@ -371,6 +394,14 @@ export class Workspace {
     const event = this.commandsEvent();
     this.members.forEach((_, l) => l(event));
     this.onChange();
+  }
+
+  // 誰にも追従されなくなった参加者のスクロール位置は古くなるので消す。残すと、次に追従し始めた人が、
+  // いまの位置が届くまでの間、古い位置へ一瞬飛ぶ
+  private forgetScroll(memberId: number | undefined) {
+    const members = [...this.members.values()];
+    const target = members.find((m) => m.id === memberId);
+    if (target && !members.some((m) => m.following === memberId)) target.scroll = undefined;
   }
 
   private notifyPresence() {

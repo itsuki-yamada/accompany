@@ -43,13 +43,16 @@ const settings = appearanceSettings(appearance, (changed) => {
 });
 document.body.append(settings);
 
-// 参加者とそのフォーカス先、ターミナルごとの選択範囲。自分が誰かはサーバーが最初に教えてくれる
+// 参加者とそのフォーカス先、ターミナルごとの選択範囲、ペアプロモードで追従している相手、スクロール位置。
+// 自分が誰かはサーバーが最初に教えてくれる
 type Member = {
   id: number;
   name: string;
   color: string;
   terminal?: string;
   selections: Record<string, SelectionRange>;
+  following?: number;
+  scroll?: { terminal: string; offset: number };
 };
 let you: number | undefined;
 let members: Member[] = [];
@@ -57,17 +60,47 @@ let members: Member[] = [];
 let titles: Record<string, string> = {};
 // ターミナルごとのエージェントの状態。サーバーが判定して全員に配る。エージェントが動いていないターミナルは含まない
 let statuses: Record<string, AgentStatus> = {};
-// フォローしている参加者。各参加者のブラウザだけの状態（docs/adr/69-follow.md）
+// ペアプロモードで追従している参加者。自分のブラウザで決め、サーバーにも伝えて、追従されている側に知らせる
+// （docs/adr/93-pair-mode.md）
 let following: number | undefined;
-// フォロー中であることと、誰をフォローしているか。ツールバーに出す。参加者の情報が届くたびに作り直すと、
-// 「フォローをやめる」のボタンを押している途中やキーボードフォーカスが失われるので、同じ要素を使い回す
+// 自分でスクロールして、スクロールの追従を止めているときの、相手のフォーカス先のターミナル。
+// 相手が別のターミナルに移ったら、また追従する
+let scrollPausedOn: string | undefined;
+// ペアプロモードであることと、誰に追従しているか。ツールバーに出す。参加者の情報が届くたびに作り直すと、
+// 「ペアプロをやめる」のボタンを押している途中やキーボードフォーカスが失われるので、同じ要素を使い回す
 const followIndicator = document.createElement("div");
-followIndicator.className = "follow-indicator";
+followIndicator.className = "pair-indicator";
 followIndicator.setAttribute("role", "status");
-followIndicator.setAttribute("aria-label", "フォロー");
+followIndicator.setAttribute("aria-label", "ペアプロモード");
 followIndicator.hidden = true;
+const followMode = document.createElement("strong");
+followMode.textContent = "ペアプロモード";
 const followLabel = document.createElement("span");
-followIndicator.append(followLabel, button("フォローをやめる", "×", () => stopFollowing()));
+// スクロールの追従を止めていることと、戻すボタン。止めていないときは中身を空にする（読み上げや文字の検索に残さないため）
+const scrollPaused = document.createElement("span");
+scrollPaused.className = "pair-paused";
+const resumeScroll = button("相手のスクロール位置に戻る", "位置を戻す", () => {
+  scrollPausedOn = undefined;
+  showFollowing();
+  followScroll();
+});
+const scrollPausedLabel = document.createElement("span");
+scrollPausedLabel.textContent = "スクロールは追従していません";
+followIndicator.append(followMode, followLabel, scrollPaused, button("ペアプロをやめる", "やめる ×", () => stopFollowing()));
+// 自分の画面に追従している参加者。追従されている側に出す
+const followedIndicator = document.createElement("div");
+followedIndicator.className = "followed-indicator";
+followedIndicator.setAttribute("role", "status");
+followedIndicator.setAttribute("aria-label", "あなたに追従している参加者");
+followedIndicator.hidden = true;
+// ツールバーの参加者の一覧。ほかの参加者の名前は、押すとその人とペアプロするボタン
+const memberList = document.createElement("span");
+memberList.className = "toolbar-members";
+memberList.setAttribute("role", "group");
+memberList.setAttribute("aria-label", "参加者");
+let memberListKey = "";
+// 自分に追従している参加者がいるか。いるあいだだけ、自分のスクロール位置をサーバーに伝える
+let followed = false;
 
 requestPermissionOnFirstInteraction();
 
@@ -113,7 +146,10 @@ socket.onmessage = (event) => {
     members = message.members;
     showSelections();
     showFollowing();
+    showFollowed();
+    showMemberList();
     followFocus();
+    followScroll();
   } else if (message.type === "titles") {
     titles = message.titles;
     showTitles();
@@ -143,7 +179,16 @@ function renderTabs({ tabs, active }: Tabs) {
   appearanceButton.popoverTargetElement = settings;
   const spacer = document.createElement("span");
   spacer.className = "toolbar-spacer";
-  tabBar.replaceChildren(sidebar.toggleButton, name, followIndicator, spacer, help, appearanceButton);
+  tabBar.replaceChildren(
+    sidebar.toggleButton,
+    name,
+    followIndicator,
+    followedIndicator,
+    spacer,
+    memberList,
+    help,
+    appearanceButton,
+  );
 
   const layout = tabs.find((t) => t.id === active)?.layout;
   // 通知のクリックで切り替えを頼んだあと、ほかの人が別のタブに切り替えたときは、フォーカスする予定を取り消す
@@ -194,8 +239,9 @@ function render(layout: Layout) {
   else if (lostFocus) nearestPane(lostFocus)?.focus();
   else if (active instanceof HTMLElement && active !== document.activeElement && root.contains(active)) active.focus();
   keepSidebarFocus = false;
-  // フォローしている相手のフォーカス先が、配置より先に届いていたとき
+  // 追従している相手のフォーカス先が、配置より先に届いていたとき
   followFocus();
+  followScroll();
 }
 
 function build(node: Layout): HTMLElement {
@@ -222,12 +268,25 @@ function paneFor(id: string) {
         focusedTerminal = id;
         updateZoom();
         send({ type: "focus", terminal: id });
+        sendScroll();
       },
       shortcut: (shortcut) => runShortcut(id, shortcut),
       commands: () => quickCommands.list,
       manageCommands: () => quickCommands.open(),
       follow: (member) => (following === member ? stopFollowing() : startFollowing(member)),
       selected: (range) => send({ type: "select", terminal: id, ...range }),
+      scrolled: (user) => {
+        if (id === focusedTerminal) queueScroll();
+        // 追従している相手のターミナルを自分でスクロールして、相手と違う位置になったら、ペアプロモードのまま、
+        // スクロールの追従だけを止める。一番下でホイールを回して動かないまま出力が流れたときなど、相手と同じ位置なら止めない
+        const leader = members.find((m) => m.id === following);
+        const target = leader?.terminal;
+        const leaderOffset = leader?.scroll?.terminal === target ? leader?.scroll?.offset : undefined;
+        if (user && id === target && scrollPausedOn !== target && panes.get(id)?.scrollOffset() !== (leaderOffset ?? 0)) {
+          scrollPausedOn = target;
+          showFollowing();
+        }
+      },
     }, appearance);
     panes.set(id, pane);
   }
@@ -461,39 +520,94 @@ function focusTerminal(id: string) {
   send({ type: "select-tab", tab: tab.id });
 }
 
-// フォローする。相手がいまフォーカスしているターミナルに、すぐ自分のフォーカスも移す
+// ペアプロモードを始める。相手がいまフォーカスしているターミナルとスクロール位置に、すぐ自分も合わせる
 function startFollowing(member: number) {
   following = member;
+  scrollPausedOn = undefined;
+  send({ type: "follow", member });
   showFollowing();
+  showMemberList();
   followFocus(true);
+  followScroll();
 }
 
 function stopFollowing() {
   if (following === undefined) return;
   following = undefined;
+  scrollPausedOn = undefined;
+  send({ type: "follow", member: null });
   showFollowing();
+  showMemberList();
 }
 
-// フォロー中の表示を更新する。フォローしている相手が抜けていたら、フォローをやめる
+// ペアプロモードの表示を更新する。追従している相手が抜けていたら、やめる（サーバーも、抜けた人への追従をやめたものとする）。
+// ペアプロモードの間は、画面の縁を相手の色で太く囲み、ツールバーとターミナルのバーに相手の色を薄く敷く
 function showFollowing() {
   const member = members.find((m) => m.id === following);
-  if (!member) following = undefined;
+  if (!member) {
+    following = undefined;
+    scrollPausedOn = undefined;
+  }
+  // 相手が別のターミナルに移ったら、スクロールの追従を止めていたのをやめる
+  if (member && scrollPausedOn !== undefined && member.terminal !== scrollPausedOn) scrollPausedOn = undefined;
   followIndicator.hidden = !member;
   if (member) {
-    followLabel.textContent = `${member.name} をフォロー中`;
-    followIndicator.style.setProperty("--follow-color", member.color);
-    root.dataset.following = "true";
-    root.style.setProperty("--follow-color", member.color);
+    followLabel.textContent = `${member.name} の画面に追従中`;
+    document.body.dataset.pairMode = "following";
+    document.body.style.setProperty("--pair-color", member.color);
   } else {
-    delete root.dataset.following;
+    delete document.body.dataset.pairMode;
   }
+  if (scrollPausedOn === undefined) scrollPaused.replaceChildren();
+  else if (!scrollPaused.contains(resumeScroll)) scrollPaused.replaceChildren(scrollPausedLabel, resumeScroll);
   showViewers();
 }
 
-// 自分のフォーカスが、フォローしている相手のフォーカス先のターミナルになければ移す。移したことは、ふだんどおり
+// 自分に追従している参加者を出す。画面の縁も、追従している人の色で細く囲む
+function showFollowed() {
+  const followers = members.filter((m) => m.following === you && m.id !== you);
+  followedIndicator.hidden = followers.length === 0;
+  followedIndicator.textContent = `${followers.map((m) => m.name).join("、")} があなたの画面に追従中`;
+  if (followers.length > 0) {
+    root.dataset.followed = "true";
+    root.style.setProperty("--followed-color", followers[0]!.color);
+    followedIndicator.style.setProperty("--followed-color", followers[0]!.color);
+  } else {
+    delete root.dataset.followed;
+  }
+  // 追従され始めたら、いまのスクロール位置を伝える
+  const wasFollowed = followed;
+  followed = followers.length > 0;
+  if (followed && !wasFollowed) sendScroll();
+}
+
+// ツールバーの参加者の一覧を作り直す。変わっていなければ作り直さない（ボタンを押している途中などに失わないため）
+function showMemberList() {
+  const others = members.filter((m) => m.id !== you);
+  const key = JSON.stringify([others.map((m) => [m.id, m.name, m.color]), following]);
+  if (key === memberListKey) return;
+  memberListKey = key;
+  memberList.replaceChildren(
+    ...others.map((member) => {
+      const pressed = member.id === following;
+      const element = button(
+        `${member.name} とペアプロ`,
+        member.name,
+        () => (pressed ? stopFollowing() : startFollowing(member.id)),
+        pressed ? "ペアプロをやめる" : `${member.name} とペアプロ（その人の画面に追従する）`,
+      );
+      element.className = "viewer";
+      element.setAttribute("aria-pressed", String(pressed));
+      element.style.setProperty("--viewer-color", member.color);
+      return element;
+    }),
+  );
+}
+
+// 自分のフォーカスが、追従している相手のフォーカス先のターミナルになければ移す。移したことは、ふだんどおり
 // focus としてサーバーに伝わる。相手のフォーカス先が表示中のタブにないとき（タブの切り替えと行き違ったときなど）は、
-// 配置が届いて組み立てたときに移す。タブの切り替えは全員で共有しているので、フォローのためには切り替えない。
-// サイドメニュー・ツールバーや設定の画面など、配置の外を操作しているときは、フォーカスを持っていかない（force はフォローを始めたとき）
+// 配置が届いて組み立てたときに移す。タブの切り替えは全員で共有しているので、ペアプロモードのためには切り替えない。
+// サイドメニュー・ツールバーや設定の画面など、配置の外を操作しているときは、フォーカスを持っていかない（force は始めたとき）
 function followFocus(force = false) {
   const target = members.find((m) => m.id === following)?.terminal;
   const pane = target ? panes.get(target) : undefined;
@@ -505,8 +619,34 @@ function followFocus(force = false) {
   focusPane(target!);
 }
 
-// 自分で相手と別のターミナルを操作したら（クリック、右クリック、バーのボタンなど）、フォローをやめる。
-// ほかの参加者の名前（フォローのボタン）は除く
+// 追従している相手のスクロール位置に合わせる。自分でスクロールして止めているときは合わせない
+function followScroll() {
+  const member = members.find((m) => m.id === following);
+  const scroll = member?.scroll;
+  if (!member || !scroll || scroll.terminal !== member.terminal || scrollPausedOn === member.terminal) return;
+  panes.get(scroll.terminal)?.scrollToOffset(scroll.offset);
+}
+
+// 自分のフォーカス先のスクロール位置を伝える。追従されていないときは伝えない（スクロールのたびに全員へ配らないため）。
+// スクロールは続けて起きるので、まとめて伝える
+let scrollQueued = false;
+function queueScroll() {
+  if (!followed || scrollQueued) return;
+  scrollQueued = true;
+  setTimeout(() => {
+    scrollQueued = false;
+    sendScroll();
+  }, 50);
+}
+
+function sendScroll() {
+  const pane = focusedTerminal === undefined ? undefined : panes.get(focusedTerminal);
+  if (!followed || !pane) return;
+  send({ type: "scroll", terminal: focusedTerminal, offset: pane.scrollOffset() });
+}
+
+// 自分で相手と別のターミナルを操作したら（クリック、右クリック、バーのボタンなど）、ペアプロモードをやめる。
+// ほかの参加者の名前（ペアプロのボタン）は除く
 root.addEventListener(
   "pointerdown",
   (event) => {

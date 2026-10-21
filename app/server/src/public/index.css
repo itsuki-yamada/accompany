@@ -231,38 +231,97 @@ body {
   background: var(--viewer-color);
 }
 
-/* ほかの参加者の名前は、押すとその人をフォローするボタン。フォロー中は枠を付ける（docs/adr/69-follow.md） */
-.pane-bar button.viewer {
+/* ほかの参加者の名前は、押すとその人とペアプロするボタン。追従している人は枠を付ける（docs/adr/93-pair-mode.md） */
+.pane-bar button.viewer,
+#tabs button.viewer {
   font-size: 11px;
   color: #000;
   background: var(--viewer-color);
 }
 
-.pane-bar button.viewer[aria-pressed="true"] {
+.pane-bar button.viewer[aria-pressed="true"],
+#tabs button.viewer[aria-pressed="true"] {
   outline: 2px solid #fff;
   outline-offset: -1px;
 }
 
-/* フォロー中であることと、誰をフォローしているか。画面の縁も相手の色で囲む。
-   縁は配置の大きさを変えない（端末の大きさに影響しない）よう、outline で中に重ねて描く */
-.follow-indicator {
+/* ツールバーの参加者の一覧 */
+.toolbar-members {
   display: flex;
   align-items: center;
   gap: 4px;
+  padding: 0 6px;
+}
+
+#tabs .toolbar-members button.viewer {
+  padding: 0 8px;
+}
+
+/* ペアプロモードであることと、誰に追従しているか。追従されている側には、誰が追従しているかを出す */
+.pair-indicator,
+.followed-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-left: 8px;
   padding: 0 4px 0 8px;
   white-space: nowrap;
   color: #000;
-  background: var(--follow-color);
 }
 
-.follow-indicator[hidden] {
+.pair-indicator {
+  background: var(--pair-color);
+}
+
+.followed-indicator {
+  padding-right: 8px;
+  background: var(--followed-color);
+}
+
+.pair-indicator[hidden],
+.followed-indicator[hidden] {
   display: none;
 }
 
-#workspace[data-following="true"] {
-  outline: 2px solid var(--follow-color);
+.pair-paused {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pair-paused:empty {
+  display: none;
+}
+
+#tabs .pair-indicator button {
+  padding: 0 6px;
+  border-radius: 3px;
+  background: rgb(0 0 0 / 0.15);
+}
+
+/* ペアプロモードの間は、画面の縁を相手の色で太く囲み、ツールバー・サイドメニュー・ターミナルのバーに相手の色を薄く敷く。
+   端末の中（文字と背景）には敷かない（読みやすさを変えない）。追従されている側は、追従している人の色で縁を細く囲む。
+   縁は配置の大きさを変えない（端末の大きさに影響しない）よう、outline で中に重ねて描く */
+#workspace[data-followed="true"] {
+  outline: 2px solid var(--followed-color);
   outline-offset: -2px;
+}
+
+body[data-pair-mode="following"] #workspace {
+  outline: 4px solid var(--pair-color);
+  outline-offset: -4px;
+}
+
+body[data-pair-mode="following"] #tabs {
+  background: color-mix(in srgb, var(--pair-color) 30%, #111);
+}
+
+body[data-pair-mode="following"] #sidebar {
+  background: color-mix(in srgb, var(--pair-color) 12%, #111);
+}
+
+body[data-pair-mode="following"] .pane-bar {
+  background: color-mix(in srgb, var(--pair-color) 22%, #1a1a1a);
 }
 
 /* ターミナルの検索バー。参加者ごとに、ターミナルの右上に重ねて開く。
