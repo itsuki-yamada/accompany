@@ -32,12 +32,12 @@ async function startSession(browser: Browser) {
 }
 
 // ターミナル 1 に描かれた、text を含む最後の行
-function row(page: Page, text: string) {
+function row(page: Page, text: string | RegExp) {
   return pane(page, 1).locator(".xterm-rows > div").filter({ hasText: text }).last();
 }
 
 // 行の中の text の範囲（画面上の位置）。描かれた文字から測る
-async function textBox(page: Page, line: string, text: string) {
+async function textBox(page: Page, line: string | RegExp, text: string) {
   return row(page, line).evaluate((element, text) => {
     const start = (element.textContent ?? "").indexOf(text);
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
@@ -59,7 +59,7 @@ async function textBox(page: Page, line: string, text: string) {
 // 行の中の text を、マウスでドラッグして選択する
 // 出力が続いている間は xterm が行の要素を作り直すので、測った要素が外れていると大きさが 0 になる（そのまま押すと、
 // 端末の外を押してページの文字を選んでしまう）。大きさのある位置を測れるまで測り直す
-async function selectText(page: Page, line: string, text: string) {
+async function selectText(page: Page, line: string | RegExp, text: string) {
   let box = await textBox(page, line, text);
   await expect
     .poll(async () => {
@@ -241,4 +241,111 @@ test("範囲として正しくない選択範囲は、ほかの参加者に配�
   const valid = { "1": { start: { x: 0, y: 0 }, end: { x: 4, y: 0 } } };
   expect(observed.at(-1)).toEqual(valid);
   for (const selections of observed) expect([{}, valid]).toContainEqual(selections);
+});
+
+// 指定した行数を一度に出力するコマンド。スクロールバック（1000 行）を超える出力を試す
+const linePrinter = ["--", "bun", "e2e/fixtures/line-printer.ts"];
+const printerReady = "Line printer ready";
+
+// 通し番号 n の行（row n）。row 12 が row 120 などに当たらないよう、行全体で比べる
+function numbered(n: number) {
+  return new RegExp(`^row ${n}\\s*$`);
+}
+
+async function printLines(page: Page, count: number, last: number) {
+  await typeInPane(page, 1, `${count}\n`);
+  await expect(row(page, numbered(last))).toBeVisible();
+}
+
+test("スクロールバックがいっぱいで古い行が押し出されても、選択範囲は選択した文字の行に出る。途中から参加した人や、置き直したときも", async ({
+  browser,
+}) => {
+  accompany = await startAccompany(linePrinter);
+  const host = await openAsParticipant(browser, accompany.url, printerReady);
+  const guest = await openAsParticipant(browser, accompany.url, printerReady);
+  // スクロールバックがいっぱいになるまで出力してから選択する
+  await printLines(guest, 1200, 1200);
+  await expect(row(host, numbered(1200))).toBeVisible();
+  await selectText(host, numbered(1180), "row 1180");
+  await expectSameBox(remoteSelection(guest), ownSelection(host));
+
+  // さらに出力すると、スクロールバックの先頭の行が押し出され、バッファの行の番号が詰まる
+  await printLines(guest, 11, 1211);
+  await expect(row(host, numbered(1211))).toBeVisible();
+  await expectSameBox(remoteSelection(guest), row(guest, numbered(1180)), ["y", "height"]);
+
+  // 途中から参加した人にも、選択した文字の行に出る
+  const late = await openAsParticipant(browser, accompany.url, "row 1211");
+  await expectSameBox(remoteSelection(late), row(late, numbered(1180)), ["y", "height"]);
+  await expectSameBox(remoteSelection(late), ownSelection(host), ["x", "width"]);
+
+  // ほかの参加者が選択して、選択範囲を置き直しても、選択した文字の行に出る
+  await selectText(late, numbered(1205), "row 1205");
+  await expect(remoteSelection(guest)).toHaveCount(2);
+  await expectSameBox(remoteSelection(guest).first(), row(guest, numbered(1180)), ["y", "height"]);
+});
+
+test("選択した行がスクロールバックから押し出されると、選択範囲は消え、途中から参加した人にも出ない", async ({
+  browser,
+}) => {
+  accompany = await startAccompany(linePrinter);
+  const host = await openAsParticipant(browser, accompany.url, printerReady);
+  const guest = await openAsParticipant(browser, accompany.url, printerReady);
+  await printLines(guest, 1200, 1200);
+  await expect(row(host, numbered(1200))).toBeVisible();
+  await selectText(host, numbered(1180), "row 1180");
+  await expect(remoteSelection(guest)).not.toHaveCount(0);
+
+  await printLines(guest, 1100, 2300);
+  await expect(row(host, numbered(2300))).toBeVisible();
+
+  await expect(ownSelection(host)).toHaveCount(0);
+  await expect(remoteSelection(guest)).toHaveCount(0);
+  const late = await openAsParticipant(browser, accompany.url, "row 2300");
+  await expect(row(late, numbered(2300))).toBeVisible();
+  await expect(remoteSelection(late)).toHaveCount(0);
+});
+
+test("全画面の TUI（代替画面）の上でも、ほかの参加者の選択範囲が出る", async ({ browser }) => {
+  accompany = await startAccompany(["--", "bun", "e2e/fixtures/fake-tui.ts"]);
+  const host = await openAsParticipant(browser, accompany.url, "count: 0");
+  const guest = await openAsParticipant(browser, accompany.url, "count: 0");
+
+  await selectText(host, "Fake TUI", "Fake TUI");
+
+  await expect(remoteSelection(guest)).not.toHaveCount(0);
+  await expect(remoteSelection(guest).first()).toHaveCSS("background-color", hostColor);
+  await expectSameBox(remoteSelection(guest), ownSelection(host));
+});
+
+test("ターミナルを閉じると、そのターミナルでの選択範囲はサーバーからも消える", async ({ browser }) => {
+  const { host, guest } = await startSession(browser);
+  await pane(host, 1).getByRole("button", { name: "右に分割" }).click();
+  await expectPaneToShow(host, 2, "Fake Shell ready");
+
+  // ブラウザの画面を通さずに選択範囲を送る参加者（閉じたことを伝え返さない）。届いた自分の選択範囲を集める
+  const observe = guest.evaluate(async () => {
+    const socket = new WebSocket(`ws://${location.host}/ws/workspace`);
+    const seen: unknown[] = [];
+    let you: number | undefined;
+    socket.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      if (message.type === "welcome") you = message.you;
+      if (message.type === "presence") {
+        seen.push(message.members.find((m: { id: number }) => m.id === you)?.selections);
+      }
+    };
+    await new Promise((resolve) => (socket.onopen = resolve));
+    socket.send(JSON.stringify({ type: "select", terminal: "2", start: { x: 0, y: 0 }, end: { x: 4, y: 0 } }));
+    (window as any).observedSelections = () => seen;
+  });
+  await observe;
+  await expect(remoteSelection(host).or(pane(host, 2).locator(".remote-selection"))).not.toHaveCount(0);
+
+  await pane(host, 2).getByRole("button", { name: "閉じる" }).click();
+  await expect(pane(host, 2)).toHaveCount(0);
+
+  await expect
+    .poll(async () => (await guest.evaluate(() => [...(window as any).observedSelections()])).at(-1))
+    .toEqual({});
 });
