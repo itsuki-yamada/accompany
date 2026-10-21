@@ -1,5 +1,6 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { closeContexts, newContext, newStateDir, startAccompany, type Accompany } from "./accompany";
+import { pane, panes } from "./panes";
 import { terminalScreen } from "./terminal";
 
 // 端末の大きさは参加者のうち一番小さい画面に合わせるが、下限より小さくはしない。下限はウィンドウの大きさ（ピクセル）で持ち、
@@ -114,70 +115,148 @@ test("下限の既定はフル HD を縦に 4 つに分けたウィンドウ（4
   expect(await scrollable(quarterPage)).toEqual({ x: false, y: false });
   await expect.poll(() => scrollable(narrowPage)).toEqual({ x: true, y: true });
 
-  // 下限より幅が広く高さが低い人は、端末の周りの余白（横）と、スクロール（縦）で見る
+  // 下限より幅が広く高さが低い人は、横は端末の周りが余白になる。縦は、参加者のうち一番高い quarter の画面に入る行数
+  // （= 下限）になるので、それより低い人は縦にスクロールして見る
   const largePage = await openAsParticipant(browser, accompany.url, large);
   await expect.poll(() => commandSize(largePage)).toBe(size);
   expect(await scrollable(largePage)).toEqual({ x: false, y: true });
 });
 
+test("1 人で使うときは、画面が下限より小さくても、端末は自分の画面に合わせ、はみ出さない", async ({ browser }) => {
+  accompany = await startAccompany(sizeReporter, {}, { minWindow: null });
+
+  const page = await openAsParticipant(browser, accompany.url, large);
+
+  await expect.poll(() => commandSize(page)).not.toBe("80x24");
+  await page.waitForTimeout(500);
+  expect(await scrollable(page)).toEqual({ x: false, y: false });
+});
+
+test("1 人で分割しても、端末はそれぞれの枠に合わせ、自動で拡大しない", async ({ browser }) => {
+  accompany = await startAccompany(sizeReporter, { SHELL: "e2e/fixtures/size-shell" }, { minWindow: null });
+  const page = await openAsParticipant(browser, accompany.url, { width: 1920, height: 1080 });
+
+  await pane(page, 1).getByRole("button", { name: "下に分割" }).click();
+  await expect(panes(page)).toHaveCount(2);
+  await pane(page, 2).locator(".xterm-helper-textarea").focus();
+
+  await page.waitForTimeout(500);
+  await expect(page.getByText("拡大中")).toBeHidden();
+  for (const n of [1, 2]) {
+    expect(
+      await pane(page, n)
+        .locator(".pane-terminal")
+        .evaluate((e) => e.scrollWidth > e.clientWidth || e.scrollHeight > e.clientHeight),
+    ).toBe(false);
+  }
+});
+
+test("全員の画面が下限より小さいときは、一番大きい人の画面に合わせ、その人ははみ出さない", async ({ browser }) => {
+  accompany = await startAccompany(sizeReporter, {}, { minWindow: null });
+  // どちらも、下限（高さ 1080 のウィンドウ）より低い
+  const { page: macbook, size: macbookAlone } = await sizeAlone(browser, accompany.url, { width: 1440, height: 900 });
+
+  const smaller = await openAsParticipant(browser, accompany.url, large);
+
+  // 行数は一番高い人の画面に入る大きさまで。列数は、下限（幅 480）より広い人どうしなので、狭いほうに合わせる
+  await expect.poll(async () => parse(await commandSize(smaller)).cols).toBeLessThan(parse(macbookAlone).cols);
+  await expect.poll(async () => parse(await commandSize(macbook)).rows).toBe(parse(macbookAlone).rows);
+  await expect.poll(async () => (await commandSize(macbook)) === (await commandSize(smaller))).toBe(true);
+  await expect.poll(() => scrollable(macbook)).toEqual({ x: false, y: false });
+  // 低い人は、縦にはみ出した部分をスクロールして見る
+  await expect.poll(() => scrollable(smaller)).toEqual({ x: false, y: true });
+});
+
 test("下限を変えると、参加者全員の端末の大きさが変わり、ほかの参加者の設定の画面にも出る", async ({ browser }) => {
   accompany = await startAccompany(sizeReporter, {}, { minWindow: null });
-  const host = await openAsParticipant(browser, accompany.url);
-  const guest = await openAsParticipant(browser, accompany.url);
-  // 既定の下限（高さ 1080）は 1280×720 の画面より高いので、縦にはみ出す
-  await expect.poll(() => scrollable(host)).toEqual({ x: false, y: true });
-  await expect.poll(() => scrollable(guest)).toEqual({ x: false, y: true });
+  const host = await openAsParticipant(browser, accompany.url, large);
+  const guest = await openAsParticipant(browser, accompany.url, narrow);
+  // 既定の下限（480×1080）は、画面の狭い guest より縦横とも大きいので、guest ははみ出す
+  await expect.poll(() => scrollable(guest)).toEqual({ x: true, y: true });
+  expect(await scrollable(host)).toEqual({ x: false, y: false });
   const before = parse(await commandSize(host));
 
-  // 下げると、画面に合わせた大きさになり、はみ出さなくなる
-  await setMinWindow(host, { height: 400 });
+  // 下げると、guest の画面に合わせた大きさになり、guest もはみ出さなくなる
+  await setMinWindow(host, { width: 0, height: 0 });
 
   await expect.poll(async () => parse(await commandSize(host)).rows).toBeLessThan(before.rows);
-  const fitted = await commandSize(host);
-  await expect.poll(() => commandSize(guest)).toBe(fitted);
-  await expect.poll(() => scrollable(host)).toEqual({ x: false, y: false });
   await expect.poll(() => scrollable(guest)).toEqual({ x: false, y: false });
+  await expect.poll(async () => (await commandSize(guest)) === (await commandSize(host))).toBe(true);
+  const fitted = parse(await commandSize(host));
+  expect(fitted.cols).toBeLessThan(before.cols);
   await closeSettings(host);
   await openSettings(guest);
-  await expect(heightInput(guest)).toHaveValue("400");
+  await expect(widthInput(guest)).toHaveValue("0");
+  await expect(heightInput(guest)).toHaveValue("0");
 
-  // 画面より広くすると、全員が横にはみ出した部分をスクロールして見る
-  await setMinWindow(guest, { width: 1900 });
+  // 一番大きい人の画面より大きくしても、端末はその人の画面に入る大きさまで
+  await setMinWindow(guest, { width: 1920, height: 1080 });
 
-  await expect.poll(async () => parse(await commandSize(host)).cols).toBeGreaterThan(parse(fitted).cols);
-  expect(parse(await commandSize(host)).rows).toBe(parse(fitted).rows);
-  await expect.poll(() => commandSize(guest)).toBe(await commandSize(host));
-  await expect.poll(() => scrollable(host)).toEqual({ x: true, y: false });
+  await expect.poll(async () => parse(await commandSize(host)).cols).toBeGreaterThan(fitted.cols);
+  await expect.poll(() => scrollable(host)).toEqual({ x: false, y: false });
+  await expect.poll(() => scrollable(guest)).toEqual({ x: true, y: true });
+  await closeSettings(guest);
   await openSettings(host);
-  await expect(widthInput(host)).toHaveValue("1900");
+  await expect(widthInput(host)).toHaveValue("1920");
 });
+
+// 画面の大きい人と狭い人が参加したときの端末の大きさ
+async function sizeWithLargeAndNarrow(browser: Browser, url: string) {
+  const largePage = await openAsParticipant(browser, url, large);
+  const narrowPage = await openAsParticipant(browser, url, narrow);
+  await expect.poll(async () => (await commandSize(largePage)) === (await commandSize(narrowPage))).toBe(true);
+  await largePage.waitForTimeout(500);
+  return { largePage, narrowPage, size: await commandSize(largePage) };
+}
 
 test("下限は保存し、再起動しても残る", async ({ browser }) => {
   const env = { ACCOMPANY_STATE_DIR: newStateDir() };
   accompany = await startAccompany(sizeReporter, env, { minWindow: null });
+  const { largePage, size: defaultSize } = await sizeWithLargeAndNarrow(browser, accompany.url);
+  await setMinWindow(largePage, { width: 1000, height: 600 });
+  await expect.poll(() => commandSize(largePage)).not.toBe(defaultSize);
+  const { size } = await sizeWithLargeAndNarrow(browser, accompany.url);
+  await closeContexts();
+  await accompany.stop();
+
+  accompany = await startAccompany(sizeReporter, env, { minWindow: null });
+  const reopened = await sizeWithLargeAndNarrow(browser, accompany.url);
+
+  expect(reopened.size).toBe(size);
+  await openSettings(reopened.largePage);
+  await expect(widthInput(reopened.largePage)).toHaveValue("1000");
+  await expect(heightInput(reopened.largePage)).toHaveValue("600");
+});
+
+test("起動オプションで渡した下限は、その起動のあいだだけ使い、保存した下限は変えない", async ({ browser }) => {
+  const env = { ACCOMPANY_STATE_DIR: newStateDir() };
+  accompany = await startAccompany(sizeReporter, env, { minWindow: null });
   const page = await openAsParticipant(browser, accompany.url);
-  await setMinWindow(page, { width: 1900, height: 400 });
-  await expect.poll(() => scrollable(page)).toEqual({ x: true, y: false });
-  // 幅と高さを 1 つずつ変えるので、コマンドに最後の大きさが届くのを待つ
-  const rendered = page.locator(".xterm-rows > div");
-  await expect.poll(async () => parse(await commandSize(page)).rows).toBe(await rendered.count());
-  const size = await commandSize(page);
-  await page.context().close();
+  await setMinWindow(page, { width: 1000, height: 600 });
+  await closeContexts();
+  await accompany.stop();
+
+  accompany = await startAccompany(sizeReporter, env, { minWindow: "300x200" });
+  const withOption = await openAsParticipant(browser, accompany.url);
+  await openSettings(withOption);
+  await expect(widthInput(withOption)).toHaveValue("300");
+  await expect(heightInput(withOption)).toHaveValue("200");
+  // 画面の配置などは保存する
+  await withOption.waitForTimeout(1500);
+  await closeContexts();
   await accompany.stop();
 
   accompany = await startAccompany(sizeReporter, env, { minWindow: null });
   const reopened = await openAsParticipant(browser, accompany.url);
-
-  await expect.poll(() => commandSize(reopened)).toBe(size);
   await openSettings(reopened);
-  await expect(widthInput(reopened)).toHaveValue("1900");
-  await expect(heightInput(reopened)).toHaveValue("400");
+  await expect(widthInput(reopened)).toHaveValue("1000");
+  await expect(heightInput(reopened)).toHaveValue("600");
 });
 
 test("下限は 0〜1920 × 0〜1080 の整数だけを受け付け、範囲外の値は反映しない", async ({ browser }) => {
   accompany = await startAccompany(sizeReporter, {}, { minWindow: null });
   const page = await openAsParticipant(browser, accompany.url);
-  await expect.poll(() => scrollable(page)).toEqual({ x: false, y: true });
+  await expect.poll(() => commandSize(page)).not.toBe("80x24");
   const before = await commandSize(page);
 
   await setMinWindow(page, { width: 2000, height: -1 });

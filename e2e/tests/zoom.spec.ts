@@ -100,7 +100,7 @@ function zoomOffIndicator(page: Page, n: number) {
 const minWindow = "480x0";
 
 // 画面の大きい人（host）と小さい人（guest）が参加し、host が右に分割した状態にする。
-// 端末の大きさは下限で止まるので、guest の画面では分割した枠に収まらない
+// 端末の大きさは、host の枠に入る範囲で下限まで広げるので、guest の画面では分割した枠に収まらない
 async function openLargeAndSmall(browser: Browser, shell: Record<string, string>) {
   accompany = await startAccompany([], shell, { minWindow });
   const host = await openAsParticipant(browser, accompany.url, large);
@@ -164,8 +164,8 @@ test("枠に収まるようになると、元の分割の表示に戻る", async
   const { host, guest } = await openLargeAndSmall(browser, sizeShell);
   await expectZoomed(guest, 1, [2]);
 
-  // guest がウィンドウを広げると、分割した枠が下限より広くなり、端末が枠に収まる
-  await guest.setViewportSize(large);
+  // 画面の大きい人が抜けると、下限より狭い guest だけになり、端末は guest の枠に合わせた大きさになって収まる
+  await host.context().close();
 
   await expectNotZoomed(guest, [1, 2]);
   await expect.poll(() => fitsInPane(guest, 1)).toBe(true);

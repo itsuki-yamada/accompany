@@ -307,6 +307,12 @@ test("サイドメニューを出す・隠すと表示領域が変わり、枠�
   await sidebarToggle(guest).click();
   await expect(zoomed(guest)).toBeHidden();
   await expect(pane(guest, 2)).toBeVisible();
+
+  // guest が出し直すとまた拡大し、host も出すと、全員の枠が下限より狭くなって一番広い枠に合わせるので、収まって戻る
+  await sidebarToggle(guest).click();
+  await expect(zoomed(guest)).toBeVisible();
+  await sidebarToggle(host).click();
+  await expect(zoomed(guest)).toBeHidden();
 });
 
 test("サイドメニューのショートカットは、ボタンのツールチップとショートカットの一覧に載る", async ({ browser }) => {
