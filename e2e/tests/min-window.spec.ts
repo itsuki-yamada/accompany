@@ -200,6 +200,15 @@ test("下限を変えると、参加者全員の端末の大きさが変わり�
   await expect(widthInput(host)).toHaveValue("1920");
 });
 
+// サーバーが配った下限が、ほかの参加者（observer）の設定の画面に出るのを待つ。止める前に、変えた下限がサーバーに
+// 届いたことを確かめるため（幅と高さは 1 つずつ送るので、届く前に止めると、途中の値で保存される）
+async function expectMinWindowShown(observer: Page, width: number, height: number) {
+  await openSettings(observer);
+  await expect(widthInput(observer)).toHaveValue(String(width));
+  await expect(heightInput(observer)).toHaveValue(String(height));
+  await closeSettings(observer);
+}
+
 // 画面の大きい人と狭い人が参加したときの端末の大きさ
 async function sizeWithLargeAndNarrow(browser: Browser, url: string) {
   const largePage = await openAsParticipant(browser, url, large);
@@ -212,8 +221,9 @@ async function sizeWithLargeAndNarrow(browser: Browser, url: string) {
 test("下限は保存し、再起動しても残る", async ({ browser }) => {
   const env = { ACCOMPANY_STATE_DIR: newStateDir() };
   accompany = await startAccompany(sizeReporter, env, { minWindow: null });
-  const { largePage, size: defaultSize } = await sizeWithLargeAndNarrow(browser, accompany.url);
+  const { largePage, narrowPage, size: defaultSize } = await sizeWithLargeAndNarrow(browser, accompany.url);
   await setMinWindow(largePage, { width: 1000, height: 600 });
+  await expectMinWindowShown(narrowPage, 1000, 600);
   await expect.poll(() => commandSize(largePage)).not.toBe(defaultSize);
   const { size } = await sizeWithLargeAndNarrow(browser, accompany.url);
   await closeContexts();
@@ -232,7 +242,9 @@ test("起動オプションで渡した下限は、その起動のあいだだ�
   const env = { ACCOMPANY_STATE_DIR: newStateDir() };
   accompany = await startAccompany(sizeReporter, env, { minWindow: null });
   const page = await openAsParticipant(browser, accompany.url);
+  const observer = await openAsParticipant(browser, accompany.url);
   await setMinWindow(page, { width: 1000, height: 600 });
+  await expectMinWindowShown(observer, 1000, 600);
   await closeContexts();
   await accompany.stop();
 

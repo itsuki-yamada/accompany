@@ -26,8 +26,9 @@ export type Message =
 type Listener = (message: Message) => void;
 
 // 参加者のブラウザから届く大きさ。fits は表示領域（フル HD までとみなす）に収まる大きさ、
-// min は下限のウィンドウで開いたときの表示領域に収まる大きさ（docs/adr/99-smallest-size.md）
-export type Requested = { fits: Size; min: Size };
+// min は下限のウィンドウで開いたときの表示領域に収まる大きさ（docs/adr/99-smallest-size.md）。
+// 下限を送らない（#99 より前の）ブラウザは min がない
+export type Requested = { fits: Size; min?: Size };
 
 export type Participant = {
   resize: (requested: Requested) => void;
@@ -277,13 +278,15 @@ export class TerminalSession {
   }
 
   // 向きごとに、一番小さい参加者に収まる大きさを、下限まで広げる。ただし一番大きい参加者に収まる大きさは超えない。
-  // 下限は参加者ごとに列数・行数に直したもののうち一番小さいものを使う（docs/adr/99-smallest-size.md）
+  // 下限は参加者ごとに列数・行数に直したもののうち一番小さいものを使う。下限を送らない参加者は、下限の計算から外す。
+  // 誰も送っていなければ、下限なし（docs/adr/99-smallest-size.md）
   private fitToSmallest() {
     const requested = [...this.requestedSizes.values()];
     if (requested.length === 0) return;
     const fit = (key: keyof Size) => {
       const fits = requested.map((r) => r.fits[key]);
-      const min = Math.min(...requested.map((r) => r.min[key]));
+      const mins = requested.flatMap((r) => (r.min ? [r.min[key]] : []));
+      const min = mins.length > 0 ? Math.min(...mins) : 0;
       return Math.min(Math.max(...fits), Math.max(Math.min(...fits), min));
     };
     const size = clampSize({ cols: fit("cols"), rows: fit("rows") });

@@ -26,12 +26,15 @@ const sameOriginOnly = createMiddleware(async (c, next) => {
 
 // ブラウザから届く制御メッセージ。表示領域に収まる大きさ（cols・rows）は 1 以上、下限のウィンドウに収まる大きさ
 // （minCols・minRows。docs/adr/99-smallest-size.md）は 0 以上の整数だけを受け付け、上限（maxSize）を超えるものは上限に丸める。
-// 下限の大きさがないときは、下限なし（0）とみなす
+// 下限の大きさがない（下限を送らない古いブラウザ）ときは、min なしで受け付ける
 function parseSize(message: Record<string, unknown>): Requested | undefined {
-  const { cols, rows, minCols = 0, minRows = 0 } = message;
+  const { cols, rows, minCols, minRows } = message;
   const valid = (n: unknown, min: number): n is number => Number.isSafeInteger(n) && (n as number) >= min;
-  if (!valid(cols, 1) || !valid(rows, 1) || !valid(minCols, 0) || !valid(minRows, 0)) return;
-  return { fits: clampSize({ cols, rows }), min: clampSize({ cols: minCols, rows: minRows }) };
+  if (!valid(cols, 1) || !valid(rows, 1)) return;
+  const fits = clampSize({ cols, rows });
+  if (minCols === undefined && minRows === undefined) return { fits };
+  if (!valid(minCols, 0) || !valid(minRows, 0)) return;
+  return { fits, min: clampSize({ cols: minCols, rows: minRows }) };
 }
 
 // 選択範囲として受け付ける行の数。ブラウザの端末のバッファは、スクロールバックと画面の行数（上限は maxSize.rows）まで

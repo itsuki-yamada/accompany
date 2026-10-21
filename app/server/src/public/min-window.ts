@@ -51,16 +51,22 @@ export class MinWindowSettings {
     return this.value;
   }
 
-  // サーバーから届いた下限を出す
+  // サーバーから届いた下限を出す。入力中の欄は書き換えない（幅を変えて高さを入力している途中に、幅の変更が配られて
+  // 戻ってくると、入力中の高さが消えてしまう）
   set(size: WindowSize) {
     this.value = size;
-    this.show();
+    this.show(false);
   }
 
-  private show() {
+  // 使っている下限を出す。force でなければ、入力中（フォーカスのある）欄はそのままにする
+  private show(force = true) {
     if (!this.value) return;
-    this.width.value = String(this.value.width);
-    this.height.value = String(this.value.height);
+    for (const [input, value] of [
+      [this.width, this.value.width],
+      [this.height, this.value.height],
+    ] as const) {
+      if (force || document.activeElement !== input) input.value = String(value);
+    }
   }
 }
 
