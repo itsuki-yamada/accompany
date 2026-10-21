@@ -113,8 +113,14 @@ export class Pane {
   private firstOutput = true;
   // 最後にサーバーに伝えた自分の選択範囲
   private sentSelection = "null";
-  // 最後にホイールやスクロールバーを操作した時刻
+  // 最後にホイールを回した（スクロールバーから手を離した）時刻と、スクロールバーを押しているか
   private userScrollAt = -Infinity;
+  private draggingScrollbar = false;
+  private releaseScrollbar = () => {
+    if (!this.draggingScrollbar) return;
+    this.draggingScrollbar = false;
+    this.userScrollAt = performance.now();
+  };
 
   constructor(id: string, actions: PaneActions, appearance: Appearance) {
     this.appearance = appearance;
@@ -263,16 +269,21 @@ export class Pane {
     // 検索バーに入力しているときも、このターミナルにフォーカスしているものとして表示する
     this.search.element.addEventListener("focusin", actions.focused);
     // スクロール位置を、ペアプロモードで追従している人に伝えるために知らせる。xterm はスクロールの原因を教えないので、
-    // 直前にホイールやスクロールバーを操作していれば、自分でスクロールしたものとみなす（docs/adr/93-pair-mode.md）
+    // 直前にホイールを回したか、スクロールバーを押している（押してから離すまで）なら、自分でスクロールしたものとみなす
+    // （docs/adr/93-pair-mode.md）
     this.element.addEventListener("wheel", () => (this.userScrollAt = performance.now()), { capture: true, passive: true });
     container.addEventListener(
       "pointerdown",
       (event) => {
-        if (event.target instanceof Element && event.target.closest(".scrollbar")) this.userScrollAt = performance.now();
+        if (event.target instanceof Element && event.target.closest(".scrollbar")) this.draggingScrollbar = true;
       },
       { capture: true },
     );
-    this.terminal.onScroll(() => actions.scrolled(performance.now() - this.userScrollAt < userScrollWindow));
+    window.addEventListener("pointerup", this.releaseScrollbar);
+    window.addEventListener("pointercancel", this.releaseScrollbar);
+    this.terminal.onScroll(() =>
+      actions.scrolled(this.draggingScrollbar || performance.now() - this.userScrollAt < userScrollWindow),
+    );
     // ドロップしたファイルのパスは、このターミナルの入力として貼り付ける
     acceptFileDrop(this.element, (text) => this.terminal.paste(text));
 
@@ -444,6 +455,8 @@ export class Pane {
     clearTimeout(this.noticeTimer);
     this.closeMenu();
     this.resizeObserver.disconnect();
+    window.removeEventListener("pointerup", this.releaseScrollbar);
+    window.removeEventListener("pointercancel", this.releaseScrollbar);
     this.socket.close();
     this.terminal.dispose();
     this.element.remove();

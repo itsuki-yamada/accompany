@@ -164,7 +164,9 @@ export class Workspace {
       follow: (memberId: number | undefined) => {
         const target = [...this.members.values()].find((m) => m.id === memberId && m !== member);
         if (member.following === target?.id) return;
+        const previous = member.following;
         member.following = target?.id;
+        this.forgetScroll(previous);
         this.notifyPresence();
       },
       scroll: (terminalId: string, offset: number) => {
@@ -179,6 +181,7 @@ export class Workspace {
         this.members.forEach((m) => {
           if (m.following === member.id) m.following = undefined;
         });
+        this.forgetScroll(member.following);
         this.notifyPresence();
       },
     };
@@ -391,6 +394,14 @@ export class Workspace {
     const event = this.commandsEvent();
     this.members.forEach((_, l) => l(event));
     this.onChange();
+  }
+
+  // 誰にも追従されなくなった参加者のスクロール位置は古くなるので消す。残すと、次に追従し始めた人が、
+  // いまの位置が届くまでの間、古い位置へ一瞬飛ぶ
+  private forgetScroll(memberId: number | undefined) {
+    const members = [...this.members.values()];
+    const target = members.find((m) => m.id === memberId);
+    if (target && !members.some((m) => m.following === memberId)) target.scroll = undefined;
   }
 
   private notifyPresence() {

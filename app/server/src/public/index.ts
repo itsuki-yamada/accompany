@@ -277,9 +277,12 @@ function paneFor(id: string) {
       selected: (range) => send({ type: "select", terminal: id, ...range }),
       scrolled: (user) => {
         if (id === focusedTerminal) queueScroll();
-        // 追従している相手のターミナルを自分でスクロールしたら、ペアプロモードのまま、スクロールの追従だけを止める
-        const target = members.find((m) => m.id === following)?.terminal;
-        if (user && id === target && scrollPausedOn !== target) {
+        // 追従している相手のターミナルを自分でスクロールして、相手と違う位置になったら、ペアプロモードのまま、
+        // スクロールの追従だけを止める。一番下でホイールを回して動かないまま出力が流れたときなど、相手と同じ位置なら止めない
+        const leader = members.find((m) => m.id === following);
+        const target = leader?.terminal;
+        const leaderOffset = leader?.scroll?.terminal === target ? leader?.scroll?.offset : undefined;
+        if (user && id === target && scrollPausedOn !== target && panes.get(id)?.scrollOffset() !== (leaderOffset ?? 0)) {
           scrollPausedOn = target;
           showFollowing();
         }
