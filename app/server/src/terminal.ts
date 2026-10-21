@@ -2,7 +2,8 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import { Terminal } from "@xterm/headless";
 import type { Subprocess } from "bun";
 import { ActivityMonitor, type AgentStatus } from "./activity";
-import { type Foreground, foregroundOf } from "./agent-detect";
+import { type Foreground, foregroundOf, ps } from "./agent-detect";
+import { processCwd } from "./process-cwd";
 import { scrollback } from "./scrollback";
 import { TrimmedLines } from "./trimmed-lines";
 
@@ -79,6 +80,7 @@ export class TerminalSession {
   private killed = false;
   // 作業が終わってから、まだ誰も見ていない（docs/adr/74-unseen-done.md）。保存はしない
   private unseen = false;
+  private cwd: string | undefined;
 
   constructor(
     private command: string[],
@@ -93,8 +95,11 @@ export class TerminalSession {
       restored,
       // コマンドが出力したときに呼ぶ（保存のきっかけにする）
       onOutput = () => {},
-    }: { restored?: Restored; onOutput?: () => void } = {},
+      // 起動するディレクトリ
+      cwd,
+    }: { restored?: Restored; onOutput?: () => void; cwd?: string } = {},
   ) {
+    this.cwd = cwd;
     this.onOutput = onOutput;
     this.onStatus = onStatus;
     // エージェントが前面にいないときの判定の変化は知らせない。作業中から指示待ちに変わったら、誰かが見るまで未確認にする
@@ -158,6 +163,7 @@ export class TerminalSession {
     // 起動直後の出力を取りこぼさないよう、最初にブラウザがつながったときに起動する
     if (!this.proc) {
       this.proc = Bun.spawn(this.command, {
+        cwd: this.cwd,
         terminal: {
           ...this.size,
           data: (_terminal, data) => {
@@ -183,6 +189,36 @@ export class TerminalSession {
         this.fitToSmallest();
       },
     };
+  }
+
+  // ターミナルの前面のプロセス（またはシェル）のカレントディレクトリを調べる
+  async getCwd(): Promise<string | undefined> {
+    const pid = this.proc?.pid;
+    if (pid === undefined) return undefined;
+
+    try {
+      this.tty ??= (await ps(["-o", "tty=", "-p", String(pid)])).trim();
+      if (this.tty && !this.tty.startsWith("?")) {
+        const rows = (await ps(["-ww", "-o", "pid=,pgid=,tpgid=", "-t", this.tty]))
+          .split("\n")
+          .map((line) => line.trim().match(/^(\d+)\s+(\d+)\s+(-?\d+)$/))
+          .filter((m) => m !== null)
+          .map(([, procPid, pgid, tpgid]) => ({ pid: Number(procPid), pgid: Number(pgid), tpgid: Number(tpgid) }));
+
+        const tpgid = rows[0]?.tpgid;
+        if (tpgid !== undefined && tpgid > 0) {
+          const fgPids = rows.filter((r) => r.pgid === tpgid).map((r) => r.pid);
+          for (const fgPid of fgPids.reverse()) {
+            const cwd = await processCwd(fgPid);
+            if (cwd) return cwd;
+          }
+        }
+      }
+    } catch {
+      // ps などで調べられなかったときは、プロセスの pid を直接調べる
+    }
+
+    return await processCwd(pid);
   }
 
   write(data: string) {

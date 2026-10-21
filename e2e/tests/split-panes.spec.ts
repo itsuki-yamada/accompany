@@ -130,3 +130,15 @@ test("分割・入力・大きさの変更・閉じる操作が、参加者全�
   await pane(host, 2).getByRole("button", { name: "閉じる" }).click();
   await expect(panes(guest)).toHaveCount(1);
 });
+
+test("cd でディレクトリを移動して分割すると、新しいシェルがそのディレクトリで始まる", async ({ browser }) => {
+  accompany = await startAccompany([], { SHELL: "/bin/sh" });
+  const page = await openAsParticipant(browser, accompany.url);
+
+  await typeInPane(page, 1, "cd /tmp\n");
+  await pane(page, 1).getByRole("button", { name: "右に分割" }).click();
+
+  await expect(panes(page)).toHaveCount(2);
+  await typeInPane(page, 2, "pwd\n");
+  await expectPaneToShow(page, 2, "/tmp");
+});

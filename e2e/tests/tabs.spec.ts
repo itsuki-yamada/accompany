@@ -289,3 +289,15 @@ test("新しい Workspace のターミナルも、参加者のうち一番小さ
   expect(hostBox.width).toBeLessThan(small.width);
   expect(await overflows(host)).toBe(false);
 });
+
+test("cd でディレクトリを移動して新しい Workspace を開くと、新しいシェルがそのディレクトリで始まる", async ({ browser }) => {
+  accompany = await startAccompany([], { SHELL: "/bin/sh" });
+  const page = await openAsParticipant(browser, accompany.url);
+
+  await typeInPane(page, 1, "cd /tmp\n");
+  await openNewTab(page);
+
+  await expect(tabs(page)).toHaveText(["Workspace 1", "Workspace 2"]);
+  await typeInPane(page, 2, "pwd\n");
+  await expectPaneToShow(page, 2, "/tmp");
+});

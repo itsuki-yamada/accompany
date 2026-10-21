@@ -357,7 +357,7 @@ function runShortcut(terminal: string, shortcut: Shortcut) {
       return;
     }
     case "new-tab":
-      return send({ type: "new-tab" });
+      return send({ type: "new-tab", terminal });
     case "next-tab":
     case "previous-tab": {
       if (!current) return;

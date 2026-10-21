@@ -36,7 +36,7 @@ export type Foreground = { pgid: number; agent: boolean };
 // ps がこの時間で終わらなければ止めて、調べられなかったものとする（止まったままの ps を待ち続けないため）
 const psTimeoutMs = 2000;
 
-async function ps(args: string[]) {
+export async function ps(args: string[]) {
   const proc = Bun.spawn(["ps", ...args], { stdout: "pipe", stderr: "ignore" });
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {

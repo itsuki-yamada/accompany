@@ -85,16 +85,16 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
         onOpen: (_event, ws) => {
           member = workspace.join((event) => ws.send(JSON.stringify(event)));
         },
-        onMessage: (event) => {
+        onMessage: async (event) => {
           const message = parseJson(event.data);
           if (message?.type === "split" && (message.direction === "row" || message.direction === "column")) {
-            workspace.split(String(message.terminal), message.direction);
+            await workspace.split(String(message.terminal), message.direction);
           } else if (message?.type === "close") {
             workspace.close(String(message.terminal));
           } else if (message?.type === "resize-split" && typeof message.ratio === "number") {
             workspace.resizeSplit(String(message.split), message.ratio);
           } else if (message?.type === "new-tab") {
-            workspace.newTab();
+            await workspace.newTab(typeof message.terminal === "string" ? message.terminal : member?.terminalId);
           } else if (message?.type === "select-tab") {
             workspace.selectTab(String(message.tab));
           } else if (message?.type === "close-tab") {
