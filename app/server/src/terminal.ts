@@ -23,7 +23,10 @@ export function clampSize({ cols, rows }: Size): Size {
 export type Message =
   | { type: "output"; data: Uint8Array }
   | { type: "resize"; size: Size }
-  | { type: "trimmed"; lines: number };
+  | { type: "trimmed"; lines: number }
+  // つないだときの画面を送り終えた。画面が空のときは output を送らないので、ブラウザはこれで読み込みを終えたと分かる
+  // （docs/adr/111-loading.md）
+  | { type: "restored" };
 type Listener = (message: Message) => void;
 
 // 参加者のブラウザから届く大きさ。fits は表示領域（フル HD までとみなす）に収まる大きさ、
@@ -156,6 +159,7 @@ export class TerminalSession {
         (this.cursorHidden ? "\x1b[?25l" : "") +
         (this.mouseEncoding ? `\x1b[?${this.mouseEncoding}h` : "");
       if (snapshot) listener({ type: "output", data: encoder.encode(snapshot) });
+      listener({ type: "restored" });
       pending.forEach(listener);
       restored = true;
     });

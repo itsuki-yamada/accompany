@@ -1,4 +1,5 @@
 import { appearanceSettings, loadAppearance, type Appearance } from "./appearance";
+import { finishLoading, showDisconnected } from "./loading";
 import { MinWindowSettings } from "./min-window";
 import { notifyDone, requestPermissionOnFirstInteraction } from "./notify";
 import { Pane, type AgentStatus, type SelectionRange, type Viewer } from "./pane";
@@ -120,6 +121,8 @@ const sendVisibility = () => {
   if (socket.readyState === WebSocket.OPEN) send({ type: "visibility", visible: !document.hidden });
 };
 socket.addEventListener("open", sendVisibility);
+// サーバーが止まったり、ネットワークが切れたりしたとき
+socket.addEventListener("close", showDisconnected);
 document.addEventListener("visibilitychange", sendVisibility);
 // よく使うコマンドの一覧と、その登録・編集・削除の画面
 const quickCommands = new QuickCommands(send);
@@ -252,6 +255,12 @@ function render(layout: Layout) {
   // 追従している相手のフォーカス先が、配置より先に届いていたとき
   followFocus();
   followScroll();
+  finishLoadingIfReady();
+}
+
+// Workspace の配置が届き、表示中のターミナルすべての最初の画面を書き終えたら、読み込み中の表示を消す
+function finishLoadingIfReady() {
+  if (current && [...panes.values()].every((pane) => pane.loaded)) finishLoading();
 }
 
 function build(node: Layout): HTMLElement {
@@ -283,6 +292,7 @@ function paneFor(id: string) {
       shortcut: (shortcut) => runShortcut(id, shortcut),
       commands: () => quickCommands.list,
       minWindow: () => minWindow.current,
+      loaded: finishLoadingIfReady,
       manageCommands: () => quickCommands.open(),
       follow: (member) => (following === member ? stopFollowing() : startFollowing(member)),
       selected: (range) => send({ type: "select", terminal: id, ...range }),

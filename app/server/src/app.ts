@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { upgradeWebSocket } from "hono/bun";
+import type { WSContext } from "hono/ws";
 import { createMiddleware } from "hono/factory";
 import { parseMinWindow } from "./min-window";
 import { parseQuickCommand } from "./quick-commands";
@@ -59,6 +60,16 @@ function parseSelection(message: { start?: unknown; end?: unknown }): SelectionR
   return { start: from, end: to };
 }
 
+// この大きさ以上のメッセージは、WebSocket の圧縮（permessage-deflate）をかけて送る。途中から開いた人に送る画面
+// （スクロールバックを含み、全部で数百 KB になる）や、まとまった出力のため。打った文字のエコーのような小さいものは、
+// 縮む量より手間のほうが大きいので、そのまま送る（docs/adr/111-loading.md）
+const compressFrom = 1024;
+
+function send(ws: WSContext, data: string | Uint8Array) {
+  const size = typeof data === "string" ? data.length : data.byteLength;
+  ws.send(data, { compress: size >= compressFrom });
+}
+
 function parseJson(data: unknown) {
   try {
     return JSON.parse(String(data));
@@ -83,7 +94,7 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
       let member: ReturnType<Workspace["join"]> | undefined;
       return {
         onOpen: (_event, ws) => {
-          member = workspace.join((event) => ws.send(JSON.stringify(event)));
+          member = workspace.join((event) => send(ws, JSON.stringify(event)));
         },
         onMessage: (event) => {
           const message = parseJson(event.data);
@@ -141,8 +152,8 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
         onOpen: (_event, ws) => {
           participant = session.attach((message) =>
             message.type === "output"
-              ? ws.send(message.data)
-              : ws.send(JSON.stringify(message.type === "resize" ? { type: "resize", ...message.size } : message)),
+              ? send(ws, message.data)
+              : send(ws, JSON.stringify(message.type === "resize" ? { type: "resize", ...message.size } : message)),
           );
         },
         onMessage: (event) => {

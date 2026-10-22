@@ -17,8 +17,9 @@ targets=(
   "linux-x64 bun-linux-x64-baseline"
   "linux-arm64 bun-linux-arm64"
 )
+# --minify: 実行ファイルに入れる画面の JS も、tarball（Bun が本番として配るもの）と同じく縮める（docs/adr/111-loading.md）
 for entry in "${targets[@]}"; do
   read -r name target <<< "$entry"
-  bun build --compile --target="$target" "$root/app/server/src/cli.ts" --outfile "$out/accompany-$version-$name"
+  bun build --compile --minify --target="$target" "$root/app/server/src/cli.ts" --outfile "$out/accompany-$version-$name"
 done
 ls -l "$out"

@@ -7,6 +7,7 @@ import { createApp } from "./app";
 import index from "./public/index.html";
 import { maxMinWindow, parseMinWindowOption } from "./min-window";
 import { SessionStore, stateDir } from "./session-store";
+import { compressedRoutes } from "./static-assets";
 import { Uploads } from "./uploads";
 import { Workspace } from "./workspace";
 
@@ -47,9 +48,11 @@ const server = Bun.serve({
   development: false,
   // 本番モードの既定では同じポートで二重に待ち受けてしまい、接続がどちらのコマンドにつながるか分からなくなる
   reusePort: false,
-  routes: { "/": index },
+  routes: await compressedRoutes(index),
   fetch: app.fetch,
-  websocket,
+  // 途中から開いた人に送る画面（スクロールバックを含む）は大きいので、圧縮して送れるようにする。
+  // 何を圧縮するかは送るときに決める（docs/adr/111-loading.md）
+  websocket: { ...websocket, perMessageDeflate: true },
 });
 
 // 保存できないことが続いても（書き込めない保存先など）、警告は保存できるようになるまで 1 回だけ出す
