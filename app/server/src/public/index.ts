@@ -582,7 +582,7 @@ function showFollowing() {
   if (member && scrollPausedOn !== undefined && member.terminal !== scrollPausedOn) scrollPausedOn = undefined;
   followIndicator.hidden = !member;
   if (member) {
-    followLabel.textContent = `${member.name} の画面に追従中`;
+    followLabel.replaceChildren(memberName(member.name), " の画面に追従中");
     document.body.dataset.pairMode = "following";
     document.body.style.setProperty("--pair-color", member.color);
   } else {
@@ -597,7 +597,12 @@ function showFollowing() {
 function showFollowed() {
   const followers = members.filter((m) => m.following === you && m.id !== you);
   followedIndicator.hidden = followers.length === 0;
-  followedIndicator.textContent = `${followers.map((m) => m.name).join("、")} があなたの画面に追従中`;
+  const label = document.createElement("span");
+  label.append(
+    ...followers.flatMap((m, i) => (i === 0 ? [memberName(m.name)] : ["、", memberName(m.name)])),
+    " があなたの画面に追従中",
+  );
+  followedIndicator.replaceChildren(label);
   if (followers.length > 0) {
     root.dataset.followed = "true";
     root.style.setProperty("--followed-color", followers[0]!.color);
@@ -689,6 +694,15 @@ root.addEventListener(
   },
   { capture: true },
 );
+
+// ペアプロモードの表示の中の参加者の名前。長い名前は末尾を省き、全文はツールチップで見る（docs/adr/96-member-name.md）
+function memberName(name: string) {
+  const element = document.createElement("span");
+  element.className = "member-name";
+  element.textContent = name;
+  element.title = name;
+  return element;
+}
 
 function terminalIds(node: Layout): string[] {
   return node.type === "terminal" ? [node.id] : node.children.flatMap(terminalIds);

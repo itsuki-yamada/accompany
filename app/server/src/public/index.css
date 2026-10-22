@@ -277,6 +277,28 @@ body {
   background: var(--pair-color);
 }
 
+/* 表示の中の名前と、ペアプロモードの表示そのものの幅を抑え、長い名前（docs/adr/96-member-name.md）でもツールバーからはみ出さない */
+.pair-indicator,
+.followed-indicator {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+}
+
+.pair-indicator > span:not(.pair-paused),
+.followed-indicator > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.member-name {
+  display: inline-block;
+  max-width: 10em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
 .followed-indicator {
   padding-right: 8px;
   background: var(--followed-color);
