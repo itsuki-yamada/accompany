@@ -43,12 +43,13 @@ async function scrollBackAndForth(page: Page) {
   await expect(rows(page)).toContainText("line 200");
 }
 
-// 一番下から、ホイールで少しだけ上に戻すと、すぐ上の行が見える（何十行も飛ばない）。下に回すと一番下に戻れる
+// 一番下から、ホイールで少しだけ上に戻すと、すぐ上の行が見える（何十行も飛ばない）。下に回すと一番下に戻れる。
+// ホイール 1 回では 3 行ほど動く
 async function expectToScrollLittleByLittle(page: Page) {
   await expect(rows(page)).toContainText("line 200");
-  await wheel(page, -100);
+  await wheel(page, -100, 3);
   await expect(rows(page)).not.toContainText("line 200");
-  await expect(rows(page)).toContainText("line 190");
+  await expect(rows(page)).toContainText("line 180");
   await wheel(page, 100, 5);
   await expect(rows(page)).toContainText("line 200");
 }
