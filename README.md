@@ -37,6 +37,20 @@ Live Share の共有ターミナルで Claude Code などの TUI のエージェ
 
 [Release](https://github.com/itsuki-yamada/accompany/releases) に、正式版（Latest）と、main の最新のコミットから作った先行版（edge）を置いている。
 
+### npx で起動する（Node.js 18 以上。Bun は要らない）
+
+正式版を npm にも公開している。macOS（Apple Silicon・Intel）と Linux（x64・arm64、glibc）で動く。
+
+```sh
+npx accompany                 # 最初のターミナルで $SHELL を動かす
+npx accompany -- claude       # 最初のターミナルで動かすコマンドを指定する
+npx accompany --port 4000     # 待ち受けるポートを変える
+```
+
+- 毎回 npx で取らずに入れておくときは `npm i -g accompany` で入れ、`accompany` で起動する
+- 起動のしかた（`--fresh`、`--min-window` など）と、Ctrl+C で保存してから止まることは、下の実行ファイルと同じ
+- 入るのは、主パッケージ `accompany`（起動役）と、自分の OS と CPU の実行ファイルのパッケージ（`@itsuki-yamada/accompany-darwin-arm64` など）だけ。optionalDependencies を入れない設定（`--omit=optional` など）では起動できない
+
 ### Homebrew で入れる（macOS・Linux）
 
 このリポジトリを tap して入れる。正式版の実行ファイルが入る（Bun は要らない）。

@@ -17,8 +17,9 @@ jobs:
       fail-fast: false
       matrix:
         # source: リポジトリから直接起動する / tarball: リリースする tarball から bunx で起動する /
-        # binary: リリースする実行ファイル（linux-x64）を起動する
-        target: [source, tarball, binary]
+        # binary: リリースする実行ファイル（linux-x64）を起動する /
+        # npm: 公開する npm のパッケージを別のディレクトリに入れ、npx と起動役で起動する（docs/adr/132-npm.md）
+        target: [source, tarball, binary, npm]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -51,6 +52,19 @@ jobs:
           echo "binary: $binary"
           echo "ACCOMPANY_CMD=$binary" >> "$GITHUB_ENV"
           echo "BINARIES=$dir" >> "$GITHUB_ENV"
+
+      # 公開する前のパッケージなので、レジストリの代わりに npm pack した tarball から入れる。
+      # 実行ファイルは、ほかの OS と CPU のパッケージも作れることを確かめるため、4 つとも作る。
+      # npx での起動と Ctrl+C は check-npm.sh で確かめ、E2E は入れた起動役（npm i -g で入るものと同じ）で流す。
+      # npx を挟むと、Linux では npm が起動役を sh -c で起動し、npm だけに送った合図が起動役に届かない（docs/adr/132-npm.md）
+      - name: npm のパッケージを作って別のディレクトリに入れ、E2E の起動コマンドを入れた起動役にする
+        if: matrix.target == 'npm'
+        run: |
+          dir="$RUNNER_TEMP/npm-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          .github/scripts/build-binaries.sh "$dir/binaries"
+          .github/scripts/build-npm-packages.sh "$dir/binaries" "$dir/packages"
+          .github/scripts/check-npm.sh "$dir/packages" "$dir/install"
+          echo "ACCOMPANY_CMD=$dir/install/node_modules/.bin/accompany" >> "$GITHUB_ENV"
 
       - name: Playwright の Chromium を入れる
         working-directory: e2e

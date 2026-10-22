@@ -17,7 +17,17 @@ export function testPort(offset = 0) {
   return String(portBase + offset);
 }
 
-export type Accompany = { url: string; stop: (signal?: NodeJS.Signals) => Promise<void> };
+// stop は、既定ではプロセスグループ全体（端末で Ctrl+C を押したとき）に signal を送り、全体が終わるまで待つ。
+// onlyCommand を付けると、起動したコマンドのプロセス（npm の起動役など）だけに送る
+export type Accompany = {
+  url: string;
+  stop: (signal?: NodeJS.Signals, options?: { onlyCommand?: boolean }) => Promise<void>;
+};
+
+// 起動コマンド（ACCOMPANY_CMD または既定のもの）
+export function accompanyCommand() {
+  return process.env.ACCOMPANY_CMD ?? defaultCommand;
+}
 
 // 画面の配置とスクロールバックを保存するディレクトリ（ACCOMPANY_STATE_DIR）を、使い捨てで作る
 export function newStateDir() {
@@ -36,7 +46,8 @@ export function startAccompany(
 ): Promise<Accompany> {
   const portArgs = args.includes("--port") ? [] : ["--port", testPort()];
   const minWindowArgs = minWindow === null || args.includes("--min-window") ? [] : ["--min-window", minWindow];
-  const command = [process.env.ACCOMPANY_CMD ?? defaultCommand, ...portArgs, ...minWindowArgs, ...args].join(" ");
+  // exec: シェルを起動したコマンドに置き換え、child.pid を起動したコマンドのプロセスにする（シェルによっては自分では置き換えない）
+  const command = ["exec", accompanyCommand(), ...portArgs, ...minWindowArgs, ...args].join(" ");
   const ownStateDir = env.ACCOMPANY_STATE_DIR ? undefined : newStateDir();
   const child: ChildProcess = spawn(command, {
     cwd: repoRoot,
@@ -44,11 +55,11 @@ export function startAccompany(
     detached: true,
     env: { ...process.env, ...(ownStateDir && { ACCOMPANY_STATE_DIR: ownStateDir }), ...env },
   });
-  // 次のテストが同じポートで起動できるよう、プロセスグループ全体が終わるまで待つ
-  const stop = async (signal: NodeJS.Signals = "SIGTERM") => {
+  // 次のテストが同じポートで起動できるよう、プロセスグループ全体が終わるまで待つ。
+  const stop = async (signal: NodeJS.Signals = "SIGTERM", { onlyCommand = false } = {}) => {
     const pgid = child.pid;
     if (!pgid) return;
-    if (isAlive(pgid)) process.kill(-pgid, signal);
+    if (isAlive(pgid)) process.kill(onlyCommand ? pgid : -pgid, signal);
     while (isAlive(pgid)) await new Promise((r) => setTimeout(r, 20));
     if (ownStateDir) rmSync(join(ownStateDir, ".."), { recursive: true, force: true });
   };
