@@ -46,7 +46,8 @@ export function startAccompany(
 ): Promise<Accompany> {
   const portArgs = args.includes("--port") ? [] : ["--port", testPort()];
   const minWindowArgs = minWindow === null || args.includes("--min-window") ? [] : ["--min-window", minWindow];
-  const command = [accompanyCommand(), ...portArgs, ...minWindowArgs, ...args].join(" ");
+  // exec: シェルを起動したコマンドに置き換え、child.pid を起動したコマンドのプロセスにする（シェルによっては自分では置き換えない）
+  const command = ["exec", accompanyCommand(), ...portArgs, ...minWindowArgs, ...args].join(" ");
   const ownStateDir = env.ACCOMPANY_STATE_DIR ? undefined : newStateDir();
   const child: ChildProcess = spawn(command, {
     cwd: repoRoot,
@@ -55,7 +56,6 @@ export function startAccompany(
     env: { ...process.env, ...(ownStateDir && { ACCOMPANY_STATE_DIR: ownStateDir }), ...env },
   });
   // 次のテストが同じポートで起動できるよう、プロセスグループ全体が終わるまで待つ。
-  // シェルは 1 つのコマンドを exec するので、child.pid は起動したコマンドのプロセスになる
   const stop = async (signal: NodeJS.Signals = "SIGTERM", { onlyCommand = false } = {}) => {
     const pgid = child.pid;
     if (!pgid) return;
