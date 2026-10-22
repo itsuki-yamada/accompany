@@ -3,7 +3,7 @@
 class Accompany < Formula
   desc "Share AI coding agent terminals in the browser for remote pair programming"
   homepage "https://github.com/itsuki-yamada/accompany"
-  version "0.15.0"
+  version "0.16.0"
   license "MIT"
 
   livecheck do
@@ -13,23 +13,23 @@ class Accompany < Formula
 
   on_macos do
     on_arm do
-      url "https://github.com/itsuki-yamada/accompany/releases/download/v0.15.0/accompany-0.15.0-darwin-arm64"
-      sha256 "4eb7d1da03be3ac1b5efed611cc9c043da281ac8ff2d59769f89bb5051933b13"
+      url "https://github.com/itsuki-yamada/accompany/releases/download/v0.16.0/accompany-0.16.0-darwin-arm64"
+      sha256 "79b1e1806b7126bf751013329722163687938ebfc46c37bbeffcb3dc0c1cee9f"
     end
     on_intel do
-      url "https://github.com/itsuki-yamada/accompany/releases/download/v0.15.0/accompany-0.15.0-darwin-x64"
-      sha256 "c9fb7b526cd2664baed5c2b52e379043844e2437ab86c27b567a1872a8e12141"
+      url "https://github.com/itsuki-yamada/accompany/releases/download/v0.16.0/accompany-0.16.0-darwin-x64"
+      sha256 "764e2b4b26196e30dbec41b0e21614f9a60a62b9f360e4b0a60ffdac6997cb25"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/itsuki-yamada/accompany/releases/download/v0.15.0/accompany-0.15.0-linux-arm64"
-      sha256 "684018f91b9faeef1bb6c35eea445b528595c1ab9d0f189c81e761ad68285534"
+      url "https://github.com/itsuki-yamada/accompany/releases/download/v0.16.0/accompany-0.16.0-linux-arm64"
+      sha256 "7e8884abb51a2c04a4db9b63e9f56b2b4e8453461ba6ce38d99c0aa7286f45e9"
     end
     on_intel do
-      url "https://github.com/itsuki-yamada/accompany/releases/download/v0.15.0/accompany-0.15.0-linux-x64"
-      sha256 "7bcf95762b6713649f57cda50327facad2f386d45b30925a0eac13bce14b1b94"
+      url "https://github.com/itsuki-yamada/accompany/releases/download/v0.16.0/accompany-0.16.0-linux-x64"
+      sha256 "880d72f0bce274303a929910793fdce1704dc8e1a9b6b5b25931824750846318"
     end
   end
 
