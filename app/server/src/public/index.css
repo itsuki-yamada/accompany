@@ -777,47 +777,6 @@ body[data-pair-mode="following"] .pane-bar {
   font: inherit;
 }
 
-/* 拡大表示（docs/adr/68-zoom.md）。拡大中のターミナルを Workspace の表示領域いっぱいに重ねて出す。分割での元の位置には
-   同じ大きさの要素（.zoom-placeholder）を置き、ほかのターミナルと境界は見えなくするだけで、大きさも接続もそのまま残す */
-#workspace {
-  position: relative;
-}
-
-#workspace[data-zoomed] .pane[data-zoomed] {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-}
-
-#workspace[data-zoomed] .pane:not([data-zoomed]),
-#workspace[data-zoomed] .divider {
-  visibility: hidden;
-}
-
-.zoom-placeholder {
-  min-width: 0;
-  min-height: 0;
-}
-
-/* 分割した枠が狭くてもバーのボタンを押せるよう、収まらない分は省略する */
-.pane-zoomed {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 6px;
-  border-radius: 3px;
-  background: #4fc3f7;
-  color: #000;
-  white-space: nowrap;
-}
-
-.pane-zoomed[data-state="off"] {
-  background: none;
-  color: #4fc3f7;
-  box-shadow: inset 0 0 0 1px #4fc3f7;
-}
-
 /* サイドメニュー。上に Workspace の一覧、下にセッション（ターミナル）の一覧 */
 #sidebar {
   display: flex;

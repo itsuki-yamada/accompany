@@ -132,7 +132,7 @@ test("1 人で使うときは、画面が下限より小さくても、端末は
   expect(await scrollable(page)).toEqual({ x: false, y: false });
 });
 
-test("1 人で分割しても、端末はそれぞれの枠に合わせ、自動で拡大しない", async ({ browser }) => {
+test("1 人で分割しても、端末はそれぞれの枠に合わせ、はみ出さない", async ({ browser }) => {
   accompany = await startAccompany(sizeReporter, { SHELL: "e2e/fixtures/size-shell" }, { minWindow: null });
   const page = await openAsParticipant(browser, accompany.url, { width: 1920, height: 1080 });
 
@@ -141,7 +141,6 @@ test("1 人で分割しても、端末はそれぞれの枠に合わせ、自動
   await pane(page, 2).locator(".xterm-helper-textarea").focus();
 
   await page.waitForTimeout(500);
-  await expect(page.getByText("拡大中")).toBeHidden();
   for (const n of [1, 2]) {
     expect(
       await pane(page, n)

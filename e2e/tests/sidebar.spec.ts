@@ -280,11 +280,12 @@ test("ウィンドウが狭いときは、最初はサイドメニューを隠�
   await expect(sidebar(page)).toBeVisible();
 });
 
-test("サイドメニューを出す・隠すと表示領域が変わり、枠が下限より狭くなった参加者の画面では自動で拡大する", async ({
+test("サイドメニューを出す・隠すと表示領域が変わり、枠が下限より狭くなった参加者の画面では、拡大せずにはみ出す", async ({
   browser,
 }) => {
   // 下限（幅 600 のウィンドウに収まる列数）は、サイドメニューを隠して左右に分割した枠には収まり、
-  // サイドメニューを出して分割した枠には収まらない（docs/adr/99-smallest-size.md）
+  // サイドメニューを出して分割した枠には収まらない（docs/adr/99-smallest-size.md）。
+  // 収まらなくても拡大せず、はみ出した分はスクロールで見る（docs/adr/126-no-zoom.md）
   accompany = await startAccompany(busyAgent, titleShell, { minWindow: "600x0" });
   const host = await openAsParticipant(browser, accompany.url);
   const guest = await openAsParticipant(browser, accompany.url);
@@ -293,26 +294,38 @@ test("サイドメニューを出す・隠すと表示領域が変わり、枠�
   await splitRight(host, 1, 2);
   await expectPaneToShow(guest, 2, "Title setter ready");
   await input(guest, 1).focus();
-  const zoomed = (page: Page) => pane(page, 1).getByText("拡大中");
+  const fits = (page: Page) =>
+    pane(page, 1)
+      .locator(".pane-terminal")
+      .evaluate((e) => e.scrollWidth <= e.clientWidth && e.scrollHeight <= e.clientHeight);
+  const expectSplit = async (page: Page) => {
+    for (const n of [1, 2]) await expect(pane(page, n)).toBeVisible();
+    await expect(page.getByText("拡大中")).toHaveCount(0);
+  };
 
   // どちらもサイドメニューを隠しているので、どちらの枠にも収まる
-  await expect(zoomed(guest)).toBeHidden();
+  await expect.poll(() => fits(guest)).toBe(true);
 
-  // guest がサイドメニューを出すと、guest の枠は下限より狭くなり、端末が収まらない
+  // guest がサイドメニューを出すと、guest の枠は下限より狭くなり、端末が収まらない。拡大はしない
   await sidebarToggle(guest).click();
-  await expect(zoomed(guest)).toBeVisible();
-  await expect(zoomed(host)).toBeHidden();
+  await expect.poll(() => fits(guest)).toBe(false);
+  // 以前は収まらない状態が 300ms 続くと拡大していた。それより長く待っても分割したまま
+  await guest.waitForTimeout(1000);
+  await expectSplit(guest);
+  expect(await fits(guest)).toBe(false);
+  expect(await fits(host)).toBe(true);
 
-  // guest がまた隠すと、収まって元の分割の表示に戻る
+  // guest がまた隠すと、収まる
   await sidebarToggle(guest).click();
-  await expect(zoomed(guest)).toBeHidden();
-  await expect(pane(guest, 2)).toBeVisible();
+  await expect.poll(() => fits(guest)).toBe(true);
+  await expectSplit(guest);
 
-  // guest が出し直すとまた拡大し、host も出すと、全員の枠が下限より狭くなって一番広い枠に合わせるので、収まって戻る
+  // guest が出し直すとまた収まらず、host も出すと、全員の枠が下限より狭くなって一番広い枠に合わせるので、収まる
   await sidebarToggle(guest).click();
-  await expect(zoomed(guest)).toBeVisible();
+  await expect.poll(() => fits(guest)).toBe(false);
   await sidebarToggle(host).click();
-  await expect(zoomed(guest)).toBeHidden();
+  await expect.poll(() => fits(guest)).toBe(true);
+  await expectSplit(guest);
 });
 
 test("サイドメニューのショートカットは、ボタンのツールチップとショートカットの一覧に載る", async ({ browser }) => {

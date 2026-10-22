@@ -9,7 +9,6 @@ export type Shortcut =
   | { type: "new-tab" }
   | { type: "next-tab" }
   | { type: "previous-tab" }
-  | { type: "zoom" }
   | { type: "toggle-sidebar" }
   | { type: "focus-sidebar" };
 
@@ -32,8 +31,6 @@ const bindings: Binding[] = [
   { label: "新しい Workspace", code: "KeyO", key: "O", repeat: false, shortcut: { type: "new-tab" } },
   { label: "次の Workspace", code: "Period", key: ".", repeat: true, shortcut: { type: "next-tab" } },
   { label: "前の Workspace", code: "Comma", key: ",", repeat: true, shortcut: { type: "previous-tab" } },
-  // tmux のズーム（prefix z）にならう（docs/adr/68-zoom.md）
-  { label: "拡大表示の切り替え", code: "KeyZ", key: "Z", repeat: false, shortcut: { type: "zoom" } },
   // S は Sidebar、E は VS Code のエクスプローラーへ移るキー（⌘⇧E）にならう（docs/adr/72-sidebar.md）
   { label: "サイドメニューを出す・隠す", code: "KeyS", key: "S", repeat: false, shortcut: { type: "toggle-sidebar" } },
   { label: "サイドメニューへ移る", code: "KeyE", key: "E", repeat: false, shortcut: { type: "focus-sidebar" } },
