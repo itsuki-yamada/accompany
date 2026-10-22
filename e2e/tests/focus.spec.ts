@@ -1,6 +1,6 @@
 import { expect, test, type Browser } from "@playwright/test";
 import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
-import { expectPaneToShow, pane } from "./panes";
+import { addToView, expectPaneToShow, pane } from "./panes";
 
 const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
 
@@ -49,6 +49,8 @@ test("他の参加者がフォーカスしているターミナルに、その�
   await pane(host, 1).getByRole("button", { name: "右に分割" }).click();
   await expectPaneToShow(host, 2, "Fake Shell ready");
   const guest = await openAsParticipant(browser, accompany.url);
+  // どのタブを並べるかは参加者ごとなので、guest も同じ 2 つを並べる
+  await addToView(guest, 2);
 
   await pane(host, 2).locator(".xterm-screen").click();
   await pane(guest, 1).locator(".xterm-screen").click();

@@ -1,6 +1,6 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
-import { boxOf, pane, panes } from "./panes";
+import { addToView, boxOf, pane, panes } from "./panes";
 import { terminalScreen } from "./terminal";
 
 // 分割した画面で、フォーカスしているターミナルが自分の枠に収まらなくても、勝手に拡大しない。
@@ -42,7 +42,10 @@ async function openLargeAndSmall(browser: Browser) {
   const host = await openAsParticipant(browser, accompany.url, large);
   const guest = await openAsParticipant(browser, accompany.url, small);
   await pane(host, 1).getByRole("button", { name: "右に分割" }).click();
-  await expect(panes(guest)).toHaveCount(2);
+  await expect(panes(host)).toHaveCount(2);
+  // どのタブを並べるかは参加者ごとなので、guest も同じ 2 つを並べる
+  await input(guest, 1).focus();
+  await addToView(guest, 2);
   await input(guest, 1).focus();
   // 端末が下限の大きさになり、guest の枠に収まらなくなるのを待つ
   await expect.poll(() => fitsInPane(guest, 1)).toBe(false);

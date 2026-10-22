@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
-import { expectPaneToShow, pane, typeInPane } from "./panes";
+import { expectPaneToShow, pane, tab, typeInPane } from "./panes";
 
-// 分割や新しい Workspace で増やしたターミナルは、作業していたディレクトリでシェルを始める。
+// 分割や新しいタブで増やしたターミナルは、作業していたディレクトリでシェルを始める。
 // 分からないときは Accompany を起動したディレクトリ（E2E ではリポジトリのルート）で始める（docs/adr/109-inherit-cwd.md）
 
 // pwd の結果が 1 行で読めるよう、どの環境にもある /bin/sh を、プロンプトの短いシェルとして使う
@@ -93,7 +93,7 @@ test("シェルの前面で別のディレクトリのプロセスが動いて�
   await expectPwd(page, 2, foregroundDir);
 });
 
-test("新しい Workspace は、ほかの参加者ではなく自分がフォーカスしているターミナルのディレクトリで始まる", async ({
+test("新しいタブは、ほかの参加者ではなく自分がフォーカスしているターミナルのディレクトリで始まる", async ({
   browser,
 }) => {
   accompany = await startAccompany([], shell);
@@ -112,13 +112,13 @@ test("新しい Workspace は、ほかの参加者ではなく自分がフォー
   await expect(focusBadge(host, 1, "参加者 2")).toBeVisible();
   await expect(focusBadge(host, 2, "あなた")).toBeVisible();
 
-  await host.getByRole("button", { name: "新しい Workspace" }).click();
+  await host.getByRole("button", { name: "新しいタブ" }).click();
 
-  await expect(host.getByRole("tab")).toHaveText(["Workspace 1", "Workspace 2"]);
+  await expect(host.getByRole("tab")).toHaveText([/ターミナル 1/, /ターミナル 2/, /ターミナル 3/]);
   await expectPwd(host, 3, second);
 });
 
-test("キーボードショートカットで新しい Workspace を開いても、自分がフォーカスしているターミナルのディレクトリで始まる", async ({
+test("キーボードショートカットで新しいタブを開いても、自分がフォーカスしているターミナルのディレクトリで始まる", async ({
   browser,
 }) => {
   accompany = await startAccompany([], shell);
@@ -133,18 +133,18 @@ test("キーボードショートカットで新しい Workspace を開いても
 
   await page.keyboard.press("Control+Shift+O");
 
-  await expect(page.getByRole("tab")).toHaveText(["Workspace 1", "Workspace 2"]);
+  await expect(page.getByRole("tab")).toHaveText([/ターミナル 1/, /ターミナル 2/, /ターミナル 3/]);
   await expectPwd(page, 3, second);
 });
 
-test("フォーカスしているターミナルがない参加者が新しい Workspace を開くと、Accompany を起動したディレクトリで始まる", async ({
+test("フォーカスしているターミナルがない参加者が新しいタブを開くと、Accompany を起動したディレクトリで始まる", async ({
   browser,
 }) => {
   accompany = await startAccompany([], shell);
   const page = await openAsParticipant(browser, accompany.url);
   await cd(page, 1, newDir());
 
-  // ターミナルを 1 つも表示していない参加者として、Workspace の接続だけを開いて新しい Workspace を頼む
+  // ターミナルを 1 つも表示していない参加者として、配置用の接続だけを開いて新しいタブを頼む
   await page.evaluate(
     (url) =>
       new Promise<void>((resolve) => {
@@ -157,7 +157,8 @@ test("フォーカスしているターミナルがない参加者が新しい W
     `${accompany.url.replace(/^http/, "ws").replace(/\/$/, "")}/ws/workspace`,
   );
 
-  await expect(page.getByRole("tab")).toHaveText(["Workspace 1", "Workspace 2"]);
+  await expect(page.getByRole("tab")).toHaveText([/ターミナル 1/, /ターミナル 2/]);
+  await tab(page, 2).click();
   await expectPwd(page, 2, launchDir);
 });
 

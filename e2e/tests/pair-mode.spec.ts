@@ -1,6 +1,6 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
-import { expectPaneToShow, pane } from "./panes";
+import { addToView, boxOf, expectPaneToShow, pane, panes, tab } from "./panes";
 
 const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
 
@@ -19,7 +19,8 @@ async function openAsParticipant(browser: Browser, url: string) {
   return page;
 }
 
-// host（参加者 1）が開いて、ターミナルを 3 つに分割する。guest（参加者 2）はそのあとで開く
+// host（参加者 1）が開いて、ターミナルを 3 つに分割する（1 が左、2 が右上、3 が右下）。guest（参加者 2）はそのあとで開き、
+// 同じ 3 つのタブを並べる（どのタブを並べるかは参加者ごと。docs/adr/100-terminal-tabs.md）
 async function startSession(browser: Browser) {
   accompany = await startAccompany([], fakeShell);
   const host = await openAsParticipant(browser, accompany.url);
@@ -28,7 +29,25 @@ async function startSession(browser: Browser) {
   await pane(host, 2).getByRole("button", { name: "下に分割" }).click();
   await expectPaneToShow(host, 3, "Fake Shell ready");
   const guest = await openAsParticipant(browser, accompany.url);
+  await showAllTabs(guest);
   return { host, guest };
+}
+
+// ターミナル 1〜3 のタブを並べる（1・2・3 が左から並ぶ）
+async function showAllTabs(page: Page) {
+  await addToView(page, 2);
+  await addToView(page, 3);
+}
+
+// 並んでいるターミナルの番号（左上から順に）
+async function shownPanes(page: Page) {
+  const boxes = await panes(page).evaluateAll((elements) =>
+    elements.map((e) => {
+      const { x, y } = e.getBoundingClientRect();
+      return { name: e.getAttribute("aria-label") ?? "", x, y };
+    }),
+  );
+  return boxes.sort((a, b) => a.x - b.x || a.y - b.y).map((b) => Number(b.name.replace("ターミナル ", "")));
 }
 
 async function clickPane(page: Page, n: number) {
@@ -178,6 +197,7 @@ test("ペアプロモードは自分の画面のフォーカスだけに効き�
 }) => {
   const { host, guest } = await startSession(browser);
   const third = await openAsParticipant(browser, accompany!.url);
+  await showAllTabs(third);
   await clickPane(host, 2);
   await clickPane(third, 3);
 
@@ -322,20 +342,111 @@ test("相手と別のターミナルで右クリックメニューを開くと�
   await expect(pane(guest, 3)).not.toHaveAttribute("data-focused", "true");
 });
 
-test("Workspace の切り替えより先に相手のフォーカス先が届いても、切り替えたあとにそのターミナルへ移る", async ({
+test("ペアプロモードの間は、相手が選んだタブと並べ方にも追従し、同じ画面を見る", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const host = await openAsParticipant(browser, accompany.url);
+  await pane(host, 1).getByRole("button", { name: "右に分割" }).click();
+  await expectPaneToShow(host, 2, "Fake Shell ready");
+  await pane(host, 2).getByRole("button", { name: "下に分割" }).click();
+  await expectPaneToShow(host, 3, "Fake Shell ready");
+  await clickPane(host, 2);
+  // guest は最初、ターミナル 1 だけを見ている
+  const guest = await openAsParticipant(browser, accompany.url);
+  await expect(panes(guest)).toHaveCount(1);
+
+  // 始めると、相手の並べ方（1 が左、2 が右上、3 が右下）と割合がそのまま出る
+  await toolbarPairButton(guest, "参加者 1").click();
+  await expect(panes(guest)).toHaveCount(3);
+  expect(await shownPanes(guest)).toEqual([1, 2, 3]);
+  for (const n of [1, 2, 3]) {
+    const [mine, theirs] = [await boxOf(guest, n), await boxOf(host, n)];
+    expect(Math.abs(mine.x - theirs.x)).toBeLessThan(2);
+    expect(Math.abs(mine.y - theirs.y)).toBeLessThan(2);
+    expect(Math.abs(mine.width - theirs.width)).toBeLessThan(2);
+  }
+  await expectFocusedOn(guest, 2);
+  for (const n of [1, 2, 3]) await expect(tab(guest, n)).toHaveAttribute("aria-selected", "true");
+
+  // 相手がタブを 1 つ選ぶと、自分もそのタブだけになる
+  await tab(host, 3).click();
+  await expect(panes(guest)).toHaveCount(1);
+  await expectFocusedOn(guest, 3);
+  await expect(tab(guest, 1)).toHaveAttribute("aria-selected", "false");
+
+  // 相手が並べると、自分も並ぶ
+  await addToView(host, 1);
+  await expect(panes(guest)).toHaveCount(2);
+  expect(await shownPanes(guest)).toEqual([3, 1]);
+  await expectFocusedOn(guest, 1);
+
+  // 相手が新しいタブを開くと、自分もそのタブを見る
+  await host.getByRole("button", { name: "新しいタブ" }).click();
+  await expectPaneToShow(guest, 4, "Fake Shell ready");
+  await expect(panes(guest)).toHaveCount(1);
+  await expectFocusedOn(guest, 4);
+  await expect(followIndicator(guest)).toContainText("参加者 1 の画面に追従中");
+});
+
+test("ペアプロモードをやめると、その表示のまま残り、相手がタブを切り替えても自分の表示は変わらない", async ({
   browser,
 }) => {
   const { host, guest } = await startSession(browser);
-  // Workspace 2 にターミナル 4・5 を並べ、host はターミナル 5 にいる
-  await host.getByRole("button", { name: "新しい Workspace" }).click();
-  await expectPaneToShow(host, 4, "Fake Shell ready");
-  await pane(host, 4).getByRole("button", { name: "右に分割" }).click();
-  await expectPaneToShow(host, 5, "Fake Shell ready");
-  await clickPane(host, 5);
+  await tab(host, 2).click();
+  await toolbarPairButton(guest, "参加者 1").click();
+  await expect(panes(guest)).toHaveCount(1);
+  await expectFocusedOn(guest, 2);
 
-  // 配置用の WebSocket を中継するページで開き直し、host が Workspace 1 のターミナル 3 にフォーカスしたことが届くまで、
-  // Workspace の切り替えを止めておく（行き違いを起こす）。切り替えを届けたあとは参加者のフォーカス先を届けず、
-  // 配置を組み立てたときにフォーカスを移すことを確かめる
+  await stopButton(guest).click();
+  await expect(followIndicator(guest)).toHaveCount(0);
+  await expect(panes(guest)).toHaveCount(1);
+  await expect(pane(guest, 2)).toBeVisible();
+
+  await tab(host, 1).click();
+  await expectPaneToShow(host, 1, "Fake Shell ready");
+  await addToView(host, 3);
+  await host.waitForTimeout(300);
+  await expect(panes(guest)).toHaveCount(1);
+  await expect(pane(guest, 2)).toBeVisible();
+  await expect(tab(guest, 2)).toHaveAttribute("aria-selected", "true");
+});
+
+test("ペアプロモードの間に自分でタブを選んだり並べたりすると、ペアプロモードをやめ、相手の表示に戻されない", async ({
+  browser,
+}) => {
+  const { host, guest } = await startSession(browser);
+  await tab(host, 1).click();
+  await toolbarPairButton(guest, "参加者 1").click();
+  await expect(panes(guest)).toHaveCount(1);
+  await expectFocusedOn(guest, 1);
+
+  await tab(guest, 3).click();
+
+  await expect(followIndicator(guest)).toHaveCount(0);
+  await expectFocusedOn(guest, 3);
+  await addToView(host, 2);
+  await host.waitForTimeout(300);
+  await expect(panes(guest)).toHaveCount(1);
+  await expect(pane(guest, 3)).toBeVisible();
+
+  // ⌘ / Ctrl を押しながら選んで並べたときも、やめる
+  await toolbarPairButton(guest, "参加者 1").click();
+  await expect(panes(guest)).toHaveCount(2);
+  await addToView(guest, 3);
+  await expect(followIndicator(guest)).toHaveCount(0);
+  await tab(host, 1).click();
+  await host.waitForTimeout(300);
+  await expect(panes(guest)).toHaveCount(3);
+});
+
+test("表示の変化より先に相手のフォーカス先が届いても、表示が届いて組み立てたあとにそのターミナルへ移る", async ({
+  browser,
+}) => {
+  const { host, guest } = await startSession(browser);
+  await clickPane(host, 2);
+
+  // 配置用の WebSocket を中継するページで開き直し、host がターミナル 3 にフォーカスしたことが届くまで、
+  // 表示（view）を止めておく（行き違いを起こす）。表示を届けたあとは参加者のフォーカス先を届けず、
+  // 表示を組み立てたときにフォーカスを移すことを確かめる
   const page = await guest.context().newPage();
   let holding = false;
   let released = false;
@@ -345,7 +456,7 @@ test("Workspace の切り替えより先に相手のフォーカス先が届い�
     ws.onMessage((message) => server.send(message));
     server.onMessage((message) => {
       const event = JSON.parse(message.toString());
-      if (holding && event.type === "tabs") return void held.push(message);
+      if (holding && event.type === "view") return void held.push(message);
       if (released && event.type === "presence") return;
       ws.send(message);
       const hostOn =
@@ -360,16 +471,16 @@ test("Workspace の切り替えより先に相手のフォーカス先が届い�
   });
   await guest.close();
   await page.goto(accompany!.url);
-  await expectPaneToShow(page, 4, "Fake Shell ready");
-  await followButton(page, 5, "参加者 1").click();
-  await expectFocusedOn(page, 5);
+  await expectPaneToShow(page, 1, "Fake Shell ready");
+  await toolbarPairButton(page, "参加者 1").click();
+  await expectFocusedOn(page, 2);
 
   holding = true;
-  await host.getByRole("tab", { name: "Workspace 1", exact: true }).click();
-  await clickPane(host, 3);
+  await tab(host, 3).click();
 
   // 枠の色は自分のフォーカス先が presence で戻ってきてから付くので、ここではキー入力の先だけを確かめる
   await expect(pane(page, 3).locator(".xterm-helper-textarea")).toBeFocused();
+  await expect(panes(page)).toHaveCount(1);
   await expect(followIndicator(page)).toContainText("参加者 1 の画面に追従中");
 });
 

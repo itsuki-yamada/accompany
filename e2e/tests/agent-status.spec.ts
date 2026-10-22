@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
-import { expectPaneToShow, pane, typeInPane } from "./panes";
+import { addToView, expectPaneToShow, pane, tab, typeInPane } from "./panes";
 
 // 出力を出してから止まる偽のエージェント。エージェントとみなす名前（claude）で起動する。
 // 分割で増やしたターミナルは偽のシェルにする
@@ -233,36 +233,36 @@ test("通知が許可されていなければ、作業が終わっても通知�
   expect(await notificationTitles(page)).toEqual([]);
 });
 
-test("表示していない Workspace のターミナルの状態も配られ、その Workspace に切り替えるとバーに今の状態が出る", async ({
-  browser,
-}) => {
+test("表示していないタブのターミナルの状態も配られ、そのタブに切り替えるとバーに今の状態が出る", async ({ browser }) => {
   accompany = await startAccompany(busyAgent, fakeShell);
   const host = await openAsParticipant(browser, accompany.url);
   const guest = await openAsParticipant(browser, accompany.url);
 
   await typeInPane(host, 1, "longwork\n");
   await expect(agentStatus(host, 1)).toHaveText("作業中", { timeout: 5_000 });
-  // Workspace は参加者全員で共有する。新しい Workspace を開くと、全員の画面が Workspace 2 に切り替わる
-  await host.getByRole("button", { name: "新しい Workspace" }).click();
+  // どのタブを表示するかは参加者ごと。host も guest も、新しいタブ（ターミナル 2）を表示する
+  await host.getByRole("button", { name: "新しいタブ" }).click();
+  await expectPaneToShow(host, 2, "Fake Shell ready");
+  await tab(guest, 2).click();
   await expectPaneToShow(guest, 2, "Fake Shell ready");
   await expect(pane(guest, 1)).toHaveCount(0);
 
-  await guest.getByRole("tab", { name: "Workspace 1", exact: true }).click();
-  await expect(agentStatus(host, 1)).toHaveText("作業中");
+  await tab(guest, 1).click();
   await expect(agentStatus(guest, 1)).toHaveText("作業中");
 
-  await guest.getByRole("tab", { name: "Workspace 2", exact: true }).click();
+  await tab(guest, 2).click();
   await expect(pane(guest, 1)).toHaveCount(0);
   await expectPaneToShow(guest, 2, "Fake Shell ready");
-  // Workspace 2 を表示している間に作業が終わる
+  // ターミナル 2 を表示している間に作業が終わる
   await expect.poll(() => notificationTitles(host), { timeout: 15_000 }).toEqual(["ターミナル 1: 指示待ち"]);
 
-  await guest.getByRole("tab", { name: "Workspace 1", exact: true }).click();
-  await expect(agentStatus(host, 1)).toHaveText("指示待ち");
+  await tab(guest, 1).click();
   await expect(agentStatus(guest, 1)).toHaveText("指示待ち");
+  await tab(host, 1).click();
+  await expect(agentStatus(host, 1)).toHaveText("指示待ち");
 });
 
-test("表示していない Workspace のターミナルの作業が終わると通知が出て、クリックするとその Workspace に切り替わる", async ({
+test("表示していないタブのターミナルの作業が終わると通知が出て、クリックするとそのタブに切り替わる", async ({
   browser,
 }) => {
   accompany = await startAccompany(busyAgent, fakeShell);
@@ -270,13 +270,13 @@ test("表示していない Workspace のターミナルの作業が終わると
 
   await typeInPane(page, 1, "work\n");
   await expect(agentStatus(page, 1)).toHaveText("作業中", { timeout: 5_000 });
-  await page.getByRole("button", { name: "新しい Workspace" }).click();
+  await page.getByRole("button", { name: "新しいタブ" }).click();
   await expectPaneToShow(page, 2, "Fake Shell ready");
 
   await expect.poll(() => notificationTitles(page), { timeout: 10_000 }).toEqual(["ターミナル 1: 指示待ち"]);
 
   await page.evaluate(() => (window as any).notifications[0].onclick());
-  await expect(page.getByRole("tab", { name: "Workspace 1", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(tab(page, 1)).toHaveAttribute("aria-selected", "true");
   await expect(pane(page, 1)).toHaveAttribute("data-focused", "true");
 });
 
@@ -437,24 +437,15 @@ test("前面のプロセスを調べている最中にエージェントが終�
 });
 
 // 作業が終わったが、まだ誰も見ていないもの（docs/adr/74-unseen-done.md）。
-// 見た = 表示中の Workspace にあり、その参加者がそのターミナルにフォーカスしていて、ページが見えている
+// 見た = その参加者の表示にあり、その参加者がそのターミナルにフォーカスしていて、ページが見えている
 
 function sidebar(page: Page) {
   return page.getByRole("complementary", { name: "サイドメニュー" });
 }
 
-function sessions(page: Page) {
-  return sidebar(page).getByRole("region", { name: "セッション" });
-}
-
-function sessionRow(page: Page, n: number) {
-  return sessions(page).getByRole("button", { name: `ターミナル ${n}`, exact: true });
-}
-
-function workspaceRow(page: Page, name: string) {
-  return sidebar(page)
-    .locator(".workspace-row")
-    .filter({ has: page.getByRole("tab", { name, exact: true }) });
+// サイドメニューの見出しの、状態ごとの全体の件数
+function summary(page: Page) {
+  return sidebar(page).locator(".sidebar-summary");
 }
 
 test("誰も見ていないときに作業が終わると「未確認」になり、ほかの参加者がそのターミナルを見ると全員から消えて指示待ちになる", async ({
@@ -465,6 +456,7 @@ test("誰も見ていないときに作業が終わると「未確認」にな�
   const guest = await openAsParticipant(browser, accompany.url);
   await pane(host, 1).getByRole("button", { name: "右に分割" }).click();
   await expectPaneToShow(host, 2, "Fake Shell ready");
+  await addToView(guest, 2);
   await expectPaneToShow(guest, 2, "Fake Shell ready");
   await pane(guest, 2).locator(".xterm-screen").click();
 
@@ -476,9 +468,8 @@ test("誰も見ていないときに作業が終わると「未確認」にな�
 
   for (const page of [host, guest]) {
     await expect(agentStatus(page, 1)).toHaveText("未確認", { timeout: 10_000 });
-    await expect(sessionRow(page, 1)).toContainText("未確認");
-    await expect(workspaceRow(page, "Workspace 1")).toContainText("未確認 1");
-    await expect(sessions(page)).toContainText("未確認 1");
+    await expect(tab(page, 1)).toContainText("未確認");
+    await expect(summary(page)).toContainText("未確認 1");
   }
   // 指示待ちとは別の見た目にする
   const look = (page: Page) =>
@@ -492,10 +483,10 @@ test("誰も見ていないときに作業が終わると「未確認」にな�
   await pane(guest, 1).locator(".xterm-screen").click();
   for (const page of [host, guest]) {
     await expect(agentStatus(page, 1)).toHaveText("指示待ち");
-    await expect(sessionRow(page, 1)).toContainText("指示待ち");
-    await expect(sessionRow(page, 1)).not.toContainText("未確認");
-    await expect(workspaceRow(page, "Workspace 1")).toContainText("指示待ち 1");
-    await expect(workspaceRow(page, "Workspace 1")).not.toContainText("未確認");
+    await expect(tab(page, 1)).toContainText("指示待ち");
+    await expect(tab(page, 1)).not.toContainText("未確認");
+    await expect(summary(page)).toContainText("指示待ち 1");
+    await expect(summary(page)).not.toContainText("未確認");
   }
   expect(await look(host)).not.toBe(unseenLook);
 });
@@ -526,7 +517,7 @@ test("ページが見えていないときに終わると、フォーカスし�
   await expect(agentStatus(page, 1)).toHaveText("指示待ち");
 });
 
-test("表示していない Workspace で終わったターミナルは未確認になり、その Workspace を表示して見ると消える", async ({
+test("表示していないタブで終わったターミナルは未確認になり、そのタブを表示して見ると消える", async ({
   browser,
 }) => {
   accompany = await startAccompany(busyAgent, fakeShell);
@@ -534,16 +525,16 @@ test("表示していない Workspace で終わったターミナルは未確認
 
   await typeInPane(page, 1, "work\n");
   await expect(agentStatus(page, 1)).toHaveText("作業中", { timeout: 5_000 });
-  await sidebar(page).getByRole("button", { name: "新しい Workspace" }).click();
+  await sidebar(page).getByRole("button", { name: "新しいタブ" }).click();
   await expectPaneToShow(page, 2, "Fake Shell ready");
 
-  await expect(sessionRow(page, 1)).toContainText("未確認", { timeout: 10_000 });
-  await expect(workspaceRow(page, "Workspace 1")).toContainText("未確認 1");
+  await expect(tab(page, 1)).toContainText("未確認", { timeout: 10_000 });
+  await expect(summary(page)).toContainText("未確認 1");
 
-  await sessionRow(page, 1).click();
+  await tab(page, 1).click();
   await expect(pane(page, 1)).toHaveAttribute("data-focused", "true");
   await expect(agentStatus(page, 1)).toHaveText("指示待ち");
-  await expect(sessionRow(page, 1)).not.toContainText("未確認");
+  await expect(tab(page, 1)).not.toContainText("未確認");
 });
 
 test("未確認のまま次の作業を始めると作業中になり、見ないまま終わるとまた未確認になる", async ({ browser }) => {

@@ -29,7 +29,7 @@ async function holdServerMessages(page: Page, url: RegExp) {
   };
 }
 
-test("開いた直後から読み込み中と表示し、Workspace とターミナルの最初の画面が届いたら消す", async ({ page }) => {
+test("開いた直後から読み込み中と表示し、表示するタブとターミナルの最初の画面が届いたら消す", async ({ page }) => {
   accompany = await startAccompany([], { SHELL: "e2e/fixtures/fake-shell" });
 
   // 画面の JS の読み込みを止めておき、JS が動く前から表示が出ていることを確かめる
@@ -45,7 +45,7 @@ test("開いた直後から読み込み中と表示し、Workspace とターミ�
   await page.goto(accompany.url, { waitUntil: "commit" });
   await expect(loading(page)).toBeVisible();
 
-  // JS が動いても、Workspace の配置が届くまでは読み込み中
+  // JS が動いても、表示するタブの配置が届くまでは読み込み中
   releaseScript();
   // モジュールのスクリプトは、DOMContentLoaded の前に動き終わる
   await page.waitForLoadState("domcontentloaded");
