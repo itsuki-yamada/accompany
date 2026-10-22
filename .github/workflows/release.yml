@@ -1,7 +1,7 @@
 name: Release
 
-# main にマージされるたびに、tarball と実行ファイルの形で E2E を通したうえで、
-# 先行版 edge を作り直し、まだなければ package.json のバージョンの正式な Release を作る
+# main にマージされるたびに、tarball と実行ファイルと npm のパッケージの形で E2E を通したうえで、
+# 先行版 edge を作り直し、まだなければ package.json のバージョンの正式な Release を作り、npm にも公開する
 on:
   push:
     branches:
@@ -53,6 +53,41 @@ jobs:
           DRY_RUN: "false"
         run: .github/scripts/release.sh tarball/accompany-*.tgz binaries
 
+  # Release を作ったあとに、同じ実行ファイルから npm のパッケージを作り、まだ公開していない版なら npm に公開する
+  # （docs/adr/132-npm.md）。認証は npm の Trusted Publishing（OIDC）なので、id-token の権限をこのジョブだけに渡す
+  npm:
+    name: npm に公開する
+    needs: release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Trusted Publishing には npm 11.5.1 以上が要る（Node 24 に同梱）
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: E2E を通した実行ファイルを取得する
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: accompany-binaries
+          path: binaries
+
+      - name: npm のパッケージを作り、公開する前に npx で起動できることを確かめる
+        run: |
+          .github/scripts/build-npm-packages.sh binaries "$RUNNER_TEMP/npm-packages"
+          .github/scripts/check-npm.sh "$RUNNER_TEMP/npm-packages" "$RUNNER_TEMP/npm-install"
+
+      - name: npm に公開する
+        env:
+          DRY_RUN: "false"
+        run: .github/scripts/publish-npm.sh "$RUNNER_TEMP/npm-packages"
+
   # main への push 以外（workflow_dispatch）では、読み取り権限だけで何をするかを表示する
   dry-run:
     name: Release を作らずに、何をするかを表示する
@@ -82,3 +117,16 @@ jobs:
           GH_REPO: ${{ github.repository }}
           DRY_RUN: "true"
         run: .github/scripts/release.sh tarball/accompany-*.tgz binaries
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: npm のパッケージを作り、npx で起動できることを確かめ、何を公開するかを表示する
+        env:
+          DRY_RUN: "true"
+        run: |
+          .github/scripts/build-npm-packages.sh binaries "$RUNNER_TEMP/npm-packages"
+          .github/scripts/check-npm.sh "$RUNNER_TEMP/npm-packages" "$RUNNER_TEMP/npm-install"
+          .github/scripts/publish-npm.sh "$RUNNER_TEMP/npm-packages"
