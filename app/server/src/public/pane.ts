@@ -9,6 +9,7 @@ import { showContextMenu } from "./context-menu";
 import type { WindowSize } from "./min-window";
 import { firstLine, type QuickCommand } from "./quick-commands";
 import { shortcutFor, withKeys, type Shortcut } from "./shortcuts";
+import { editTabName } from "./tab-name";
 
 const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 
@@ -19,6 +20,8 @@ export type PaneActions = {
   focused: () => void;
   // このターミナルにキー入力しているときに押されたキーボードショートカット
   shortcut: (shortcut: Shortcut) => void;
+  // タブ（このターミナル）に名前を付ける。空なら名前をやめる（docs/adr/110-tab-name.md）
+  rename: (name: string) => void;
   // 参加者全員で共有している、よく使うコマンドの一覧と、その登録・編集・削除の画面を開く
   commands: () => QuickCommand[];
   manageCommands: () => void;
@@ -81,6 +84,10 @@ type CellSize = { width: number; height: number };
 export class Pane {
   readonly element = document.createElement("section");
   private bar = document.createElement("div");
+  // タブの名前（付けた名前、なければ「ターミナル N」）と、付けた名前
+  private title = document.createElement("span");
+  private customName: string | undefined;
+  private id: string;
   private closeButton: HTMLButtonElement;
   private splitButtons: HTMLButtonElement[];
   // 新しいタブを開いて並べられるか（並べられる数まで並べていれば、分割できない）
@@ -134,6 +141,7 @@ export class Pane {
   constructor(id: string, actions: PaneActions, appearance: Appearance) {
     this.appearance = appearance;
     this.actions = actions;
+    this.id = id;
     // 出力の URL（OSC 8 のハイパーリンクと、ただの文字列の URL）は、どちらも同じように確認なしで新しいタブに開く。
     // マウスがリンクの上にあるかを覚えておき、リンクのクリックをアプリに渡さないために使う（docs/adr/59-single-link-open.md）
     let overLink = false;
@@ -161,9 +169,11 @@ export class Pane {
 
     const bar = this.bar;
     bar.className = "pane-bar";
-    const title = document.createElement("span");
+    const title = this.title;
     title.className = "pane-title";
     title.textContent = `ターミナル ${id}`;
+    // 名前をダブルクリックすると、名前を付けられる
+    title.addEventListener("dblclick", () => this.rename());
     // コマンドが設定したタイトル。長いものは CSS で省略し、全文はツールチップで出す
     this.program.className = "pane-program";
     this.program.hidden = true;
@@ -198,6 +208,8 @@ export class Pane {
     this.element.addEventListener(
       "keydown",
       (event) => {
+        // 名前を付けている入力欄のキーは、入力欄に任せる
+        if (event.target instanceof Element && event.target.classList.contains("tab-name-editor")) return;
         const shortcut = shortcutFor(event);
         if (!isSearchKey(event) && !shortcut) return;
         event.preventDefault();
@@ -377,6 +389,26 @@ export class Pane {
     }
   }
 
+  // タブの名前を出す。name は画面に出す名前、custom は付けた名前（付けていなければ undefined）。
+  // 長い名前は CSS で末尾を省き、全文はツールチップで出す
+  setName(name: string, custom: string | undefined) {
+    this.title.textContent = name;
+    this.title.title = name;
+    this.customName = custom;
+  }
+
+  // バーの名前の場所に、名前の入力欄を出す。Enter・Esc で閉じたら、ターミナルにキー入力の先を戻す
+  rename() {
+    editTabName(this.title, {
+      value: this.customName ?? "",
+      placeholder: `ターミナル ${this.id}`,
+      commit: (name) => this.actions.rename(name),
+      finish: (keyboard) => {
+        if (keyboard) this.terminal.focus();
+      },
+    });
+  }
+
   // コマンドが設定したタイトルを出す。空なら「ターミナル N」だけにする
   setTitle(text: string) {
     this.program.textContent = text;
@@ -482,6 +514,8 @@ export class Pane {
         { label: "ペースト", action: () => this.paste() },
         { label: "すべて選択", action: () => this.terminal.selectAll() },
         "separator",
+        // タブ（このターミナル）に名前を付ける（docs/adr/110-tab-name.md）
+        { label: "名前を変更…", action: () => this.rename() },
         // 参加者全員の画面とサーバー側の画面をリセットする（docs/adr/33-context-menu.md）
         { label: "ターミナルのリセット", action: () => this.socket.send(JSON.stringify({ type: "reset" })) },
         "separator",

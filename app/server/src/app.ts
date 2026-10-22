@@ -87,7 +87,7 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
 
   // タブの並び、参加者ごとの名前・フォーカス先と選択範囲・ペアプロモードで追従している相手・スクロール位置、
   // よく使うコマンドの一覧を全員に、その参加者の表示（どのタブをどう並べているか）を本人に配る。
-  // 自分の表示の変更（新しいタブ・分割・タブを選ぶ・並べる・外す・割合の変更）、タブの並べ替えと閉じる、フォーカスの移動・選択範囲・
+  // 自分の表示の変更（新しいタブ・分割・タブを選ぶ・並べる・外す・割合の変更）、タブの並べ替え・名前・閉じる、フォーカスの移動・選択範囲・
   // ページが見えているか、名前の変更、ペアプロモードの開始・終了とスクロール位置、よく使うコマンドの登録・編集・削除、
   // 端末の大きさの下限の変更を受け付ける（docs/adr/100-terminal-tabs.md）
   app.get(
@@ -106,6 +106,9 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
           } else if (message?.type === "move-tab" && typeof message.tab === "string" && Number.isSafeInteger(message.index)) {
             // ないタブや範囲外の位置は、workspace が無視する
             workspace.moveTab(message.tab, message.index);
+          } else if (message?.type === "rename-tab" && typeof message.tab === "string" && typeof message.name === "string") {
+            // 全員に配るので、参加者の名前と同じくサーバーで整える。空なら「ターミナル N」に戻す（docs/adr/110-tab-name.md）
+            workspace.renameTab(message.tab, sanitizeName(message.name));
           } else if (message?.type === "close") {
             workspace.close(String(message.terminal));
           } else if (message?.type === "resize-split" && typeof message.ratio === "number") {

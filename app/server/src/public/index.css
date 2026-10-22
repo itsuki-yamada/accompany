@@ -258,8 +258,20 @@ body {
   color: #fff;
 }
 
+/* タブの名前。付けた名前が長いときは、ほかの表示を押し出さないよう幅を抑えて末尾を省く（docs/adr/110-tab-name.md） */
 .pane-title {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 16em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-title[hidden],
+#sidebar .session[hidden],
+#tabs .toolbar-tab[hidden] {
+  display: none;
 }
 
 /* コマンドが設定したタイトル。バーに収まらない分は省略し、全文はツールチップで見る */
@@ -1127,4 +1139,41 @@ body[data-pair-mode="following"] .pane-bar {
 
 .toolbar-tab-item[data-drop="after"]::after {
   right: 0;
+}
+
+/* タブ（ターミナル）に付けた名前（docs/adr/110-tab-name.md）。長い名前でバー・サイドメニュー・ツールバーが崩れないよう、
+   幅を抑えて末尾を省き、全文はツールチップで見る */
+.session-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#tabs .toolbar-tab {
+  max-width: 12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 名前を付けるときの入力欄 */
+.tab-name-editor {
+  min-width: 0;
+  width: 12em;
+  padding: 1px 4px;
+  font: inherit;
+  color: #fff;
+  background: #111;
+  border: 1px solid #4fc3f7;
+  border-radius: 2px;
+}
+
+#sidebar .tab-name-editor {
+  flex: 1 1 auto;
+  margin: 4px 0 4px 6px;
+}
+
+#tabs .tab-name-editor {
+  align-self: center;
+  width: 10em;
 }
