@@ -8,8 +8,6 @@ on:
       - main
   # 常に dry-run: タグも Release も作らずに、tarball・実行ファイル・E2E・「何をするか」の表示までを試す
   workflow_dispatch:
-  # 一時的: プルリクの段階で dry-run を確かめる（確かめたら戻す）
-  pull_request:
 
 # main の実行は 1 本ずつ流し、edge の更新が競合しないようにする（待っている実行は最新のものだけが残る）。
 # dry-run は何も書き込まないので、それぞれ独立に流す
