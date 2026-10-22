@@ -124,6 +124,8 @@ export class Pane {
   // 端末が表示領域からはみ出しているとき、枠のスクロールを一番下（最新の行が見える位置）に保つか。
   // 表示し直したターミナルは一番下から見せ、自分で上にスクロールしたら、一番下に戻すまで保たない（docs/adr/116-overflow-scroll-bottom.md）
   private stickToBottom = true;
+  // スクロールバックのスクロール位置を最後に合わせ直したときの、1 行の高さ（docs/adr/115-scroll-after-font-change.md）
+  private scrollCellHeight: number | undefined;
   private releaseScrollbar = () => {
     if (!this.draggingScrollbar) return;
     this.draggingScrollbar = false;
@@ -232,6 +234,7 @@ export class Pane {
     this.terminal.onRender(() => {
       this.drawRemoteSelections();
       this.remeasure();
+      this.syncScrollPosition();
     });
     this.trimmed = new TrimmedLines(this.terminal);
     this.terminal.onSelectionChange(() => this.sendSelection());
@@ -768,6 +771,21 @@ export class Pane {
     this.terminal.options.fontSize = fontSize;
     const viewport = (this.terminal as any)._core._viewport;
     if (typeof viewport?.queueSync === "function") viewport.queueSync();
+  }
+
+  // xterm（6.0）は、1 行の高さ（フォントの大きさ）が変わっても、スクロールバックのスクロール位置をピクセルのまま持ち、
+  // 新しい高さの行に直さない。ホイールでスクロールしたことがあると、次のホイールでその位置を新しい高さで行に直すので、
+  // 何十行も飛び、一番下にも戻れなくなる（#115）。1 行の高さが変わったら、今見えている行の位置に合わせ直させる
+  // （xterm の内部の API。覚えている直前の位置を忘れさせると、次の同期で今見えている行の位置にスクロールする）
+  private syncScrollPosition() {
+    const height = cellSize(this.terminal)?.height;
+    if (height === undefined || height === this.scrollCellHeight) return;
+    const changed = this.scrollCellHeight !== undefined;
+    this.scrollCellHeight = height;
+    const viewport = (this.terminal as any)._core._viewport;
+    if (!changed || typeof viewport?.queueSync !== "function") return;
+    viewport._latestYDisp = undefined;
+    viewport.queueSync();
   }
 
   // 選んでいる文字（検索のヒット）が表示領域の外にあれば、表示領域の中央に来るようにスクロールする
