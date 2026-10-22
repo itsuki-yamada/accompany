@@ -34,6 +34,8 @@ export type PaneActions = {
   scrolled: (user: boolean) => void;
   // 端末の大きさの下限（ウィンドウの大きさ）。サーバーから届くまでは undefined（docs/adr/99-smallest-size.md）
   minWindow: () => WindowSize | undefined;
+  // つないだときに届いた画面を書き終えたとき（docs/adr/111-loading.md）
+  loaded: () => void;
 };
 
 // ターミナルの選択範囲。位置は列と、出力の始めからの行の番号（バッファの行に、スクロールバックから押し出された行の数を足したもの。
@@ -113,6 +115,8 @@ export class Pane {
   private remoteLayer = document.createElement("div");
   // つないだときに届く現在の画面（スクロールバックを含む）を書き終えたか。書き終えるまでは、選択範囲の行に印を置けない
   private restored = false;
+  // つないだときに届いた画面（空のこともある）を書き終えたか。読み込み中の表示を消すのに使う
+  loaded = false;
   // スクロールバックから押し出された行の数。選択範囲の行は、これを足した「出力の始めからの行の番号」でやりとりする
   private trimmed: TrimmedLines;
   private firstOutput = true;
@@ -255,6 +259,12 @@ export class Pane {
         } else if (message.type === "trimmed" && this.firstOutput) {
           // 途中から開いたときは、サーバー側の画面がそれまでに押し出していた行の数から数え始める
           this.trimmed.count = message.lines;
+        } else if (message.type === "restored" && !this.loaded) {
+          // 届いた画面を書き終えてから知らせる
+          this.terminal.write("", () => {
+            this.loaded = true;
+            actions.loaded();
+          });
         }
       } else if (this.firstOutput) {
         this.firstOutput = false;

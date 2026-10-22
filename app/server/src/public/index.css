@@ -984,3 +984,61 @@ body[data-pair-mode="following"] .pane-bar {
   padding-top: 10px;
   border-top: 1px solid #444;
 }
+
+/* 開いてから使えるようになるまでの読み込み中の表示。HTML に最初から置き、Workspace と表示中のターミナルの最初の画面が
+   届いたら消す（docs/adr/111-loading.md）。画面全体を覆い、組み立て途中の画面を見せない */
+#loading {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #000;
+  color: #ccc;
+  font-size: 14px;
+}
+
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #555;
+  border-top-color: #ccc;
+  border-radius: 50%;
+  animation: loading-spin 0.8s linear infinite;
+}
+
+@keyframes loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* サーバーとの接続が切れたことを知らせる帯。切れる前の画面はそのまま見られるよう、上に重ねて出す */
+#disconnected {
+  position: fixed;
+  top: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: #5a1d1d;
+  color: #fff;
+  font-size: 13px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 60%);
+}
+
+#disconnected button {
+  border: 1px solid #fff8;
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  padding: 2px 8px;
+  cursor: pointer;
+}

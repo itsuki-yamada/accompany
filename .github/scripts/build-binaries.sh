@@ -17,8 +17,13 @@ targets=(
   "linux-x64 bun-linux-x64-baseline"
   "linux-arm64 bun-linux-arm64"
 )
+# --minify: 実行ファイルに入れる画面の JS も、tarball（Bun が本番として配るもの）と同じく縮める（docs/adr/111-loading.md）。
+# --sourcemap: 縮めても、エラーのときに元のソースの行を出す（縮めた 1 行を出すと、読めないうえ、
+# ポートが使われているときのエラーにも URL の文字列が混ざる）。ソースマップは実行ファイルに埋め込まれるので、
+# 横に書き出される .map は配らない
 for entry in "${targets[@]}"; do
   read -r name target <<< "$entry"
-  bun build --compile --target="$target" "$root/app/server/src/cli.ts" --outfile "$out/accompany-$version-$name"
+  bun build --compile --minify --sourcemap --target="$target" "$root/app/server/src/cli.ts" --outfile "$out/accompany-$version-$name"
 done
+rm -f "$out"/*.map
 ls -l "$out"
