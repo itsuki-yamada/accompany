@@ -135,6 +135,8 @@ const sidebar = new Sidebar(document.getElementById("sidebar")!, {
     send({ type: "new-tab" });
   },
   closeTab: (id) => send({ type: "close", terminal: id }),
+  // 並び順は全員で共有し、参加者ごとの表示は変えないので、ペアプロモードはやめない（docs/adr/139-tab-order.md）
+  moveTab: (id, index) => send({ type: "move-tab", tab: id, index }),
   returnFocus: () => {
     const mine = members.find((m) => m.id === you)?.terminal;
     ((mine && panes.get(mine)) || panes.values().next().value)?.focus();

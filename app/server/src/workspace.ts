@@ -61,7 +61,7 @@ const colors = ["#4fc3f7", "#ffb74d", "#81c784", "#f06292", "#ba68c8", "#fff176"
 // 参加者全員で共有する、タブ（ターミナル）の並びと、参加者ごとの表示（どのタブをどう並べているか）
 export class Workspace {
   private terminals = new Map<string, TerminalSession>();
-  // タブの並び（ターミナルの ID）。開いた順
+  // タブの並び（ターミナルの ID）。開いた順に後ろへ足し、参加者が並べ替える（docs/adr/139-tab-order.md）
   private order: string[] = [];
   private members = new Map<Listener, Member>();
   // 参加者ごとの表示
@@ -276,6 +276,16 @@ export class Workspace {
       listener({ type: "view", layout: next });
     }
     this.updateSeen();
+  }
+
+  // タブを並びの index 番目（並べ替えたあとの位置）へ移す。並びは全員で共有するので、全員に配って保存する。
+  // 参加者ごとの表示とペアプロモードの追従は変えない（docs/adr/139-tab-order.md）
+  moveTab(terminalId: string, index: number) {
+    const from = this.order.indexOf(terminalId);
+    if (from < 0 || !Number.isSafeInteger(index) || index < 0 || index >= this.order.length || index === from) return;
+    this.order.splice(from, 1);
+    this.order.splice(index, 0, terminalId);
+    this.notifyTabs();
   }
 
   // よく使うコマンドの登録・編集・削除。変わるたびに一覧を全員に配る

@@ -1081,3 +1081,50 @@ body[data-pair-mode="following"] .pane-bar {
   padding: 2px 8px;
   cursor: pointer;
 }
+
+/* タブの並べ替え（docs/adr/139-tab-order.md）。ドラッグしているタブを薄くし、移す位置に線を出す */
+.tab-row,
+.toolbar-tab-item {
+  position: relative;
+}
+
+.tab-row[data-dragging="true"],
+.toolbar-tab-item[data-dragging="true"] {
+  opacity: 0.5;
+}
+
+.tab-row[data-drop]::after,
+.toolbar-tab-item[data-drop]::after {
+  content: "";
+  position: absolute;
+  background: #4fc3f7;
+  pointer-events: none;
+}
+
+.tab-row[data-drop]::after {
+  left: 0;
+  right: 0;
+  height: 2px;
+}
+
+.tab-row[data-drop="before"]::after {
+  top: 0;
+}
+
+.tab-row[data-drop="after"]::after {
+  bottom: 0;
+}
+
+.toolbar-tab-item[data-drop]::after {
+  top: 0;
+  bottom: 0;
+  width: 2px;
+}
+
+.toolbar-tab-item[data-drop="before"]::after {
+  left: 0;
+}
+
+.toolbar-tab-item[data-drop="after"]::after {
+  right: 0;
+}

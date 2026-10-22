@@ -1,6 +1,8 @@
 // サイドメニュー。タブ（ターミナル 1 つが 1 つのタブ）の一覧を、状態・タイトル・フォーカスしている参加者とともに出す。
 // 出す・隠すは参加者ごとで、ブラウザに覚えておく（docs/adr/72-sidebar.md）。隠している間は、ツールバーにタブを並べる
-// （docs/adr/100-terminal-tabs.md）
+// （docs/adr/100-terminal-tabs.md）。タブはドラッグ、Alt+矢印、右クリックのメニューで並べ替えられ、並びは全員で共有する
+// （docs/adr/139-tab-order.md）
+import { showContextMenu } from "./context-menu";
 import { statusDescriptions, statusLabels, type AgentStatus } from "./pane";
 import { shortcutFor, withKeys } from "./shortcuts";
 
@@ -27,6 +29,8 @@ export type SidebarActions = {
   toggleTab: (id: string) => void;
   newTab: () => void;
   closeTab: (id: string) => void;
+  // タブを並びの index 番目（並べ替えたあとの位置）へ移す
+  moveTab: (id: string, index: number) => void;
   // サイドメニューから、表示中のターミナルにキー入力の先を戻す
   returnFocus: () => void;
 };
@@ -44,6 +48,9 @@ export class Sidebar {
   private list = document.createElement("div");
   private summary = document.createElement("span");
   private state: SidebarState | undefined;
+  // ドラッグしているタブ。ドラッグしている間は、組み直すとドラッグしている要素がなくなるので、届いた状態は手を離してから出す
+  private dragged: string | undefined;
+  private deferred: SidebarState | undefined;
 
   constructor(
     readonly element: HTMLElement,
@@ -75,6 +82,7 @@ export class Sidebar {
     this.stripTabs.setAttribute("aria-multiselectable", "true");
     this.stripTabs.setAttribute("aria-label", "タブ");
     this.strip.append(this.stripTabs, newTabButton(actions));
+    this.strip.addEventListener("keydown", (event) => this.moveByKey(event, false));
 
     this.setVisible(loadVisible());
   }
@@ -103,6 +111,10 @@ export class Sidebar {
   }
 
   update(state: SidebarState) {
+    if (this.dragged !== undefined) {
+      this.deferred = state;
+      return;
+    }
     this.state = state;
     // 組み直すとキー入力の先の行がなくなるので、どの行だったかを覚えておき、あとで戻す
     const active = document.activeElement;
@@ -176,6 +188,7 @@ export class Sidebar {
         }
 
         row.append(select, ...this.tabActions(tab, state));
+        this.enableDrag(row, id, true);
         return row;
       }),
     );
@@ -194,6 +207,7 @@ export class Sidebar {
         select.textContent = tab.name;
         select.title = [state.titles[tab.id], status && statusLabels[status]].filter(Boolean).join(" ・ ");
         item.append(select, ...this.tabActions(tab, state));
+        this.enableDrag(item, tab.id, false);
         return item;
       }),
     );
@@ -231,12 +245,126 @@ export class Sidebar {
     select.addEventListener("click", (event) =>
       event.metaKey || event.ctrlKey ? this.actions.toggleTab(tab.id) : this.actions.selectTab(tab.id),
     );
+    select.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      // キーボードのコンテキストメニューキーで開いたときは、タブの位置に出す
+      const at = event.clientX || event.clientY ? event : select.getBoundingClientRect();
+      this.openMenu(tab, at.x, at.y, this.list.contains(select));
+    });
     return select;
+  }
+
+  // タブの右クリックのメニュー。サイドメニューでは上・下、ツールバーでは左・右へ移す。端のタブは、その向きへは移せない
+  private openMenu(tab: Tab, x: number, y: number, vertical: boolean) {
+    const tabs = this.state?.tabs ?? [];
+    const index = tabs.findIndex((t) => t.id === tab.id);
+    const [before, after] = vertical ? ["上へ移す", "下へ移す"] : ["左へ移す", "右へ移す"];
+    showContextMenu(
+      x,
+      y,
+      `${tab.name} のタブのメニュー`,
+      [
+        { label: before, disabled: index <= 0, action: () => this.move(tab.id, index - 1) },
+        { label: after, disabled: index < 0 || index >= tabs.length - 1, action: () => this.move(tab.id, index + 1) },
+      ],
+      () => this.focusTab(tab.id),
+    );
+  }
+
+  // タブを並びの index 番目へ移す。続けて移したとき（Alt+↑ を 2 回など）に前の並びから位置を数えないよう、
+  // サーバーから並びが届く前に手元の並びも変えておく。届いた並びで置き換わる
+  private move(id: string, index: number) {
+    if (!this.state) return;
+    const tabs = this.state.tabs.filter((t) => t.id !== id);
+    const moved = this.state.tabs.find((t) => t.id === id);
+    if (!moved || index < 0 || index > tabs.length) return;
+    tabs.splice(index, 0, moved);
+    this.update({ ...this.state, tabs });
+    this.actions.moveTab(id, index);
+  }
+
+  // 出ている方（サイドメニューかツールバー）のタブにキー入力の先を移す
+  private focusTab(id: string) {
+    const scope = this.visible ? this.element : this.strip;
+    scope.querySelector<HTMLElement>(`[data-key="tab-${id}"]`)?.focus();
+  }
+
+  // Alt（Option）+矢印で、キー入力の先のタブを前・後ろへ移す。サイドメニューは ↑↓、ツールバーは ←→。端ではそれ以上動かない。
+  // 移したタブには、組み直したあともキー入力の先が残る（update で戻す）
+  private moveByKey(event: KeyboardEvent, vertical: boolean) {
+    if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.isComposing) return false;
+    const keys: Record<string, number> = vertical ? { ArrowUp: -1, ArrowDown: 1 } : { ArrowLeft: -1, ArrowRight: 1 };
+    const step = keys[event.key];
+    const id = event.target instanceof HTMLElement ? event.target.dataset.terminal : undefined;
+    if (!step || !id || !this.state) return false;
+    event.preventDefault();
+    const index = this.state.tabs.findIndex((t) => t.id === id) + step;
+    if (index >= 0 && index < this.state.tabs.length) this.move(id, index);
+    return true;
+  }
+
+  // タブの行（項目）をドラッグして並べ替えられるようにする。ほかのタブの前半に重ねるとその前、後半に重ねるとその後ろへ移し、
+  // 移す位置に線を出す（data-drop）。ファイルやほかのページからのドラッグは受け付けない
+  private enableDrag(element: HTMLElement, id: string, vertical: boolean) {
+    element.draggable = true;
+    const placeOf = (event: DragEvent) => {
+      const rect = element.getBoundingClientRect();
+      const first = vertical ? event.clientY - rect.top < rect.height / 2 : event.clientX - rect.left < rect.width / 2;
+      return first ? "before" : "after";
+    };
+    element.addEventListener("dragstart", (event) => {
+      this.dragged = id;
+      event.dataTransfer!.effectAllowed = "move";
+      // 中身は使わないが、Firefox では何か入れないとドラッグが始まらない
+      event.dataTransfer!.setData("text/plain", "");
+      element.dataset.dragging = "true";
+    });
+    element.addEventListener("dragend", () => {
+      delete element.dataset.dragging;
+      this.endDrag();
+    });
+    element.addEventListener("dragover", (event) => {
+      if (this.dragged === undefined) return;
+      event.preventDefault();
+      event.dataTransfer!.dropEffect = "move";
+      this.clearDrop(element);
+      if (this.dragged !== id) element.dataset.drop = placeOf(event);
+    });
+    element.addEventListener("dragleave", (event) => {
+      if (!element.contains(event.relatedTarget as Node | null)) delete element.dataset.drop;
+    });
+    element.addEventListener("drop", (event) => {
+      const dragged = this.dragged;
+      if (dragged === undefined) return;
+      event.preventDefault();
+      const tabs = this.state?.tabs ?? [];
+      const rest = tabs.map((t) => t.id).filter((t) => t !== dragged);
+      const index = rest.indexOf(id) + (placeOf(event) === "after" ? 1 : 0);
+      this.endDrag();
+      if (dragged !== id && index >= 0) this.move(dragged, index);
+    });
+  }
+
+  // ドラッグを終え、移す位置の線を消して、ドラッグしている間に届いた状態を出す
+  private endDrag() {
+    if (this.dragged === undefined) return;
+    this.dragged = undefined;
+    this.clearDrop();
+    const deferred = this.deferred;
+    this.deferred = undefined;
+    if (deferred) this.update(deferred);
+  }
+
+  private clearDrop(except?: HTMLElement) {
+    for (const element of [...this.list.children, ...this.stripTabs.children] as HTMLElement[]) {
+      if (element !== except) delete element.dataset.drop;
+    }
   }
 
   // ↑↓ でタブを順に移る。Esc でターミナルに戻る。
   // サイドメニューの中でも、出す・隠す（隠してターミナルに戻る）と、サイドメニューへ移る（ターミナルに戻る）のショートカットは効く
   private onKeyDown(event: KeyboardEvent) {
+    if (this.moveByKey(event, true)) return;
     const shortcut = shortcutFor(event);
     if (shortcut === "ignore") return event.preventDefault();
     if (shortcut?.type === "toggle-sidebar" || shortcut?.type === "focus-sidebar") {

@@ -41,6 +41,11 @@ const bindings: Binding[] = [
 // （docs/adr/114-force-selection.md）
 const mouseActions = [{ label: "範囲を強制して選択", mac: "Option+ドラッグ", other: "Shift+ドラッグ" }];
 
+// 一覧にだけ出す、サイドメニュー・ツールバーのタブにキー入力しているときのキー（docs/adr/139-tab-order.md）
+const tabActions = [
+  { label: "タブを前・後ろへ移す（サイドメニュー・ツールバーのタブで）", mac: "Option+↑↓ / ←→", other: "Alt+↑↓ / ←→" },
+];
+
 // ショートカットのキーなら、その操作を返す。押し続けて繰り返し届いた keydown のうち、繰り返さない操作は ignore にする
 // （キーは止めるが、操作はしない）
 export function shortcutFor(event: KeyboardEvent): Shortcut | "ignore" | undefined {
@@ -90,7 +95,7 @@ export function shortcutList() {
     const row = body.insertRow();
     for (const text of [binding.label, mac, other]) row.insertCell().textContent = text;
   }
-  for (const { label, mac, other } of mouseActions) {
+  for (const { label, mac, other } of [...mouseActions, ...tabActions]) {
     const row = body.insertRow();
     for (const text of [label, mac, other]) row.insertCell().textContent = text;
   }
