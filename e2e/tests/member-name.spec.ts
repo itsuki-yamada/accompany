@@ -158,3 +158,83 @@ test("同じ名前の参加者がいるときは、参加者の番号を添え�
   await expect(toolbarMember(guest, "やまだ")).toBeVisible();
   await expect(toolbarMember(host, "すずき")).toBeVisible();
 });
+
+// ページが横にはみ出していない（横スクロールが出ない）
+async function expectNoHorizontalOverflow(page: Page) {
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
+    .toBeLessThanOrEqual(0);
+}
+
+test("長い名前でも、ペアプロモードの表示やツールバーが崩れず、ページが横にはみ出さない", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  // 幅の広い文字（U+FDFD）で上限まで付けた名前
+  const wide = "﷽".repeat(32);
+  const host = await openAsParticipant(browser, accompany.url, wide);
+  const guest1 = await openAsParticipant(browser, accompany.url, "あ".repeat(32));
+  const guest2 = await openAsParticipant(browser, accompany.url, "い".repeat(32));
+  await clickPane(host, 1);
+
+  await toolbarMember(guest1, wide).click();
+  await toolbarMember(guest2, wide).click();
+  await expect(guest1.getByRole("status", { name: "ペアプロモード" })).toContainText(`${wide} の画面に追従中`);
+  await expect(host.getByRole("status", { name: "あなたに追従している参加者" })).toHaveText(
+    `${"あ".repeat(32)}、${"い".repeat(32)} があなたの画面に追従中`,
+  );
+
+  await expectNoHorizontalOverflow(host);
+  await expectNoHorizontalOverflow(guest1);
+  // ツールバーのボタン（表示の設定）も画面の中に残る
+  for (const page of [host, guest1]) {
+    const box = (await page.getByRole("button", { name: "表示の設定" }).boundingBox())!;
+    expect(box.x + box.width).toBeLessThanOrEqual(1280);
+  }
+});
+
+test("見えない文字だけの名前は、名前を設定していないものとする", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  // ゼロ幅スペース・ZWNJ・BOM・タグ文字・ソフトハイフン・ハングルのフィラー・点字の空白・CGJ・VS16
+  const host = await openAsParticipant(
+    browser,
+    accompany.url,
+    "​‌﻿\u{e0041}­ㅤ⠀͏️",
+  );
+  const guest = await openAsParticipant(browser, accompany.url);
+
+  await expect(toolbarMember(guest, "参加者 1")).toBeVisible();
+});
+
+test("対になっていないサロゲートは取り除き、絵文字は見た目の 1 文字ずつ数えて切り詰める", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const family = "\u{1f468}‍\u{1f469}‍\u{1f467}";
+  const host = await openAsParticipant(browser, accompany.url, "やま\ud800だ");
+  const guest = await openAsParticipant(browser, accompany.url, family.repeat(40));
+
+  await expect(toolbarMember(guest, "やまだ")).toBeVisible();
+  await expect(toolbarMember(host, family.repeat(32))).toBeVisible();
+});
+
+test("見た目の区別しにくい名前（全角と半角、見えない文字や結合文字を足したもの）も、同じ名前として番号を添える", async ({
+  browser,
+}) => {
+  const { host, guest } = await startSession(browser);
+  await setName(host, "ＡＢＣ");
+  await setName(guest, "ABC");
+  await expect(toolbarMember(guest, "ＡＢＣ（参加者 1）")).toBeVisible();
+  await expect(toolbarMember(host, "ABC（参加者 2）")).toBeVisible();
+
+  await setName(host, "やまだ͏");
+  await setName(guest, "やまだ️");
+  await expect(toolbarMember(guest, "やまだ͏（参加者 1）")).toBeVisible();
+  await expect(toolbarMember(host, "やまだ️（参加者 2）")).toBeVisible();
+});
+
+test("自分で付けた名前が、ほかの参加者の既定の名前（参加者 N）と同じときも、番号を添えて見分ける", async ({
+  browser,
+}) => {
+  const { host, guest } = await startSession(browser);
+  await setName(host, "参加者 2");
+
+  await expect(toolbarMember(guest, "参加者 2（参加者 1）")).toBeVisible();
+  await expect(toolbarMember(host, "参加者 2（参加者 2）")).toBeVisible();
+});
