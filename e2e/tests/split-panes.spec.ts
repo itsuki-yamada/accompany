@@ -42,6 +42,14 @@ async function openThreeTabs(page: Page) {
   await expectPaneToShow(page, 1, "Fake Shell ready");
 }
 
+// 並んでいるターミナルの番号（左から順に）
+async function shownOrder(page: Page) {
+  const boxes = await panes(page).evaluateAll((elements) =>
+    elements.map((e) => ({ name: e.getAttribute("aria-label") ?? "", x: e.getBoundingClientRect().x })),
+  );
+  return boxes.sort((a, b) => a.x - b.x).map((b) => Number(b.name.replace("ターミナル ", "")));
+}
+
 async function dragDivider(page: Page, x: number) {
   const divider = (await page.getByRole("separator").first().boundingBox())!;
   await page.mouse.move(divider.x + divider.width / 2, divider.y + divider.height / 2);
@@ -73,6 +81,14 @@ test("⌘ / Ctrl を押しながらタブを選ぶと、選んだタブが右に
 
   await addToView(page, 3);
   await expect(panes(page)).toHaveCount(3);
+  // 横に並べたタブは、均等な幅（3 等分）になる
+  await expect
+    .poll(async () => {
+      const widths = await Promise.all([1, 2, 3].map(async (n) => (await boxOf(page, n)).width));
+      return Math.max(...widths) - Math.min(...widths);
+    })
+    .toBeLessThan(10);
+  expect(await shownOrder(page)).toEqual([1, 2, 3]);
 
   // 4 つ目は並べられない
   await tab(page, 4).click({ modifiers: ["ControlOrMeta"] });
@@ -205,7 +221,7 @@ test("境界をドラッグすると、並んだターミナルの大きさの�
   await dragDivider(page, 1280 * 0.3);
 
   await expect.poll(async () => (await boxOf(page, 1)).width / 1280).toBeLessThan(0.35);
-  expect((await boxOf(page, 2)).width / 1280).toBeGreaterThan(0.45);
+  expect((await boxOf(page, 2)).width / 1280).toBeGreaterThan(0.65);
 });
 
 test("どのタブを並べるかと割合は参加者ごとで、ほかの参加者の表示は変わらない。入力は同じタブを見ている全員に出る", async ({

@@ -342,6 +342,29 @@ test("相手と別のターミナルで右クリックメニューを開くと�
   await expect(pane(guest, 3)).not.toHaveAttribute("data-focused", "true");
 });
 
+test("境界を押しただけではペアプロモードを続け、ドラッグして割合を変えるとやめる", async ({ browser }) => {
+  const { host, guest } = await startSession(browser);
+  await clickPane(host, 2);
+  await toolbarPairButton(guest, "参加者 1").click();
+  await expectFocusedOn(guest, 2);
+  const divider = (await guest.getByRole("separator").first().boundingBox())!;
+  const [x, y] = [divider.x + divider.width / 2, divider.y + divider.height / 2];
+
+  await guest.mouse.move(x, y);
+  await guest.mouse.down();
+  await guest.mouse.up();
+  await guest.waitForTimeout(300);
+  await expect(followIndicator(guest)).toContainText("参加者 1 の画面に追従中");
+
+  await guest.mouse.move(x, y);
+  await guest.mouse.down();
+  await guest.mouse.move(x - 150, y, { steps: 5 });
+  await guest.mouse.up();
+  await expect(followIndicator(guest)).toHaveCount(0);
+  // 自分の割合だけが変わり、相手の割合は変わらない
+  await expect.poll(async () => (await boxOf(guest, 1)).width).toBeLessThan((await boxOf(host, 1)).width - 100);
+});
+
 test("ペアプロモードの間は、相手が選んだタブと並べ方にも追従し、同じ画面を見る", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const host = await openAsParticipant(browser, accompany.url);

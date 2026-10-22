@@ -229,6 +229,25 @@ test("前の形式（Workspace と分割の配置）で保存したものから�
   await expectPaneToShow(page, 5, "Fake Shell ready");
 });
 
+test("形の正しくない保存ファイル（同じタブが 2 回ある）からは戻さず、新しく始める", async ({ browser }) => {
+  const cwd = fileURLToPath(new URL("../..", import.meta.url)).replace(/\/$/, "");
+  const key = createHash("sha256").update(cwd).digest("hex").slice(0, 16);
+  await mkdir(join(stateDir, "sessions"), { recursive: true });
+  const terminal = { cols: 80, rows: 24, scrollback: "broken one\r\n", initial: true };
+  await writeFile(
+    join(stateDir, "sessions", `${key}.json`),
+    JSON.stringify({ version: 2, cwd, tabs: ["1", "1"], terminals: { "1": terminal }, commands: [] }),
+  );
+
+  accompany = await start();
+  const page = await open(browser, accompany.url);
+
+  await expectPaneToShow(page, 1, "Fake Shell ready");
+  await expect(sidebarTabs(page)).toHaveText([/ターミナル 1/]);
+  await expect(screenText(page, 1)).not.toContainText("broken one");
+  await expect(screenText(page, 1)).not.toContainText(restartedMark);
+});
+
 test("よく使うコマンドも、起動し直すと戻る", async ({ browser }) => {
   accompany = await start();
   let page = await open(browser, accompany.url);

@@ -254,6 +254,18 @@ test("サイドメニューを隠している間は、ツールバーにタブ�
   await expectPaneToShow(page, 1, "Fake Shell ready");
   await expect(tab(page, 1)).toHaveAttribute("aria-selected", "true");
   await expect(panes(page)).toHaveCount(1);
+
+  // ツールバーのタブにも、並べて表示と閉じるのボタンがある
+  const toggle = toolbar(page).getByRole("button", { name: "ターミナル 2 を並べて表示" });
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await toggle.click();
+  await expect(panes(page)).toHaveCount(2);
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await toggle.click();
+  await expect(panes(page)).toHaveCount(1);
+  await toolbar(page).getByRole("button", { name: "ターミナル 2 を閉じる" }).click();
+  await expect(toolbar(page).getByRole("tab")).toHaveText([/ターミナル 1/]);
+  await expect(toolbar(page).getByRole("button", { name: "ターミナル 1 を閉じる" })).toBeDisabled();
 });
 
 test("タブを切り替えても、切り替えた先でターミナルにフォーカスしている人の表示が出る", async ({ browser }) => {
