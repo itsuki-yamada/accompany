@@ -6,7 +6,7 @@ import { expect, test } from "@playwright/test";
 import { accompanyCommand, closeContexts, newContext, newStateDir, startAccompany, testPort, type Accompany } from "./accompany";
 import { expectPaneToShow, pane, typeInPane } from "./panes";
 
-// 起動のしかた（実行ファイル、npx などの起動役を挟んだもの）によらず、終了コードと止める合図が同じように効く（docs/adr/132-npm.md）
+// 起動のしかた（実行ファイル、npm の起動役などを挟んだもの）によらず、終了コードと止める合図が同じように効く（docs/adr/132-npm.md）
 
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };

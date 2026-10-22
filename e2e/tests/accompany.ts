@@ -18,7 +18,7 @@ export function testPort(offset = 0) {
 }
 
 // stop は、既定ではプロセスグループ全体（端末で Ctrl+C を押したとき）に signal を送り、全体が終わるまで待つ。
-// onlyCommand を付けると、起動したコマンドのプロセス（npx などの起動役）だけに送る
+// onlyCommand を付けると、起動したコマンドのプロセス（npm の起動役など）だけに送る
 export type Accompany = {
   url: string;
   stop: (signal?: NodeJS.Signals, options?: { onlyCommand?: boolean }) => Promise<void>;
