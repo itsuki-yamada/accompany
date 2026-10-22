@@ -15,10 +15,6 @@ const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 export type PaneActions = {
   split: (direction: "row" | "column") => void;
   close: () => void;
-  // 拡大表示を外す／戻す。拡大は自分の画面だけの表示で、サーバーには伝えない（docs/adr/68-zoom.md）
-  zoom: () => void;
-  // 端末の大きさか表示領域が変わり、枠に収まるか（overflows）が変わったかもしれないとき
-  resized: () => void;
   // キー入力の先がこのターミナルに移ったとき
   focused: () => void;
   // このターミナルにキー入力しているときに押されたキーボードショートカット
@@ -86,10 +82,6 @@ export class Pane {
   readonly element = document.createElement("section");
   private bar = document.createElement("div");
   private closeButton: HTMLButtonElement;
-  private zoomButton: HTMLButtonElement;
-  private zoomLabel = document.createElement("span");
-  // 拡大中に、分割での元の位置を取っておく要素。拡大中は、端末の大きさと枠に収まるかを、この要素の大きさで決める
-  private placeholder: HTMLElement | undefined;
   private viewers = document.createElement("span");
   private viewersKey = "";
   private program = document.createElement("span");
@@ -178,20 +170,15 @@ export class Pane {
     this.status.setAttribute("role", "status");
     this.status.setAttribute("aria-label", "エージェントの状態");
     this.setStatus(undefined);
-    this.zoomLabel.className = "pane-zoomed";
-    this.zoomLabel.setAttribute("role", "status");
-    this.zoomLabel.hidden = true;
     bar.append(
       title,
       this.program,
       this.status,
       this.viewers,
-      this.zoomLabel,
       button("コマンド", "❯", (event) => this.openCommands(event.currentTarget as HTMLElement, actions)),
       button("検索", "⌕", () => this.search.open()),
       button("右に分割", "⇥", () => actions.split("row"), withKeys("右に分割")),
       button("下に分割", "⤓", () => actions.split("column"), withKeys("下に分割")),
-      (this.zoomButton = button("拡大表示", "⤢", actions.zoom, withKeys("拡大表示の切り替え", "拡大表示"))),
       (this.closeButton = button("閉じる", "×", actions.close, withKeys("ターミナルを閉じる", "閉じる"))),
     );
     const container = this.container;
@@ -255,7 +242,6 @@ export class Pane {
         if (message.type === "resize") {
           this.terminal.resize(message.cols, message.rows);
           this.fitToArea();
-          actions.resized();
         } else if (message.type === "trimmed" && this.firstOutput) {
           // 途中から開いたときは、サーバー側の画面がそれまでに押し出していた行の数から数え始める
           this.trimmed.count = message.lines;
@@ -344,7 +330,6 @@ export class Pane {
     this.resizeObserver = new ResizeObserver(() => {
       this.sendSize();
       this.fitToArea();
-      actions.resized();
     });
     this.resizeObserver.observe(container);
     // 表示領域や、端末の大きさ（サーバーが決める）・フォントの大きさが変わって、はみ出す量が変わったときも、一番下に保つ
@@ -429,37 +414,6 @@ export class Pane {
     this.closeButton.disabled = !closable;
   }
 
-  // 拡大表示の状態を出す。placeholder は拡大中に分割での元の位置を取っておく要素（拡大していなければ undefined）、
-  // hidden は分割しているほかのターミナルの数、off は自分で拡大を外していて、このターミナルにフォーカスしていること。
-  // 拡大を外す／戻すは、拡大しているか、分割していて枠に収まらないときにできる
-  setZoom(zoom: { placeholder?: HTMLElement; hidden: number; off: boolean }) {
-    if (zoom.placeholder !== this.placeholder) {
-      if (this.placeholder) this.resizeObserver.unobserve(this.placeholder);
-      this.placeholder = zoom.placeholder;
-      if (this.placeholder) this.resizeObserver.observe(this.placeholder);
-    }
-    const zoomed = this.placeholder !== undefined;
-    const overflows = zoom.hidden > 0 && this.overflows();
-    this.zoomButton.setAttribute("aria-pressed", String(zoomed));
-    this.zoomButton.disabled = !zoomed && !overflows;
-    this.zoomLabel.hidden = !zoomed && !(zoom.off && overflows);
-    this.zoomLabel.dataset.state = zoomed ? "zoomed" : "off";
-    this.zoomLabel.textContent = zoomed ? "拡大中" : "拡大を外しています";
-    this.zoomLabel.title = zoomed
-      ? `枠に収まらないので拡大しています（ほか ${zoom.hidden} 個のターミナルを隠しています）。${withKeys("拡大表示の切り替え", "外すと分割の全体を見られます")}`
-      : `枠に収まりませんが、拡大を外しています。${withKeys("拡大表示の切り替え", "拡大に戻せます")}`;
-  }
-
-  // 端末が、分割での自分の枠に収まらない（スクロールバーが出る）か。設定したフォントの大きさで比べる
-  overflows() {
-    const area = this.splitArea();
-    if (!this.cell || !area) return false;
-    return (
-      this.terminal.cols * this.cell.width + scrollbarWidth > area.width ||
-      this.terminal.rows * this.cell.height > area.height
-    );
-  }
-
   focus() {
     this.terminal.focus();
   }
@@ -513,13 +467,6 @@ export class Pane {
         "separator",
         // 参加者全員の画面とサーバー側の画面をリセットする（docs/adr/33-context-menu.md）
         { label: "ターミナルのリセット", action: () => this.socket.send(JSON.stringify({ type: "reset" })) },
-        "separator",
-        // 自分の画面だけの表示の切り替え（docs/adr/68-zoom.md）
-        {
-          label: this.placeholder ? "拡大を解除" : "拡大表示",
-          disabled: this.zoomButton.disabled,
-          action: actions.zoom,
-        },
         "separator",
         { label: "右に分割", action: () => actions.split("row") },
         { label: "下に分割", action: () => actions.split("column") },
@@ -710,12 +657,10 @@ export class Pane {
 
   // 自分の表示領域（フル HD まで）に、設定したフォントの大きさで収まる列数・行数と、下限のウィンドウで開いたときの
   // 表示領域に収まる列数・行数を伝える。サーバーは、一番小さい参加者に収まる大きさを、一番大きい参加者に収まる大きさを
-  // 超えない範囲で下限まで広げる（docs/adr/99-smallest-size.md）。
-  // 拡大中は、拡大で広がった表示領域ではなく、元の分割での表示領域で計算する。広がった表示領域を伝えると、
-  // ほかの参加者の端末まで大きくなる（docs/adr/68-zoom.md）
+  // 超えない範囲で下限まで広げる（docs/adr/99-smallest-size.md）
   private sendSize() {
     if (this.terminal.options.fontSize === this.appearance.fontSize) this.cell = cellSize(this.terminal) ?? this.cell;
-    const area = this.splitArea();
+    const area = this.area();
     if (!this.cell || !area || this.socket.readyState !== WebSocket.OPEN) return;
     const fits = cellsIn(area, this.cell);
     const min = cellsIn(this.minArea(), this.cell);
@@ -825,14 +770,6 @@ export class Pane {
     if (target.top < visible.top || target.bottom > visible.bottom) {
       this.container.scrollTop += (target.top + target.bottom - visible.top - visible.bottom) / 2;
     }
-  }
-
-  // 分割での自分の枠の表示領域。拡大中は、元の位置に置いた要素の大きさから、バーなどの分を引いて求める
-  private splitArea() {
-    if (!this.placeholder) return this.area();
-    const width = this.placeholder.offsetWidth - (this.element.offsetWidth - this.container.offsetWidth);
-    const height = this.placeholder.offsetHeight - (this.element.offsetHeight - this.container.offsetHeight);
-    return width > 0 && height > 0 ? { width, height } : undefined;
   }
 
   // 自分の表示領域の大きさ。スクロールバーが出ていても変わらないよう、スクロールバーを含めた大きさを使う
