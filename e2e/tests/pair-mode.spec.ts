@@ -444,7 +444,7 @@ test("表示の変化より先に相手のフォーカス先が届いても、�
   const { host, guest } = await startSession(browser);
   await clickPane(host, 2);
 
-  // 配置用の WebSocket を中継するページで開き直し、host がターミナル 3 にフォーカスしたことが届くまで、
+  // 配置用の WebSocket を中継するページで開き直し、host が新しいタブ（ターミナル 4）にフォーカスしたことが届くまで、
   // 表示（view）を止めておく（行き違いを起こす）。表示を届けたあとは参加者のフォーカス先を届けず、
   // 表示を組み立てたときにフォーカスを移すことを確かめる
   const page = await guest.context().newPage();
@@ -461,7 +461,7 @@ test("表示の変化より先に相手のフォーカス先が届いても、�
       ws.send(message);
       const hostOn =
         event.type === "presence" ? event.members.find((m: { id: number }) => m.id === 1)?.terminal : undefined;
-      if (holding && hostOn === "3") {
+      if (holding && hostOn === "4") {
         holding = false;
         released = true;
         held.forEach((m) => ws.send(m));
@@ -476,10 +476,10 @@ test("表示の変化より先に相手のフォーカス先が届いても、�
   await expectFocusedOn(page, 2);
 
   holding = true;
-  await tab(host, 3).click();
+  await host.getByRole("button", { name: "新しいタブ" }).click();
 
   // 枠の色は自分のフォーカス先が presence で戻ってきてから付くので、ここではキー入力の先だけを確かめる
-  await expect(pane(page, 3).locator(".xterm-helper-textarea")).toBeFocused();
+  await expect(pane(page, 4).locator(".xterm-helper-textarea")).toBeFocused();
   await expect(panes(page)).toHaveCount(1);
   await expect(followIndicator(page)).toContainText("参加者 1 の画面に追従中");
 });
