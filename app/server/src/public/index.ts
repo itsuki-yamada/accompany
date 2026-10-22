@@ -1,5 +1,6 @@
 import { appearanceSettings, loadAppearance, type Appearance } from "./appearance";
 import { finishLoading, showDisconnected } from "./loading";
+import { NameSettings } from "./member-name";
 import { MinWindowSettings } from "./min-window";
 import { notifyDone, requestPermissionOnFirstInteraction } from "./notify";
 import { Pane, type AgentStatus, type SelectionRange, type Viewer } from "./pane";
@@ -40,6 +41,8 @@ document.body.append(shortcuts);
 let appearance: Appearance = loadAppearance();
 // 端末の大きさの下限は参加者全員の設定で、サーバーが持って全員に配る（docs/adr/99-smallest-size.md）
 const minWindow = new MinWindowSettings((size) => send({ type: "set-min-window", ...size }));
+// 自分の名前。ほかの参加者の画面に出る（docs/adr/96-member-name.md）
+const nameSettings = new NameSettings((name) => send({ type: "name", name }));
 const settings = appearanceSettings(
   appearance,
   (changed) => {
@@ -47,7 +50,7 @@ const settings = appearanceSettings(
     panes.forEach((pane) => pane.setAppearance(appearance));
     updateZoom();
   },
-  minWindow.element,
+  [nameSettings.element, minWindow.element],
 );
 document.body.append(settings);
 
@@ -123,6 +126,10 @@ const sendVisibility = () => {
 socket.addEventListener("open", sendVisibility);
 // サーバーが止まったり、ネットワークが切れたりしたとき
 socket.addEventListener("close", showDisconnected);
+// 保存した名前があれば、つないだときに伝える
+socket.addEventListener("open", () => {
+  if (nameSettings.current) send({ type: "name", name: nameSettings.current });
+});
 document.addEventListener("visibilitychange", sendVisibility);
 // よく使うコマンドの一覧と、その登録・編集・削除の画面
 const quickCommands = new QuickCommands(send);
@@ -152,6 +159,7 @@ socket.onmessage = (event) => {
   const message = JSON.parse(event.data);
   if (message.type === "welcome") {
     you = message.you;
+    nameSettings.setDefault(`参加者 ${you}`);
   } else if (message.type === "presence") {
     members = message.members;
     showSelections();
