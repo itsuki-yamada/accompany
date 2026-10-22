@@ -1,18 +1,19 @@
-// サイドメニュー。上に Workspace の一覧、下にすべての Workspace のセッション（ターミナル）の一覧を出す。
-// 出す・隠すは参加者ごとで、ブラウザに覚えておく（docs/adr/72-sidebar.md）
+// サイドメニュー。タブ（ターミナル 1 つが 1 つのタブ）の一覧を、状態・タイトル・フォーカスしている参加者とともに出す。
+// 出す・隠すは参加者ごとで、ブラウザに覚えておく（docs/adr/72-sidebar.md）。隠している間は、ツールバーにタブを並べる
+// （docs/adr/100-terminal-tabs.md）
 import { statusDescriptions, statusLabels, type AgentStatus } from "./pane";
 import { shortcutFor, withKeys } from "./shortcuts";
 
-// サーバーから届く、Workspace（コード・メッセージの上では tab）の並びと配置
-type Layout =
-  | { type: "terminal"; id: string }
-  | { type: "split"; id: string; direction: "row" | "column"; ratio: number; children: [Layout, Layout] };
-type Tab = { id: string; name: string; layout: Layout };
+// サーバーから届く、タブの並び
+export type Tab = { id: string; name: string };
 type Member = { id: number; name: string; color: string; terminal?: string };
 
 export type SidebarState = {
   tabs: Tab[];
-  active: string;
+  // 自分が表示している（並べている）タブ
+  shown: string[];
+  // 並べられるタブの数
+  maxShown: number;
   titles: Record<string, string>;
   statuses: Record<string, AgentStatus>;
   members: Member[];
@@ -20,12 +21,12 @@ export type SidebarState = {
 };
 
 export type SidebarActions = {
-  // keepFocus はキーボードで選んだとき。続けてセッションを選べるよう、キー入力の先をサイドメニューに残す
-  selectWorkspace: (id: string, keepFocus: boolean) => void;
-  newWorkspace: () => void;
-  closeWorkspace: (id: string) => void;
-  // そのターミナルの Workspace に切り替えて、そのターミナルにフォーカスする
-  focusTerminal: (id: string) => void;
+  // そのタブだけを表示して、そのターミナルにフォーカスする
+  selectTab: (id: string) => void;
+  // 並べているタブに加える・外す
+  toggleTab: (id: string) => void;
+  newTab: () => void;
+  closeTab: (id: string) => void;
   // サイドメニューから、表示中のターミナルにキー入力の先を戻す
   returnFocus: () => void;
 };
@@ -37,10 +38,11 @@ const storageKey = "accompany.sidebar";
 export class Sidebar {
   // ツールバーに置く、出す・隠すのボタン
   readonly toggleButton = document.createElement("button");
-  private workspaces = document.createElement("div");
-  private sessions = document.createElement("section");
+  // ツールバーに置く、タブの一覧。サイドメニューを隠している間だけ出す
+  readonly strip = document.createElement("div");
+  private stripTabs = document.createElement("div");
+  private list = document.createElement("div");
   private summary = document.createElement("span");
-  private groups = document.createElement("div");
   private state: SidebarState | undefined;
 
   constructor(
@@ -56,28 +58,24 @@ export class Sidebar {
     this.toggleButton.title = withKeys("サイドメニューを出す・隠す");
     this.toggleButton.addEventListener("click", () => this.toggle());
 
-    const workspaceHeader = header("Workspace");
-    const add = document.createElement("button");
-    add.type = "button";
-    add.textContent = "+";
-    add.setAttribute("aria-label", "新しい Workspace");
-    add.title = withKeys("新しい Workspace");
-    add.addEventListener("click", () => actions.newWorkspace());
-    workspaceHeader.append(add);
-    this.workspaces.className = "sidebar-workspaces";
-    this.workspaces.setAttribute("role", "tablist");
-    this.workspaces.setAttribute("aria-orientation", "vertical");
-    this.workspaces.setAttribute("aria-label", "Workspace");
-
-    this.sessions.className = "sidebar-sessions";
-    this.sessions.setAttribute("aria-label", "セッション");
-    const sessionHeader = header("セッション");
+    const tabHeader = header("タブ");
     this.summary.className = "sidebar-summary";
-    sessionHeader.append(this.summary);
-    this.sessions.append(sessionHeader, this.groups);
-
-    element.append(workspaceHeader, this.workspaces, this.sessions);
+    tabHeader.append(this.summary, newTabButton(actions));
+    this.list.className = "sidebar-tabs";
+    this.list.setAttribute("role", "tablist");
+    this.list.setAttribute("aria-orientation", "vertical");
+    this.list.setAttribute("aria-multiselectable", "true");
+    this.list.setAttribute("aria-label", "タブ");
+    element.append(tabHeader, this.list);
     element.addEventListener("keydown", (event) => this.onKeyDown(event));
+
+    this.strip.className = "toolbar-tabs";
+    this.stripTabs.className = "toolbar-tab-list";
+    this.stripTabs.setAttribute("role", "tablist");
+    this.stripTabs.setAttribute("aria-multiselectable", "true");
+    this.stripTabs.setAttribute("aria-label", "タブ");
+    this.strip.append(this.stripTabs, newTabButton(actions));
+
     this.setVisible(loadVisible());
   }
 
@@ -93,14 +91,14 @@ export class Sidebar {
     if (!this.visible && hadFocus) this.actions.returnFocus();
   }
 
-  // サイドメニューへ移る。隠していれば出す。自分がフォーカスしているターミナルの行、なければ最初の行に移る
+  // サイドメニューへ移る。隠していれば出す。自分がフォーカスしているターミナルのタブ、なければ最初のタブに移る
   focus() {
     if (!this.visible) {
       this.setVisible(true);
       saveVisible(true);
     }
     const mine = this.state?.members.find((m) => m.id === this.state?.you)?.terminal;
-    const rows = this.groups.querySelectorAll<HTMLButtonElement>("button[data-terminal]");
+    const rows = this.list.querySelectorAll<HTMLButtonElement>("button[data-terminal]");
     ([...rows].find((row) => row.dataset.terminal === mine) ?? rows[0])?.focus();
   }
 
@@ -108,119 +106,129 @@ export class Sidebar {
     this.state = state;
     // 組み直すとキー入力の先の行がなくなるので、どの行だったかを覚えておき、あとで戻す
     const active = document.activeElement;
-    const focused = active instanceof HTMLElement && this.element.contains(active) ? active.dataset.key : undefined;
-    this.renderWorkspaces(state);
-    this.renderSessions(state);
-    if (focused) this.element.querySelector<HTMLElement>(`[data-key="${focused}"]`)?.focus();
+    const focused =
+      active instanceof HTMLElement && (this.element.contains(active) || this.strip.contains(active))
+        ? active.dataset.key
+        : undefined;
+    this.renderList(state);
+    this.renderStrip(state);
+    if (focused) {
+      const scope = this.visible ? this.element : this.strip;
+      scope.querySelector<HTMLElement>(`[data-key="${focused}"]`)?.focus();
+    }
   }
 
   private setVisible(visible: boolean) {
     this.element.hidden = !visible;
+    this.strip.hidden = visible;
     this.toggleButton.setAttribute("aria-expanded", String(visible));
   }
 
-  private renderWorkspaces({ tabs, active, statuses }: SidebarState) {
-    this.workspaces.replaceChildren(
+  private renderList(state: SidebarState) {
+    const { tabs, shown, maxShown, titles, statuses, members, you } = state;
+    this.summary.replaceChildren(counts(tabs.flatMap((tab) => (statuses[tab.id] ? [statuses[tab.id]!] : []))));
+    this.list.replaceChildren(
       ...tabs.map((tab) => {
+        const { id } = tab;
         const row = document.createElement("div");
-        row.className = "workspace-row";
-        const select = document.createElement("button");
-        select.type = "button";
-        select.className = "workspace-select";
-        select.textContent = tab.name;
-        select.dataset.key = `workspace-${tab.id}`;
+        row.className = "tab-row";
+        const select = this.tabButton(tab, state);
         select.dataset.nav = "";
-        select.setAttribute("role", "tab");
-        select.setAttribute("aria-selected", String(tab.id === active));
-        // マウスで選んだときは表示したターミナルに、キーボード（click の detail が 0）で選んだときはサイドメニューに残る
-        select.addEventListener("click", (event) => this.actions.selectWorkspace(tab.id, event.detail === 0));
-        const close = document.createElement("button");
-        close.type = "button";
-        close.className = "workspace-close";
-        close.textContent = "×";
-        close.dataset.key = `close-${tab.id}`;
-        close.setAttribute("aria-label", `${tab.name} を閉じる`);
-        close.title = `${tab.name} を閉じる`;
-        // 最後の Workspace は閉じられない
+        const status = statuses[id];
+        const line = document.createElement("span");
+        line.className = "session-line";
+        if (status) {
+          const badge = document.createElement("span");
+          badge.className = "session-status";
+          badge.dataset.status = status;
+          badge.textContent = statusLabels[status];
+          badge.title = statusDescriptions[status];
+          line.append(badge);
+        }
+        const label = document.createElement("span");
+        label.className = "session-name";
+        label.textContent = tab.name;
+        line.append(label);
+        select.append(line);
+        const title = titles[id];
+        if (title) {
+          const program = document.createElement("span");
+          program.className = "session-title";
+          program.textContent = title;
+          select.title = title;
+          select.append(program);
+        }
+        const viewers = members.filter((m) => m.terminal === id);
+        if (viewers.some((m) => m.id === you)) select.dataset.focused = "true";
+        if (viewers.length > 0) {
+          const list = document.createElement("span");
+          list.className = "session-viewers";
+          list.append(
+            ...viewers.map((m) => {
+              const viewer = document.createElement("span");
+              viewer.className = "viewer";
+              viewer.textContent = m.id === you ? "あなた" : m.name;
+              viewer.style.setProperty("--viewer-color", m.color);
+              return viewer;
+            }),
+          );
+          select.append(list);
+        }
+
+        // 並べて表示する・やめる。表示しているタブが 1 つのときは外せず、並べられる数まで並べているときは加えられない
+        const isShown = shown.includes(id);
+        const toggle = smallButton("⊞", `${tab.name} を並べて表示`, `toggle-${id}`, () => this.actions.toggleTab(id));
+        toggle.className = "tab-toggle";
+        toggle.setAttribute("aria-pressed", String(isShown));
+        toggle.disabled = isShown ? shown.length === 1 : shown.length >= maxShown;
+        toggle.title = isShown
+          ? "並べるのをやめる"
+          : shown.length >= maxShown
+            ? `並べられるのは ${maxShown} つまで`
+            : "並べて表示（⌘ / Ctrl を押しながらタブを選んでも並べられる）";
+
+        // 最後のタブは閉じられない
+        const close = smallButton("×", `${tab.name} を閉じる`, `close-${id}`, () => this.actions.closeTab(id));
+        close.className = "tab-close";
         close.disabled = tabs.length === 1;
-        close.addEventListener("click", () => this.actions.closeWorkspace(tab.id));
-        row.append(select, counts(agentStatuses(terminalIds(tab.layout), statuses)), close);
+        row.append(select, toggle, close);
         return row;
       }),
     );
   }
 
-  private renderSessions({ tabs, active, titles, statuses, members, you }: SidebarState) {
-    const all = agentStatuses(tabs.flatMap((tab) => terminalIds(tab.layout)), statuses);
-    this.summary.replaceChildren(counts(all));
-    this.groups.replaceChildren(
-      ...tabs.map((tab) => {
-        const group = document.createElement("div");
-        group.className = "session-group";
-        group.setAttribute("role", "group");
-        group.setAttribute("aria-label", tab.name);
-        if (tab.id === active) group.dataset.active = "true";
-        const name = document.createElement("div");
-        name.className = "session-group-name";
-        name.textContent = tab.name;
-        group.append(name);
-        for (const id of terminalIds(tab.layout)) {
-          const status = statuses[id];
-          const row = document.createElement("button");
-          row.type = "button";
-          row.className = "session";
-          row.dataset.key = `terminal-${id}`;
-          row.dataset.terminal = id;
-          row.dataset.nav = "";
-          row.setAttribute("aria-label", `ターミナル ${id}`);
-          const viewers = members.filter((m) => m.terminal === id);
-          if (viewers.some((m) => m.id === you)) row.dataset.focused = "true";
-          const line = document.createElement("span");
-          line.className = "session-line";
-          if (status) {
-            const badge = document.createElement("span");
-            badge.className = "session-status";
-            badge.dataset.status = status;
-            badge.textContent = statusLabels[status];
-            badge.title = statusDescriptions[status];
-            line.append(badge);
-          }
-          const label = document.createElement("span");
-          label.className = "session-name";
-          label.textContent = `ターミナル ${id}`;
-          line.append(label);
-          row.append(line);
-          const title = titles[id];
-          if (title) {
-            const program = document.createElement("span");
-            program.className = "session-title";
-            program.textContent = title;
-            row.title = title;
-            row.append(program);
-          }
-          if (viewers.length > 0) {
-            const list = document.createElement("span");
-            list.className = "session-viewers";
-            list.append(
-              ...viewers.map((m) => {
-                const viewer = document.createElement("span");
-                viewer.className = "viewer";
-                viewer.textContent = m.id === you ? "あなた" : m.name;
-                viewer.style.setProperty("--viewer-color", m.color);
-                return viewer;
-              }),
-            );
-            row.append(list);
-          }
-          row.addEventListener("click", () => this.actions.focusTerminal(id));
-          group.append(row);
-        }
-        return group;
+  // ツールバーのタブ。名前と状態だけを出す
+  private renderStrip(state: SidebarState) {
+    this.stripTabs.replaceChildren(
+      ...state.tabs.map((tab) => {
+        const select = this.tabButton(tab, state);
+        select.className = "toolbar-tab";
+        const status = state.statuses[tab.id];
+        if (status) select.dataset.status = status;
+        select.textContent = tab.name;
+        select.title = [state.titles[tab.id], status && statusLabels[status]].filter(Boolean).join(" ・ ");
+        return select;
       }),
     );
   }
 
-  // ↑↓ で Workspace とセッションの行を順に移る。Esc でターミナルに戻る。
+  // タブを選ぶボタン。押すとそのタブだけを表示し、⌘ / Ctrl を押しながら押すと、並べているタブに加える・外す
+  private tabButton(tab: Tab, { shown }: SidebarState) {
+    const select = document.createElement("button");
+    select.type = "button";
+    select.className = "session";
+    select.dataset.key = `tab-${tab.id}`;
+    select.dataset.terminal = tab.id;
+    select.setAttribute("role", "tab");
+    select.setAttribute("aria-label", tab.name);
+    select.setAttribute("aria-selected", String(shown.includes(tab.id)));
+    select.addEventListener("click", (event) =>
+      event.metaKey || event.ctrlKey ? this.actions.toggleTab(tab.id) : this.actions.selectTab(tab.id),
+    );
+    return select;
+  }
+
+  // ↑↓ でタブを順に移る。Esc でターミナルに戻る。
   // サイドメニューの中でも、出す・隠す（隠してターミナルに戻る）と、サイドメニューへ移る（ターミナルに戻る）のショートカットは効く
   private onKeyDown(event: KeyboardEvent) {
     const shortcut = shortcutFor(event);
@@ -254,9 +262,26 @@ function header(text: string) {
   return element;
 }
 
-// エージェントが動いているターミナルの状態だけを取り出す
-function agentStatuses(ids: string[], statuses: Record<string, AgentStatus>) {
-  return ids.flatMap((id) => (statuses[id] ? [statuses[id]] : []));
+function smallButton(text: string, label: string, key: string, onClick: () => void) {
+  const element = document.createElement("button");
+  element.type = "button";
+  element.textContent = text;
+  element.title = label;
+  element.dataset.key = key;
+  element.setAttribute("aria-label", label);
+  element.addEventListener("click", onClick);
+  return element;
+}
+
+function newTabButton(actions: SidebarActions) {
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "new-tab";
+  add.textContent = "+";
+  add.setAttribute("aria-label", "新しいタブ");
+  add.title = withKeys("新しいタブ");
+  add.addEventListener("click", () => actions.newTab());
+  return add;
 }
 
 // 状態ごとの件数（例: 作業中 1・未確認 1・指示待ち 2）。0 件の状態は出さない
@@ -274,10 +299,6 @@ function counts(statuses: AgentStatus[]) {
     element.append(item);
   }
   return element;
-}
-
-function terminalIds(node: Layout): string[] {
-  return node.type === "terminal" ? [node.id] : node.children.flatMap(terminalIds);
 }
 
 // 自分で切り替えたことがあれば、それに従う。なければ、ウィンドウが狭いとき（分割したターミナルのバーが収まらなくなる）を除いて出す

@@ -6,20 +6,24 @@ import { notifyDone, requestPermissionOnFirstInteraction } from "./notify";
 import { Pane, type AgentStatus, type SelectionRange, type Viewer } from "./pane";
 import { QuickCommands } from "./quick-commands";
 import { shortcutList, type Direction, type Shortcut } from "./shortcuts";
-import { Sidebar } from "./sidebar";
+import { Sidebar, type Tab } from "./sidebar";
 
+// 自分の表示。並べているタブ（ターミナル 1 つが 1 つのタブ）を葉に持つ分割の木。どのタブをどう並べるかは参加者ごとで、
+// サーバーが持って本人に配る（docs/adr/100-terminal-tabs.md）
 type Layout =
   | { type: "terminal"; id: string }
   | { type: "split"; id: string; direction: "row" | "column"; ratio: number; children: [Layout, Layout] };
 
-type Tab = { id: string; name: string; layout: Layout };
-type Tabs = { tabs: Tab[]; active: string };
+// 並べられるタブの数（サーバーと同じ）
+const maxPanes = 3;
 
 const root = document.getElementById("workspace")!;
 const tabBar = document.getElementById("tabs")!;
 const panes = new Map<string, Pane>();
-// 最後に届いたタブ（画面の表記は Workspace）の並びと表示中のタブ。次／前のタブへの切り替えや、通知をクリックしたときにそのターミナルのタブを探すのに使う
-let current: Tabs | undefined;
+// 最後に届いたタブの並び。次／前のタブへの切り替えに使う
+let tabs: Tab[] = [];
+// 最後に届いた自分の表示
+let view: Layout | undefined;
 // 自分がフォーカスしているターミナル
 let focusedTerminal: string | undefined;
 
@@ -122,27 +126,47 @@ socket.addEventListener("open", () => {
 document.addEventListener("visibilitychange", sendVisibility);
 // よく使うコマンドの一覧と、その登録・編集・削除の画面
 const quickCommands = new QuickCommands(send);
-// サイドメニュー（Workspace とセッションの一覧）。キーボードで Workspace を選んだときは、組み立て直してもサイドメニューに残る
-let keepSidebarFocus = false;
+// サイドメニュー（タブの一覧）
 const sidebar = new Sidebar(document.getElementById("sidebar")!, {
-  selectWorkspace: (tab, keepFocus) => {
-    keepSidebarFocus = keepFocus && tab !== current?.active;
-    send({ type: "select-tab", tab });
+  selectTab: (id) => selectTab(id),
+  toggleTab: (id) => toggleTab(id),
+  newTab: () => {
+    stopFollowing();
+    send({ type: "new-tab" });
   },
-  newWorkspace: () => send({ type: "new-tab" }),
-  closeWorkspace: (tab) => send({ type: "close-tab", tab }),
-  focusTerminal: (id) => focusTerminal(id),
+  closeTab: (id) => send({ type: "close", terminal: id }),
   returnFocus: () => {
     const mine = members.find((m) => m.id === you)?.terminal;
     ((mine && panes.get(mine)) || panes.values().next().value)?.focus();
   },
 });
 
-// タブの並びと表示中のタブ、分割の配置は参加者全員で共有する。サーバーから届くたびに組み直す。
+// ツールバー。サイドメニューの出す・隠す、サイドメニューを隠している間のタブの一覧、ペアプロモードの表示、参加者の一覧、
+// ショートカットの一覧と表示の設定のボタンを置く
+{
+  const help = button("キーボードショートカット", "⌨", () => {});
+  help.popoverTargetElement = shortcuts;
+  const appearanceButton = button("表示の設定", "⚙", () => {});
+  appearanceButton.popoverTargetElement = settings;
+  const spacer = document.createElement("span");
+  spacer.className = "toolbar-spacer";
+  tabBar.append(
+    sidebar.toggleButton,
+    sidebar.strip,
+    followIndicator,
+    followedIndicator,
+    spacer,
+    memberList,
+    help,
+    appearanceButton,
+  );
+}
+
+// 自分の表示は、サーバーから届くたびに組み直す。
 // ただし境界をドラッグしている間は、組み直すとドラッグ中の境界がなくなるので、手を離すまで待つ
 let dragging = false;
-let deferredTabs: Tabs | undefined;
-// タブを切り替えたあと、組み立て直したらフォーカスするターミナル
+let deferredView: Layout | undefined;
+// タブを選んだあと、組み立て直したらフォーカスするターミナル
 let pendingFocus: string | undefined;
 socket.onmessage = (event) => {
   const message = JSON.parse(event.data);
@@ -170,40 +194,21 @@ socket.onmessage = (event) => {
     minWindow.set({ width: message.width, height: message.height });
     panes.forEach((pane) => pane.refit());
   } else if (message.type === "tabs") {
-    if (dragging) deferredTabs = message;
-    else renderTabs(message);
+    tabs = message.tabs;
+    panes.forEach((pane) => pane.setClosable(tabs.length > 1));
+  } else if (message.type === "view") {
+    if (dragging) deferredView = message.layout;
+    else renderView(message.layout);
   }
-  if (current) sidebar.update({ ...current, titles, statuses, members, you });
+  if (view) sidebar.update({ tabs, shown: terminalIds(view), maxShown: maxPanes, titles, statuses, members, you });
 };
 
-// 表示中のタブの配置だけを組み立てる。ほかのタブのターミナルは接続を切り、戻ったときにサーバーから画面を復元する
-function renderTabs({ tabs, active }: Tabs) {
-  current = { tabs, active };
-  // Workspace の一覧・追加・閉じるはサイドメニューにある。サイドメニューを隠しているときも、表示中の Workspace が分かるように出す
-  const name = document.createElement("span");
-  name.className = "current-workspace";
-  name.textContent = tabs.find((t) => t.id === active)?.name ?? "";
-  const help = button("キーボードショートカット", "⌨", () => {});
-  help.popoverTargetElement = shortcuts;
-  const appearanceButton = button("表示の設定", "⚙", () => {});
-  appearanceButton.popoverTargetElement = settings;
-  const spacer = document.createElement("span");
-  spacer.className = "toolbar-spacer";
-  tabBar.replaceChildren(
-    sidebar.toggleButton,
-    name,
-    followIndicator,
-    followedIndicator,
-    spacer,
-    memberList,
-    help,
-    appearanceButton,
-  );
-
-  const layout = tabs.find((t) => t.id === active)?.layout;
-  // 通知のクリックで切り替えを頼んだあと、ほかの人が別のタブに切り替えたときは、フォーカスする予定を取り消す
-  if (pendingFocus && !(layout && terminalIds(layout).includes(pendingFocus))) pendingFocus = undefined;
-  if (layout) render(layout);
+// 自分の表示に並べているタブだけを組み立てる。ほかのタブのターミナルは接続を切り、戻ったときにサーバーから画面を復元する
+function renderView(layout: Layout) {
+  view = layout;
+  // タブを選んだあと、届いた表示にそのタブがなければ（そのタブが閉じられたなど）、フォーカスする予定を取り消す
+  if (pendingFocus && !terminalIds(layout).includes(pendingFocus)) pendingFocus = undefined;
+  render(layout);
 }
 
 function button(label: string, text: string, onClick: () => void, title = label) {
@@ -234,7 +239,11 @@ function render(layout: Layout) {
   // 分割の子だったときの割合が残らないよう、一番外側は画面いっぱいに広げる
   element.style.flex = "1 1 0";
   root.replaceChildren(element);
-  panes.forEach((pane) => pane.setClosable(ids.size > 1));
+  // 最後のタブは閉じられない。並べられる数まで並べていれば、分割できない
+  panes.forEach((pane) => {
+    pane.setClosable(tabs.length > 1);
+    pane.setSplittable(ids.size < maxPanes, maxPanes);
+  });
   showViewers();
   showSelections();
   showTitles();
@@ -242,19 +251,18 @@ function render(layout: Layout) {
   if (pendingFocus && panes.has(pendingFocus)) {
     focusPane(pendingFocus);
     pendingFocus = undefined;
-  } else if (isFirstRender && !keepSidebarFocus) panes.values().next().value?.focus();
+  } else if (isFirstRender) panes.values().next().value?.focus();
   else if (lostFocus) nearestPane(lostFocus)?.focus();
   else if (active instanceof HTMLElement && active !== document.activeElement && root.contains(active)) active.focus();
-  keepSidebarFocus = false;
-  // 追従している相手のフォーカス先が、配置より先に届いていたとき
+  // 追従している相手のフォーカス先が、表示より先に届いていたとき
   followFocus();
   followScroll();
   finishLoadingIfReady();
 }
 
-// Workspace の配置が届き、表示中のターミナルすべての最初の画面を書き終えたら、読み込み中の表示を消す
+// 自分の表示が届き、表示中のターミナルすべての最初の画面を書き終えたら、読み込み中の表示を消す
 function finishLoadingIfReady() {
-  if (current && [...panes.values()].every((pane) => pane.loaded)) finishLoading();
+  if (view && [...panes.values()].every((pane) => pane.loaded)) finishLoading();
 }
 
 function build(node: Layout): HTMLElement {
@@ -273,7 +281,7 @@ function paneFor(id: string) {
   let pane = panes.get(id);
   if (!pane) {
     pane = new Pane(id, {
-      split: (direction) => send({ type: "split", terminal: id, direction }),
+      split: (direction) => splitPane(id, direction),
       close: () => send({ type: "close", terminal: id }),
       focused: () => {
         focusedTerminal = id;
@@ -305,7 +313,8 @@ function paneFor(id: string) {
   return pane;
 }
 
-// 境界をドラッグして割合を変える。手元ではすぐに反映し、サーバー経由で全員に配る
+// 境界をドラッグして割合を変える。手元ではすぐに反映し、サーバーに伝える（自分の表示と、自分に追従している人の表示に効く）。
+// 自分で表示を変えるので、ペアプロモードはやめる
 function divider(split: HTMLElement, node: Extract<Layout, { type: "split" }>, first: HTMLElement, second: HTMLElement) {
   const element = document.createElement("div");
   element.className = "divider";
@@ -314,6 +323,7 @@ function divider(split: HTMLElement, node: Extract<Layout, { type: "split" }>, f
   element.addEventListener("pointerdown", (down) => {
     down.preventDefault();
     element.setPointerCapture(down.pointerId);
+    stopFollowing();
     dragging = true;
     const move = (event: PointerEvent) => {
       const rect = split.getBoundingClientRect();
@@ -330,8 +340,8 @@ function divider(split: HTMLElement, node: Extract<Layout, { type: "split" }>, f
       element.removeEventListener("pointermove", move);
       element.removeEventListener("pointerup", up);
       dragging = false;
-      if (deferredTabs) renderTabs(deferredTabs);
-      deferredTabs = undefined;
+      if (deferredView) renderView(deferredView);
+      deferredView = undefined;
     };
     element.addEventListener("pointermove", move);
     element.addEventListener("pointerup", up);
@@ -343,7 +353,7 @@ function divider(split: HTMLElement, node: Extract<Layout, { type: "split" }>, f
 function runShortcut(terminal: string, shortcut: Shortcut) {
   switch (shortcut.type) {
     case "split":
-      return send({ type: "split", terminal, direction: shortcut.direction });
+      return splitPane(terminal, shortcut.direction);
     case "close":
       return send({ type: "close", terminal });
     case "move-focus": {
@@ -356,21 +366,49 @@ function runShortcut(terminal: string, shortcut: Shortcut) {
     }
     case "new-tab":
       // 新しいタブは、キー入力の先のターミナルのカレントディレクトリで始める（docs/adr/109-inherit-cwd.md）
+      stopFollowing();
       return send({ type: "new-tab", terminal });
     case "next-tab":
     case "previous-tab": {
-      if (!current) return;
-      const { tabs, active } = current;
+      if (tabs.length === 0) return;
       const step = shortcut.type === "next-tab" ? 1 : -1;
-      // 端では反対側に回る
-      const index = (tabs.findIndex((t) => t.id === active) + step + tabs.length) % tabs.length;
-      return send({ type: "select-tab", tab: tabs[index]!.id });
+      // キー入力の先のタブの次・前のタブだけを表示する。端では反対側に回る
+      const index = (tabs.findIndex((t) => t.id === terminal) + step + tabs.length) % tabs.length;
+      return selectTab(tabs[index]!.id);
     }
     case "toggle-sidebar":
       return sidebar.toggle();
     case "focus-sidebar":
       return sidebar.focus();
   }
+}
+
+// 新しいタブを開いて、そのターミナルの右・下に並べる。並べられる数まで並べていれば何もしない。
+// 自分で表示を変えるので、ペアプロモードはやめる
+function splitPane(terminal: string, direction: "row" | "column") {
+  if (!view || terminalIds(view).length >= maxPanes) return;
+  stopFollowing();
+  send({ type: "split", terminal, direction });
+}
+
+// そのタブだけを表示して、そのターミナルにフォーカスする。自分で表示を変えるので、ペアプロモードはやめる
+function selectTab(id: string) {
+  stopFollowing();
+  if (view?.type === "terminal" && view.id === id) return focusPane(id);
+  pendingFocus = id;
+  send({ type: "select-tab", tab: id });
+}
+
+// 並べているタブに加える（フォーカスしているターミナルの右に並べ、そこにフォーカスする）・外す。
+// 表示しているタブが 1 つのときは外さず、並べられる数まで並べていれば加えない
+function toggleTab(id: string) {
+  if (!view) return;
+  const shown = terminalIds(view);
+  if (shown.includes(id) ? shown.length === 1 : shown.length >= maxPanes) return;
+  stopFollowing();
+  if (shown.includes(id)) return send({ type: "remove-from-view", tab: id });
+  pendingFocus = id;
+  send({ type: "add-to-view", tab: id, terminal: focusedTerminal });
 }
 
 // キー入力の先をそのターミナルに移す
@@ -446,7 +484,7 @@ function showStatuses() {
 }
 
 // 作業中から指示待ち（見ている人がいなければ未確認）に変わったターミナルを、見ていなければ通知する。
-// 見ている = ページが見えていて、そのターミナルが表示中のタブにあり、自分がそのターミナルにフォーカスしている
+// 見ている = ページが見えていて、そのターミナルが自分の表示にあり、自分がそのターミナルにフォーカスしている
 function notifyFinished(previous: Record<string, AgentStatus>, next: Record<string, AgentStatus>) {
   const focused = members.find((m) => m.id === you)?.terminal;
   for (const [id, status] of Object.entries(next)) {
@@ -456,15 +494,11 @@ function notifyFinished(previous: Record<string, AgentStatus>, next: Record<stri
   }
 }
 
-// ほかのタブのターミナルなら、そのタブに切り替えてからフォーカスする
+// 並べているターミナルならそこにフォーカスし、表示していないタブなら、そのタブだけを表示してフォーカスする
 function focusTerminal(id: string) {
   stopFollowing();
-  const pane = panes.get(id);
-  if (pane) return focusPane(id);
-  const tab = current?.tabs.find((t) => terminalIds(t.layout).includes(id));
-  if (!tab) return;
-  pendingFocus = id;
-  send({ type: "select-tab", tab: tab.id });
+  if (panes.has(id)) return focusPane(id);
+  if (tabs.some((t) => t.id === id)) selectTab(id);
 }
 
 // ペアプロモードを始める。相手がいまフォーカスしているターミナルとスクロール位置に、すぐ自分も合わせる
@@ -557,8 +591,9 @@ function showMemberList() {
 }
 
 // 自分のフォーカスが、追従している相手のフォーカス先のターミナルになければ移す。移したことは、ふだんどおり
-// focus としてサーバーに伝わる。相手のフォーカス先が表示中のタブにないとき（タブの切り替えと行き違ったときなど）は、
-// 配置が届いて組み立てたときに移す。タブの切り替えは全員で共有しているので、ペアプロモードのためには切り替えない。
+// focus としてサーバーに伝わる。ペアプロモードの間は、サーバーが相手の表示（タブの選び方と並べ方）を自分の表示に写すので、
+// 相手のフォーカス先がまだ自分の表示にないとき（表示より先にフォーカス先が届いたときなど）は、表示が届いて組み立てたときに移す
+// （docs/adr/100-terminal-tabs.md）。
 // サイドメニュー・ツールバーや設定の画面など、配置の外を操作しているときは、フォーカスを持っていかない（force は始めたとき）
 function followFocus(force = false) {
   const target = members.find((m) => m.id === following)?.terminal;

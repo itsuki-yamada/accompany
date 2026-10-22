@@ -82,6 +82,9 @@ export class Pane {
   readonly element = document.createElement("section");
   private bar = document.createElement("div");
   private closeButton: HTMLButtonElement;
+  private splitButtons: HTMLButtonElement[];
+  // 新しいタブを開いて並べられるか（並べられる数まで並べていれば、分割できない）
+  private splittable = true;
   private viewers = document.createElement("span");
   private viewersKey = "";
   private program = document.createElement("span");
@@ -177,8 +180,10 @@ export class Pane {
       this.viewers,
       button("コマンド", "❯", (event) => this.openCommands(event.currentTarget as HTMLElement, actions)),
       button("検索", "⌕", () => this.search.open()),
-      button("右に分割", "⇥", () => actions.split("row"), withKeys("右に分割")),
-      button("下に分割", "⤓", () => actions.split("column"), withKeys("下に分割")),
+      ...(this.splitButtons = [
+        button("右に分割", "⇥", () => actions.split("row"), withKeys("右に分割")),
+        button("下に分割", "⤓", () => actions.split("column"), withKeys("下に分割")),
+      ]),
       (this.closeButton = button("閉じる", "×", actions.close, withKeys("ターミナルを閉じる", "閉じる"))),
     );
     const container = this.container;
@@ -414,6 +419,18 @@ export class Pane {
     this.closeButton.disabled = !closable;
   }
 
+  // 分割（新しいタブを開いて並べる）できるか。並べられる数まで並べているときは、ボタンとメニューを押せなくする
+  setSplittable(splittable: boolean, max: number) {
+    this.splittable = splittable;
+    for (const [element, label] of [
+      [this.splitButtons[0]!, "右に分割"],
+      [this.splitButtons[1]!, "下に分割"],
+    ] as const) {
+      element.disabled = !splittable;
+      element.title = splittable ? withKeys(label) : `並べられるのは ${max} つまで`;
+    }
+  }
+
   focus() {
     this.terminal.focus();
   }
@@ -468,8 +485,8 @@ export class Pane {
         // 参加者全員の画面とサーバー側の画面をリセットする（docs/adr/33-context-menu.md）
         { label: "ターミナルのリセット", action: () => this.socket.send(JSON.stringify({ type: "reset" })) },
         "separator",
-        { label: "右に分割", action: () => actions.split("row") },
-        { label: "下に分割", action: () => actions.split("column") },
+        { label: "右に分割", disabled: !this.splittable, action: () => actions.split("row") },
+        { label: "下に分割", disabled: !this.splittable, action: () => actions.split("column") },
       ],
       () => this.terminal.focus(),
     );

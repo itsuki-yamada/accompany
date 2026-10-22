@@ -9,7 +9,7 @@ body {
   font-family: system-ui, sans-serif;
 }
 
-/* 上にツールバー、その下の左にサイドメニュー、残りを表示中の Workspace の配置で埋める。
+/* 上にツールバー、その下の左にサイドメニュー、残りを自分の表示（並べているタブ）で埋める。
    サイドメニューを隠すと（hidden）、その列は幅 0 になる */
 body {
   display: grid;
@@ -57,12 +57,54 @@ body {
   cursor: default;
 }
 
-.current-workspace {
+/* サイドメニューを隠している間に、ツールバーに並べるタブ（docs/adr/100-terminal-tabs.md）。多いときは横にスクロールする */
+.toolbar-tabs {
   display: flex;
-  align-items: center;
-  padding: 0 8px;
-  color: #fff;
+  align-items: stretch;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.toolbar-tabs[hidden] {
+  display: none;
+}
+
+.toolbar-tab-list {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+#tabs .toolbar-tab {
+  padding: 0 10px;
+  color: #999;
   white-space: nowrap;
+  border-bottom: 2px solid transparent;
+}
+
+#tabs .toolbar-tab:hover {
+  background: #222;
+}
+
+#tabs .toolbar-tab[aria-selected="true"] {
+  color: #fff;
+  background: #1f1f1f;
+  border-bottom-color: #4fc3f7;
+}
+
+#tabs .toolbar-tab[data-status="working"] {
+  box-shadow: inset 0 2px 0 #ffd54f;
+}
+
+#tabs .toolbar-tab[data-status="done"] {
+  box-shadow: inset 0 2px 0 #64ffda;
+}
+
+#tabs .toolbar-tabs .new-tab {
+  padding: 0 10px;
+  font-size: 14px;
 }
 
 .toolbar-spacer {
@@ -777,7 +819,7 @@ body[data-pair-mode="following"] .pane-bar {
   font: inherit;
 }
 
-/* サイドメニュー。上に Workspace の一覧、下にセッション（ターミナル）の一覧 */
+/* サイドメニュー。タブ（ターミナル 1 つが 1 つのタブ）の一覧 */
 #sidebar {
   display: flex;
   flex-direction: column;
@@ -819,7 +861,7 @@ body[data-pair-mode="following"] .pane-bar {
   color: #888;
 }
 
-/* セッションの見出しの件数（作業中・未確認・指示待ち）は、幅に収まらなければ折り返す */
+/* 見出しの件数（作業中・未確認・指示待ち）は、幅に収まらなければ折り返す */
 .sidebar-summary {
   min-width: 0;
 }
@@ -844,26 +886,35 @@ body[data-pair-mode="following"] .pane-bar {
   font-size: 14px;
 }
 
-.workspace-row {
+/* タブの行。タブ（状態・名前・タイトル・フォーカスしている参加者）、並べて表示、閉じるのボタンを並べる。
+   表示している（並べている）タブは、左の線と背景で示す */
+.tab-row {
   display: flex;
-  align-items: center;
-  gap: 4px;
+  align-items: flex-start;
+  gap: 2px;
   padding: 0 4px 0 0;
 }
 
-.workspace-row:has([aria-selected="true"]) {
+.tab-row:has([role="tab"][aria-selected="true"]) {
   background: #1f1f1f;
   color: #fff;
   box-shadow: inset 2px 0 0 #4fc3f7;
 }
 
-#sidebar .workspace-select {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 4px 0 4px 10px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+#sidebar .tab-toggle,
+#sidebar .tab-close {
+  flex: 0 0 auto;
+  padding: 4px 4px;
+  color: #777;
+}
+
+#sidebar .tab-toggle[aria-pressed="true"] {
+  color: #4fc3f7;
+}
+
+#sidebar .tab-toggle:hover:not(:disabled),
+#sidebar .tab-close:hover:not(:disabled) {
+  color: #fff;
 }
 
 .status-counts {
@@ -887,35 +938,16 @@ body[data-pair-mode="following"] .pane-bar {
   border-color: #ffd54f;
 }
 
-.sidebar-sessions {
-  margin-top: 8px;
-  border-top: 1px solid #333;
-}
-
-.session-group {
-  padding-bottom: 4px;
-}
-
-.session-group-name {
-  padding: 4px 10px 2px;
-  color: #777;
-  font-size: 11px;
-}
-
-.session-group[data-active="true"] .session-group-name {
-  color: #ccc;
-}
-
 #sidebar .session {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 2px;
-  width: 100%;
-  padding: 4px 8px 4px 16px;
+  min-width: 0;
+  padding: 4px 4px 4px 10px;
 }
 
-#sidebar .session:hover,
-#sidebar .workspace-select:hover {
+#sidebar .session:hover {
   background: #222;
 }
 
@@ -972,7 +1004,7 @@ body[data-pair-mode="following"] .pane-bar {
   border-top: 1px solid #444;
 }
 
-/* 開いてから使えるようになるまでの読み込み中の表示。HTML に最初から置き、Workspace と表示中のターミナルの最初の画面が
+/* 開いてから使えるようになるまでの読み込み中の表示。HTML に最初から置き、自分の表示と、表示中のターミナルの最初の画面が
    届いたら消す（docs/adr/111-loading.md）。画面全体を覆い、組み立て途中の画面を見せない */
 #loading {
   position: fixed;

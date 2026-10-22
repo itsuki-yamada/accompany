@@ -11,7 +11,7 @@
     <nav id="tabs" aria-label="ツールバー"></nav>
     <aside id="sidebar"></aside>
     <main id="workspace"></main>
-    <!-- 画面の JS を読み込む前から出しておき、Workspace の配置と表示中のターミナルの最初の画面が届いたら消す（docs/adr/111-loading.md） -->
+    <!-- 画面の JS を読み込む前から出しておき、自分の表示（並べているタブ）と、表示中のターミナルの最初の画面が届いたら消す（docs/adr/111-loading.md） -->
     <div id="loading" role="status" aria-label="読み込み中"><span class="loading-spinner" aria-hidden="true"></span>読み込み中…</div>
     <script type="module" src="./index.ts"></script>
   </body>

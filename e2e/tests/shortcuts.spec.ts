@@ -173,6 +173,7 @@ test("並べているときに次・前のタブへ移ると、キー入力の�
   await page.keyboard.press("Control+Shift+O");
   await expectPaneToShow(page, 3, "Fake Shell ready");
   await tab(page, 1).click();
+  await expectFocusOn(page, 1);
   await page.keyboard.press("Control+Shift+R");
   await expectPaneToShow(page, 4, "Fake Shell ready");
   await focusPane(page, 4);
@@ -212,9 +213,9 @@ test("キーを押し続けても、分割・閉じる・新しいタブは 1 �
   await expect(panes(page)).toHaveCount(2);
 
   await hold("KeyO");
-  await expect(sidebarTabs(page)).toHaveText([/ターミナル 1/, /ターミナル 2/]);
+  await expect(sidebarTabs(page)).toHaveText([/ターミナル 2/, /ターミナル 3/, /ターミナル 4/]);
   await page.waitForTimeout(500);
-  await expect(page.getByRole("tab")).toHaveCount(2);
+  await expect(sidebarTabs(page)).toHaveCount(3);
 });
 
 test("Latin 以外の配列でも、キーの位置（event.code）でショートカットが効く", async ({ browser }) => {

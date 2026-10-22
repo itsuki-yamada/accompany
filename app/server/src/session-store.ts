@@ -5,23 +5,21 @@ import { dirname, isAbsolute, join } from "node:path";
 import { parseMinWindow, type WindowSize } from "./min-window";
 import { parseQuickCommand, type QuickCommand } from "./quick-commands";
 import { clampSize, type Size } from "./terminal";
-import type { Layout } from "./workspace";
 
-// 再起動しても戻す、画面の配置とターミナルごとのスクロールバック、よく使うコマンド（docs/adr/34-session-restore.md）、
-// 端末の大きさの下限（docs/adr/99-smallest-size.md）
+// 再起動しても戻す、タブの並びとターミナルごとのスクロールバック、よく使うコマンド（docs/adr/34-session-restore.md）、
+// 端末の大きさの下限（docs/adr/99-smallest-size.md）。参加者ごとの表示は保存しない（docs/adr/100-terminal-tabs.md）
 export type SavedTerminal = Size & {
   // サーバー側の画面を書き出したもの（xterm の SerializeAddon）
   scrollback: string;
   // 起動時のコマンドを動かしていたターミナルか
   initial: boolean;
 };
-export type SavedTab = { id: string; layout: Layout };
 export type SavedSession = {
-  version: 1;
+  version: 2;
   // どのディレクトリで起動した Accompany のものか（人が保存ファイルを見たときのため）
   cwd: string;
-  tabs: SavedTab[];
-  active: string;
+  // タブ（ターミナルの ID）の並び
+  tabs: string[];
   terminals: Record<string, SavedTerminal>;
   commands: QuickCommand[];
   // 下限を保存する前の版のファイルにはない
@@ -89,23 +87,17 @@ export class SessionStore {
   }
 }
 
-// 保存ファイルは本人が書いたものだが、壊れていたり古い形式だったりするかもしれないので、形を確かめてから使う
+// 保存ファイルは本人が書いたものだが、壊れていたり古い形式だったりするかもしれないので、形を確かめてから使う。
+// 前の形式（version 1。Workspace ごとの分割の配置）は、Workspace の順・配置の順にターミナルを並べてタブとして戻し、
+// 分割の配置と表示中の Workspace は捨てる（docs/adr/100-terminal-tabs.md）
 export function parseSavedSession(data: unknown): SavedSession | undefined {
-  if (!isObject(data) || data.version !== 1 || !Array.isArray(data.tabs) || data.tabs.length === 0) return;
-  // ターミナルと分割の節の ID。どちらもすべてのタブを通して 1 つずつ
-  const seen = new Set<string>();
-  const tabs: SavedTab[] = [];
-  for (const tab of data.tabs) {
-    if (!isObject(tab) || !isNumericId(tab.id) || tabs.some((t) => t.id === tab.id)) return;
-    const layout = parseLayout(tab.layout, seen, 0);
-    if (!layout) return;
-    tabs.push({ id: tab.id, layout });
-  }
-  const active = tabs.some((t) => t.id === data.active) ? String(data.active) : tabs[0]!.id;
+  if (!isObject(data) || !Array.isArray(data.tabs) || data.tabs.length === 0) return;
+  const tabs = data.version === 2 ? parseTabs(data.tabs) : data.version === 1 ? parseWorkspaces(data.tabs) : undefined;
+  if (!tabs) return;
 
   const savedTerminals = isObject(data.terminals) ? data.terminals : {};
   const terminals: Record<string, SavedTerminal> = {};
-  for (const id of [...seen].filter(isNumericId)) {
+  for (const id of tabs) {
     const t = savedTerminals[id];
     terminals[id] = {
       ...(isObject(t) && isSize(t) ? clampSize({ cols: t.cols, rows: t.rows }) : { cols: 80, rows: 24 }),
@@ -121,32 +113,43 @@ export function parseSavedSession(data: unknown): SavedSession | undefined {
   }
 
   const minWindow = parseMinWindow(data.minWindow);
-  return { version: 1, cwd: String(data.cwd ?? ""), tabs, active, terminals, commands, ...(minWindow && { minWindow }) };
+  return { version: 2, cwd: String(data.cwd ?? ""), tabs, terminals, commands, ...(minWindow && { minWindow }) };
 }
 
-function parseLayout(node: unknown, seen: Set<string>, depth: number): Layout | undefined {
-  if (!isObject(node) || depth > 100) return;
-  if (node.type === "terminal") {
-    if (!isNumericId(node.id) || seen.has(node.id)) return;
-    seen.add(node.id);
-    return { type: "terminal", id: node.id };
+// タブの並び。ターミナルの ID が重なっていないこと
+function parseTabs(ids: unknown[]): string[] | undefined {
+  const tabs: string[] = [];
+  for (const id of ids) {
+    if (!isNumericId(id) || tabs.includes(id)) return;
+    tabs.push(id);
   }
-  if (node.type !== "split" || typeof node.id !== "string" || !/^split-[1-9]\d{0,8}$/.test(node.id)) return;
-  if (seen.has(node.id)) return;
+  return tabs;
+}
+
+// 前の形式の Workspace（{ id, layout }）の並びから、ターミナルを配置の順に取り出す。
+// ターミナルと分割の節の ID は、どちらもすべての Workspace を通して 1 つずつ
+function parseWorkspaces(workspaces: unknown[]): string[] | undefined {
+  const seen = new Set<string>();
+  const tabs: string[] = [];
+  for (const workspace of workspaces) {
+    if (!isObject(workspace) || !walkLayout(workspace.layout, seen, tabs, 0)) return;
+  }
+  return tabs;
+}
+
+function walkLayout(node: unknown, seen: Set<string>, tabs: string[], depth: number): boolean {
+  if (!isObject(node) || depth > 100) return false;
+  if (node.type === "terminal") {
+    if (!isNumericId(node.id) || seen.has(node.id)) return false;
+    seen.add(node.id);
+    tabs.push(node.id);
+    return true;
+  }
+  if (node.type !== "split" || typeof node.id !== "string" || !/^split-[1-9]\d{0,8}$/.test(node.id)) return false;
+  if (seen.has(node.id)) return false;
   seen.add(node.id);
-  if (node.direction !== "row" && node.direction !== "column") return;
-  if (!Array.isArray(node.children) || node.children.length !== 2) return;
-  const first = parseLayout(node.children[0], seen, depth + 1);
-  const second = first && parseLayout(node.children[1], seen, depth + 1);
-  if (!second) return;
-  const ratio = typeof node.ratio === "number" && Number.isFinite(node.ratio) ? node.ratio : 0.5;
-  return {
-    type: "split",
-    id: node.id,
-    direction: node.direction,
-    ratio: Math.min(0.9, Math.max(0.1, ratio)),
-    children: [first!, second],
-  };
+  if (!Array.isArray(node.children) || node.children.length !== 2) return false;
+  return node.children.every((child) => walkLayout(child, seen, tabs, depth + 1));
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
