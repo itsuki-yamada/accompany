@@ -37,6 +37,21 @@ Live Share の共有ターミナルで Claude Code などの TUI のエージェ
 
 [Release](https://github.com/itsuki-yamada/accompany/releases) に、正式版（Latest）と、main の最新のコミットから作った先行版（edge）を置いている。
 
+### Homebrew で入れる（macOS・Linux）
+
+このリポジトリを tap して入れる。正式版の実行ファイルが入る（Bun は要らない）。
+
+```sh
+brew tap itsuki-yamada/accompany https://github.com/itsuki-yamada/accompany
+brew install itsuki-yamada/accompany/accompany
+accompany
+```
+
+- 最初の `brew install` は、`itsuki-yamada/accompany/accompany` のように tap の名前を付けて入れる。Homebrew は、名前を付けて指定した formula だけを信頼して読み込む（`brew install accompany` だけでは、信頼していない tap として断られる）
+- 新しい版に上げるときは `brew upgrade accompany`。正式版を出してから formula が新しい版になるまで、少し遅れることがある
+- 起動のしかた（`--port` など）は、下の実行ファイルと同じ
+- やめるときは `brew uninstall accompany` と `brew untap itsuki-yamada/accompany`
+
 ### 実行ファイルで起動する（Bun は要らない）
 
 自分の OS と CPU のものを 1 つ選ぶ。`uname -sm` の結果で選べる。
@@ -58,7 +73,7 @@ chmod +x accompany-*-darwin-arm64
 ./accompany-0.6.0-darwin-arm64
 ```
 
-表示された URL（`http://127.0.0.1:3000`）をブラウザで開く。起動のしかたは次のとおり（tarball から起動するときも同じ）。
+表示された URL（`http://127.0.0.1:3000`）をブラウザで開く。起動のしかたは次のとおり（Homebrew で入れた `accompany` や、tarball から起動するときも同じ）。
 
 ```sh
 ./accompany-0.6.0-darwin-arm64                 # 最初のターミナルで $SHELL を動かす

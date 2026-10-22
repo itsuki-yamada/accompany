@@ -1,0 +1,42 @@
+name: Homebrew formula
+
+# Homebrew の formula を変えたプルリクで、4 つの OS と CPU それぞれで、formula から Release の実行ファイルを入れて
+# 起動できることを確かめる（docs/adr/131-homebrew.md）。formula は Release の実行ファイルを入れるだけで、
+# アプリのコードは e2e.yml が確かめるので、formula と確かめる手順を変えたときだけ流す
+on:
+  pull_request:
+    paths:
+      - Formula/**
+      - .github/scripts/check-formula.sh
+      - .github/scripts/update-formula.sh
+      - .github/workflows/formula.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: formula (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # 1 つが落ちても、ほかの OS と CPU の結果を残す
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-arm64
+            runner: macos-latest
+          - platform: darwin-x64
+            runner: macos-15-intel
+          - platform: linux-x64
+            runner: ubuntu-latest
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Homebrew にはリリースのタグがないので、main のコミットで固定する
+      - uses: Homebrew/actions/setup-homebrew@0fdc2c96a16d9f945f7e1577784302fd27a549a9 # main (2026-10-21)
+
+      - name: formula で入れて、起動できることを確かめる
+        run: .github/scripts/check-formula.sh
