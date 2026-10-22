@@ -373,11 +373,11 @@ test("Workspace の切り替えより先に相手のフォーカス先が届い�
   await expect(followIndicator(page)).toContainText("参加者 1 の画面に追従中");
 });
 
-test("自分の画面で拡大していても、相手が隠れているターミナルへ移るとそこへ移り、枠に収まらなければそのターミナルを拡大する", async ({
+test("自分の枠に端末が収まらなくても、相手がほかのターミナルへ移ると、拡大せずに分割したままそこへ移る", async ({
   browser,
 }) => {
   // 端末の大きさは、host の枠に入る範囲で下限（幅 480 のウィンドウに収まる列数）まで広げるので、画面の小さい guest では
-  // 分割した枠に収まらず、フォーカスしているターミナルを拡大する（docs/adr/68-zoom.md、docs/adr/99-smallest-size.md）
+  // 分割した枠に収まらない。それでも拡大しない（docs/adr/99-smallest-size.md、docs/adr/126-no-zoom.md）
   accompany = await startAccompany([], fakeShell, { minWindow: "480x0" });
   const host = await openAsParticipant(browser, accompany.url);
   await pane(host, 1).getByRole("button", { name: "右に分割" }).click();
@@ -387,20 +387,15 @@ test("自分の画面で拡大していても、相手が隠れているター�
   const guest = await context.newPage();
   await guest.goto(accompany.url);
   await expectPaneToShow(guest, 1, "Fake Shell ready");
-  await expect(pane(guest, 1).getByText("拡大中")).toBeVisible();
 
   await followButton(guest, 1, "参加者 1").click();
   await expectFocusedOn(guest, 1);
 
   await clickPane(host, 2);
   await expectFocusedOn(guest, 2);
-  await expect(pane(guest, 2).getByText("拡大中")).toBeVisible();
-  await expect(guest.locator('.pane[aria-label="ターミナル 1"]')).toBeHidden();
   await expect(followIndicator(guest)).toContainText("参加者 1 の画面に追従中");
-
-  // 拡大は追従されている側には反映しない
-  await expect(pane(host, 1)).toBeVisible();
-  await expect(pane(host, 2).getByText("拡大中")).toBeHidden();
+  for (const n of [1, 2]) await expect(pane(guest, n)).toBeVisible();
+  await expect(guest.getByText("拡大中")).toHaveCount(0);
 });
 
 // スクロールの追従。起動時のコマンド（command）の出力で、スクロールバックを作る。
