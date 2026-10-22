@@ -1,6 +1,6 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
-import { boxOf, expectPaneToShow, pane } from "./panes";
+import { addToView, boxOf, expectPaneToShow, pane } from "./panes";
 import { expectTerminalToShow, terminalScreen, typeInTerminal } from "./terminal";
 
 // 分割で増えるターミナルは $SHELL を起動するので、入力をそのまま返す偽のシェルにする
@@ -293,6 +293,7 @@ test("メニューを開いている間に、ほかの参加者がそのター�
   await expectTerminalToShow(host, "Fake Shell ready");
   await pane(host, 1).getByRole("button", { name: "右に分割" }).click();
   await expectPaneToShow(host, 2, "Fake Shell ready");
+  await addToView(guest, 2);
   await expectPaneToShow(guest, 2, "Fake Shell ready");
   await openMenu(host, 2);
 

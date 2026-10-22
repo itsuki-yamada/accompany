@@ -1,6 +1,6 @@
 import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
 import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
-import { expectPaneToShow, pane, typeInPane } from "./panes";
+import { expectPaneToShow, pane, tab, typeInPane } from "./panes";
 
 const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
 
@@ -194,15 +194,15 @@ test("選択した人が抜けると、その人の選択範囲は消える", as
   await expect(remoteSelection(guest)).toHaveCount(0);
 });
 
-test("Workspace を切り替えてターミナルを抜けると、選択範囲は消え、戻っても出ない", async ({ browser }) => {
+test("タブを切り替えてターミナルを抜けると、選択範囲は消え、戻っても出ない", async ({ browser }) => {
   const { host, guest } = await startSession(browser);
   await selectText(host, "Fake Shell ready", "Shell ready");
   await expect(remoteSelection(guest)).not.toHaveCount(0);
 
-  await host.getByRole("button", { name: "新しい Workspace" }).click();
-  await expectPaneToShow(guest, 2, "Fake Shell ready");
-  await guest.getByRole("tab", { name: "Workspace 1", exact: true }).click();
-  await expectPaneToShow(guest, 1, "Fake Shell ready");
+  await host.getByRole("button", { name: "新しいタブ" }).click();
+  await expectPaneToShow(host, 2, "Fake Shell ready");
+  await expect(remoteSelection(guest)).toHaveCount(0);
+  await tab(host, 1).click();
   await expectPaneToShow(host, 1, "Fake Shell ready");
 
   // 抜けたときに選択範囲がなくなっている（xterm の選択も消える）ので、戻っても出ない

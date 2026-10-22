@@ -85,10 +85,11 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
   app.use("/ws/*", sameOriginOnly);
   app.use("/api/*", sameOriginOnly);
 
-  // タブと分割の配置、参加者ごとの名前・フォーカス先と選択範囲・ペアプロモードで追従している相手・スクロール位置、
-  // よく使うコマンドの一覧を全員に配り、タブの追加・切り替え・閉じる、分割・閉じる・割合の変更・フォーカスの移動・選択範囲・
+  // タブの並び、参加者ごとの名前・フォーカス先と選択範囲・ペアプロモードで追従している相手・スクロール位置、
+  // よく使うコマンドの一覧を全員に、その参加者の表示（どのタブをどう並べているか）を本人に配る。
+  // 自分の表示の変更（新しいタブ・分割・タブを選ぶ・並べる・外す・割合の変更）、タブを閉じる、フォーカスの移動・選択範囲・
   // ページが見えているか、名前の変更、ペアプロモードの開始・終了とスクロール位置、よく使うコマンドの登録・編集・削除、
-  // 端末の大きさの下限の変更を受け付ける
+  // 端末の大きさの下限の変更を受け付ける（docs/adr/100-terminal-tabs.md）
   app.get(
     "/ws/workspace",
     upgradeWebSocket(() => {
@@ -99,18 +100,21 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
         },
         onMessage: (event) => {
           const message = parseJson(event.data);
+          const terminal = typeof message?.terminal === "string" ? message.terminal : undefined;
           if (message?.type === "split" && (message.direction === "row" || message.direction === "column")) {
-            void workspace.split(String(message.terminal), message.direction);
+            void member?.split(String(message.terminal), message.direction);
           } else if (message?.type === "close") {
             workspace.close(String(message.terminal));
           } else if (message?.type === "resize-split" && typeof message.ratio === "number") {
-            workspace.resizeSplit(String(message.split), message.ratio);
+            member?.resizeSplit(String(message.split), message.ratio);
           } else if (message?.type === "new-tab") {
-            void member?.newTab(typeof message.terminal === "string" ? message.terminal : undefined);
+            void member?.newTab(terminal);
           } else if (message?.type === "select-tab") {
-            workspace.selectTab(String(message.tab));
-          } else if (message?.type === "close-tab") {
-            workspace.closeTab(String(message.tab));
+            member?.selectTab(String(message.tab));
+          } else if (message?.type === "add-to-view") {
+            member?.addToView(String(message.tab), terminal);
+          } else if (message?.type === "remove-from-view") {
+            member?.removeFromView(String(message.tab));
           } else if (message?.type === "focus") {
             member?.focus(String(message.terminal));
           } else if (message?.type === "select") {
