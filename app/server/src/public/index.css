@@ -221,7 +221,11 @@ body {
   gap: 4px;
 }
 
+/* 参加者の名前。長い名前（docs/adr/96-member-name.md）でバーやツールバーが崩れないよう、幅を抑えて末尾を省く */
 .viewer {
+  max-width: 12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
   padding: 0 6px;
   white-space: nowrap;
   border-radius: 8px;
@@ -271,6 +275,28 @@ body {
 
 .pair-indicator {
   background: var(--pair-color);
+}
+
+/* 表示の中の名前と、ペアプロモードの表示そのものの幅を抑え、長い名前（docs/adr/96-member-name.md）でもツールバーからはみ出さない */
+.pair-indicator,
+.followed-indicator {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+}
+
+.pair-indicator > span:not(.pair-paused),
+.followed-indicator > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.member-name {
+  display: inline-block;
+  max-width: 10em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
 }
 
 .followed-indicator {
@@ -977,7 +1003,9 @@ body[data-pair-mode="following"] .pane-bar {
   gap: 4px;
 }
 
-/* 参加者全員に効く設定（端末の大きさの下限。docs/adr/99-smallest-size.md）。自分だけの設定と線で分ける */
+/* ほかの参加者にも見える・効く設定（自分の名前、端末の大きさの下限。docs/adr/96-member-name.md、docs/adr/99-smallest-size.md）。
+   自分だけの設定と線で分ける */
+.name-settings,
 .min-window-settings {
   max-width: 320px;
   margin-top: 12px;

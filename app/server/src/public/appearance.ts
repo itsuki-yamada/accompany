@@ -106,11 +106,11 @@ function validFontSize(value: unknown): value is number {
 }
 
 // 表示の設定。タブバーのボタンで開き、変えるとすぐに保存して onChange で反映する。
-// shared は、参加者全員に効く設定（端末の大きさの下限）の欄で、自分だけの設定のあとに置く
+// sections は、ほかの参加者にも見える・効く設定（自分の名前、端末の大きさの下限）の欄で、自分だけの設定のあとに置く
 export function appearanceSettings(
   initial: Appearance,
   onChange: (appearance: Appearance) => void,
-  shared?: HTMLElement,
+  sections: HTMLElement[] = [],
 ) {
   let appearance = initial;
   const update = (change: Partial<Appearance>) => {
@@ -161,7 +161,7 @@ export function appearanceSettings(
     field(`フォントの大きさ（${minFontSize}〜${maxFontSize}）`, fontSize, "フォントの大きさ"),
     field("端末が画面より大きいとき", overflow),
   );
-  if (shared) dialog.append(shared);
+  dialog.append(...sections);
   return dialog;
 }
 

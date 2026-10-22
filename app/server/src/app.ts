@@ -3,6 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { upgradeWebSocket } from "hono/bun";
 import type { WSContext } from "hono/ws";
 import { createMiddleware } from "hono/factory";
+import { sanitizeName } from "./member-name";
 import { parseMinWindow } from "./min-window";
 import { parseQuickCommand } from "./quick-commands";
 import { scrollback } from "./scrollback";
@@ -84,9 +85,9 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
   app.use("/ws/*", sameOriginOnly);
   app.use("/api/*", sameOriginOnly);
 
-  // タブと分割の配置、参加者ごとのフォーカス先と選択範囲・ペアプロモードで追従している相手・スクロール位置、
+  // タブと分割の配置、参加者ごとの名前・フォーカス先と選択範囲・ペアプロモードで追従している相手・スクロール位置、
   // よく使うコマンドの一覧を全員に配り、タブの追加・切り替え・閉じる、分割・閉じる・割合の変更・フォーカスの移動・選択範囲・
-  // ページが見えているか、ペアプロモードの開始・終了とスクロール位置、よく使うコマンドの登録・編集・削除、
+  // ページが見えているか、名前の変更、ペアプロモードの開始・終了とスクロール位置、よく使うコマンドの登録・編集・削除、
   // 端末の大きさの下限の変更を受け付ける
   app.get(
     "/ws/workspace",
@@ -117,6 +118,9 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
             if (range !== undefined) member?.select(String(message.terminal), range ?? undefined);
           } else if (message?.type === "visibility") {
             member?.visible(message.visible === true);
+          } else if (message?.type === "name" && typeof message.name === "string") {
+            // 全員に配るので、サーバーで整える。空なら「参加者 N」に戻す
+            member?.rename(sanitizeName(message.name));
           } else if (message?.type === "follow") {
             // 参加者の番号でないもの（null など）は、ペアプロモードをやめたものとする
             member?.follow(Number.isSafeInteger(message.member) ? message.member : undefined);

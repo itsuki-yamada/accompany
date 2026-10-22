@@ -1,5 +1,6 @@
 import type { AgentStatus } from "./activity";
 import { defaultMinWindow, type WindowSize } from "./min-window";
+import { nameKey } from "./member-name";
 import { maxQuickCommands, type QuickCommand, type QuickCommandInput } from "./quick-commands";
 import type { SavedSession, SavedTerminal } from "./session-store";
 import { type Restored, TerminalSession } from "./terminal";
@@ -14,7 +15,8 @@ export type Layout =
 export type Position = { x: number; y: number };
 export type SelectionRange = { start: Position; end: Position };
 
-// 参加者。認証がまだないので、接続順に「参加者 N」と呼び、色を割り当てる。
+// 参加者。認証がまだないので、接続順に番号を振り、色を割り当てる。name は画面に出す名前で、参加者が設定した名前、
+// 設定していなければ「参加者 N」。ほかの参加者と同じ名前なら「名前（参加者 N）」にする（docs/adr/96-member-name.md）。
 // selections は、ターミナルごとの、その参加者が選択している範囲（docs/adr/94-remote-selection.md）。
 // following はペアプロモードで追従している参加者、scroll はフォーカス先のターミナルのスクロール位置
 // （一番下から何行戻しているか）。scroll は追従されているあいだだけ届く（docs/adr/93-pair-mode.md）
@@ -53,6 +55,8 @@ const colors = ["#4fc3f7", "#ffb74d", "#81c784", "#f06292", "#ba68c8", "#fff176"
 export class Workspace {
   private terminals = new Map<string, TerminalSession>();
   private members = new Map<Listener, Member>();
+  // 参加者が設定した名前（整えたもの）。設定していない参加者は含めない
+  private chosenNames = new Map<Member, string>();
   // ページが見えている参加者。フォーカス先と合わせて、未確認を消すか決める（docs/adr/74-unseen-done.md）
   private visibleMembers = new Set<Member>();
   private nextMemberId = 1;
@@ -144,7 +148,7 @@ export class Workspace {
   // 参加者として加わる。返り値でフォーカス先を伝えたり、抜けたりする
   join(listener: Listener) {
     const id = this.nextMemberId++;
-    const member: Member = { id, name: `参加者 ${id}`, color: colors[(id - 1) % colors.length]!, selections: {} };
+    const member: Member = { id, name: defaultName(id), color: colors[(id - 1) % colors.length]!, selections: {} };
     this.members.set(listener, member);
     listener({ type: "welcome", you: id });
     listener(this.tabsEvent());
@@ -190,9 +194,17 @@ export class Workspace {
         member.scroll = { terminal: terminalId, offset };
         this.notifyPresence();
       },
+      // 名前を変える。name は整えたもので、undefined なら設定をやめて「参加者 N」に戻す
+      rename: (name: string | undefined) => {
+        if (this.chosenNames.get(member) === name) return;
+        if (name === undefined) this.chosenNames.delete(member);
+        else this.chosenNames.set(member, name);
+        this.notifyPresence();
+      },
       // 抜けた参加者に追従していた人は、ペアプロモードをやめたものとする
       leave: () => {
         this.members.delete(listener);
+        this.chosenNames.delete(member);
         this.visibleMembers.delete(member);
         this.members.forEach((m) => {
           if (m.following === member.id) m.following = undefined;
@@ -439,10 +451,27 @@ export class Workspace {
     if (target && !members.some((m) => m.following === memberId)) target.scroll = undefined;
   }
 
+  // 画面に出す名前を決め直す。同じ名前（既定の「参加者 N」も含む）の参加者が複数いれば、番号を添えて見分けられるようにする
+  private updateNames() {
+    const members = [...this.members.values()];
+    const chosen = (m: Member) => this.chosenNames.get(m) ?? defaultName(m.id);
+    const counts = new Map<string, number>();
+    for (const m of members) counts.set(nameKey(chosen(m)), (counts.get(nameKey(chosen(m))) ?? 0) + 1);
+    for (const m of members) {
+      const name = chosen(m);
+      m.name = counts.get(nameKey(name))! > 1 ? `${name}（${defaultName(m.id)}）` : name;
+    }
+  }
+
   private notifyPresence() {
+    this.updateNames();
     const members = [...this.members.values()];
     this.members.forEach((_, l) => l({ type: "presence", members }));
   }
+}
+
+function defaultName(id: number) {
+  return `参加者 ${id}`;
 }
 
 type Split = Extract<Layout, { type: "split" }>;

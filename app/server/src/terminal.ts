@@ -342,9 +342,13 @@ const maxTitleLength = 256;
 // C0・C1 の制御文字はサーバー側の端末が OSC を読むときに取り除くが、念のためここでも取り除く。
 // 双方向テキストの制御文字は表示を偽装できるので取り除き、改行にあたる文字は空白にする
 export function sanitizeTitle(title: string) {
-  const text = title
+  const chars = [...singleLine(title)];
+  return chars.length > maxTitleLength ? `${chars.slice(0, maxTitleLength - 1).join("")}…` : chars.join("");
+}
+
+// 改行にあたる文字を空白にし、制御文字と双方向テキストの制御文字を取り除く（参加者の名前にも使う）
+export function singleLine(text: string) {
+  return text
     .replace(/[\u2028\u2029\u0085]/g, " ")
     .replace(/[\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu, "");
-  const chars = [...text];
-  return chars.length > maxTitleLength ? `${chars.slice(0, maxTitleLength - 1).join("")}…` : text;
 }
