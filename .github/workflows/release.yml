@@ -83,7 +83,10 @@ jobs:
           .github/scripts/build-npm-packages.sh binaries "$RUNNER_TEMP/npm-packages"
           .github/scripts/check-npm.sh "$RUNNER_TEMP/npm-packages" "$RUNNER_TEMP/npm-install"
 
+      # 持ち主が npm 側の設定（最初の公開と Trusted Publishing）を終えて、リポジトリ変数 NPM_PUBLISH を true にするまでは、
+      # パッケージを作って確かめるだけにする（毎回の失敗で Release のワークフローが赤にならないように）
       - name: npm に公開する
+        if: vars.NPM_PUBLISH == 'true'
         env:
           DRY_RUN: "false"
         run: .github/scripts/publish-npm.sh "$RUNNER_TEMP/npm-packages"
