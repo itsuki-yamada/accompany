@@ -97,7 +97,10 @@ test("名前を設定すると、ほかの参加者のターミナルのバー�
   );
 
   // 選択範囲にも、選択している人の名前が付く
-  await pane(host, 1).locator(".xterm-rows > div").filter({ hasText: "Fake Shell ready" }).first().dblclick();
+  // 行の要素は端末の画面の層の下にあるので、位置を測ってダブルクリックし、先頭の語（Fake）を選択する
+  const line = pane(host, 1).locator(".xterm-rows > div").filter({ hasText: "Fake Shell ready" }).first();
+  const row = (await line.boundingBox())!;
+  await host.mouse.dblclick(row.x + 10, row.y + row.height / 2);
   await expect(pane(guest, 1).locator(".remote-selection").first()).toHaveAttribute("data-member", "やまだ");
 });
 
