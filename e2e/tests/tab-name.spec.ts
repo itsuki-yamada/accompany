@@ -2,7 +2,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { closeContexts, newContext, newStateDir, startAccompany, type Accompany } from "./accompany";
-import { expectPaneToShow, pane, tab } from "./panes";
+import { addToView, expectPaneToShow, pane, tab } from "./panes";
 
 // タブ（ターミナル）に付ける名前。全員で共有し、サーバーが持つ（docs/adr/110-tab-name.md）。
 // 新しいタブは、入力した行（「2;タイトル」）をタイトルに設定する偽のシェルにする
@@ -253,6 +253,7 @@ test("名前の制御文字・双方向テキストの制御文字・改行を�
   accompany = await start();
   const page = await openAsParticipant(browser, accompany.url);
   await openNewTab(page, 2);
+  await addToView(page, 1);
 
   await sendRaw(page, [{ type: "rename-tab", tab: "1", name: "‮ap\u0007p\nサーバー⁦" }]);
   await expect(barName(page, 1)).toHaveText("app サーバー");
