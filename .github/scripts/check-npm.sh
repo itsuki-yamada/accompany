@@ -26,8 +26,15 @@ set -m
 ACCOMPANY_STATE_DIR="$state/state" npx accompany --port "$port" > "$log" 2>&1 &
 pid=$!
 set +m
+# 途中で失敗したときも、Accompany を止めて終わるのを待ち（止まらなければ SIGKILL）、一時ディレクトリを消す
 stop() {
   kill -INT -- "-$pid" 2> /dev/null || true
+  for _ in $(seq 20); do
+    if ! kill -0 -- "-$pid" 2> /dev/null; then break; fi
+    sleep 0.5
+  done
+  kill -KILL -- "-$pid" 2> /dev/null || true
+  rm -rf "$state"
 }
 trap stop EXIT
 
@@ -59,6 +66,7 @@ done
 if kill -0 -- "-$pid" 2> /dev/null; then
   echo "::error::SIGINT を送っても、Accompany が止まらない"
   kill -KILL -- "-$pid" 2> /dev/null || true
+  rm -rf "$state"
   exit 1
 fi
 rm -rf "$state"

@@ -20,6 +20,11 @@ if (!supported.includes(platform)) {
   fail(`この OS と CPU（${platform}）には対応していません。対応しているのは ${supported.join("、")} です: ${releases}`);
 }
 
+// Linux 向けの実行ファイルは glibc の上で動く。glibc の版が分からなければ、musl（Alpine など）とみなす
+if (process.platform === "linux" && !process.report.getReport().header.glibcVersionRuntime) {
+  fail(`musl の Linux（Alpine など）には対応していません。glibc のディストリビューションで使ってください: ${releases}`);
+}
+
 const pkg = `@itsuki-yamada/accompany-${platform}`;
 let binary;
 try {

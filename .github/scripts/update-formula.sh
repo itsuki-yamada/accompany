@@ -7,6 +7,10 @@ set -euo pipefail
 
 version=${1:?使い方: update-formula.sh <版（例: 0.16.0）>}
 version=${version#v}
+if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "版は 0.16.0 のような形で指定する: $1" >&2
+  exit 1
+fi
 root=$(cd "$(dirname "$0")/../.." && pwd)
 formula="$root/Formula/accompany.rb"
 repo=${GH_REPO:-itsuki-yamada/accompany}
@@ -21,7 +25,7 @@ args=()
 for platform in "${platforms[@]}"; do
   name="accompany-$version-$platform"
   digest=$(awk -v name="$name" '$1 == name { print $2 }' <<< "$assets")
-  if [[ $digest != sha256:* ]]; then
+  if [[ ! $digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
     echo "v$version の Release に $name（と、その sha256）がない" >&2
     exit 1
   fi
