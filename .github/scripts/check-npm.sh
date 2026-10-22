@@ -46,9 +46,20 @@ kill -INT -- "-$pid"
 status=0
 wait "$pid" || status=$?
 trap - EXIT
-rm -rf "$state"
-if [ "$status" != 0 ]; then
-  echo "::error::Ctrl+C（SIGINT）で止めたときの終了コードが 0 でない: $status"
+# npx（npm）自身も SIGINT を受けて、版によっては 130（SIGINT で終わった）で終わる。どちらも Ctrl+C で止まったものとする
+if [ "$status" != 0 ] && [ "$status" != 130 ]; then
+  echo "::error::Ctrl+C（SIGINT）で止めたときの終了コードが 0 でも 130 でもない: $status"
   exit 1
 fi
-echo "npx で起動して画面が返り、SIGINT で止まった: $install_dir"
+# 実行ファイルが保存して終わるまで、プロセスグループ全体が終わるのを待つ
+for _ in $(seq 20); do
+  if ! kill -0 -- "-$pid" 2> /dev/null; then break; fi
+  sleep 0.5
+done
+if kill -0 -- "-$pid" 2> /dev/null; then
+  echo "::error::SIGINT を送っても、Accompany が止まらない"
+  kill -KILL -- "-$pid" 2> /dev/null || true
+  exit 1
+fi
+rm -rf "$state"
+echo "npx で起動して画面が返り、SIGINT で止まった（終了コード $status）: $install_dir"
