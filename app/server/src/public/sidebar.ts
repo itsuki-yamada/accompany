@@ -125,7 +125,7 @@ export class Sidebar {
   }
 
   private renderList(state: SidebarState) {
-    const { tabs, shown, maxShown, titles, statuses, members, you } = state;
+    const { tabs, titles, statuses, members, you } = state;
     this.summary.replaceChildren(counts(tabs.flatMap((tab) => (statuses[tab.id] ? [statuses[tab.id]!] : []))));
     this.list.replaceChildren(
       ...tabs.map((tab) => {
@@ -175,41 +175,47 @@ export class Sidebar {
           select.append(list);
         }
 
-        // 並べて表示する・やめる。表示しているタブが 1 つのときは外せず、並べられる数まで並べているときは加えられない
-        const isShown = shown.includes(id);
-        const toggle = smallButton("⊞", `${tab.name} を並べて表示`, `toggle-${id}`, () => this.actions.toggleTab(id));
-        toggle.className = "tab-toggle";
-        toggle.setAttribute("aria-pressed", String(isShown));
-        toggle.disabled = isShown ? shown.length === 1 : shown.length >= maxShown;
-        toggle.title = isShown
-          ? "並べるのをやめる"
-          : shown.length >= maxShown
-            ? `並べられるのは ${maxShown} つまで`
-            : "並べて表示（⌘ / Ctrl を押しながらタブを選んでも並べられる）";
-
-        // 最後のタブは閉じられない
-        const close = smallButton("×", `${tab.name} を閉じる`, `close-${id}`, () => this.actions.closeTab(id));
-        close.className = "tab-close";
-        close.disabled = tabs.length === 1;
-        row.append(select, toggle, close);
+        row.append(select, ...this.tabActions(tab, state));
         return row;
       }),
     );
   }
 
-  // ツールバーのタブ。名前と状態だけを出す
+  // ツールバーのタブ。名前と状態、並べて表示・閉じるのボタンを出す
   private renderStrip(state: SidebarState) {
     this.stripTabs.replaceChildren(
       ...state.tabs.map((tab) => {
+        const item = document.createElement("span");
+        item.className = "toolbar-tab-item";
         const select = this.tabButton(tab, state);
         select.className = "toolbar-tab";
         const status = state.statuses[tab.id];
-        if (status) select.dataset.status = status;
+        if (status) item.dataset.status = status;
         select.textContent = tab.name;
         select.title = [state.titles[tab.id], status && statusLabels[status]].filter(Boolean).join(" ・ ");
-        return select;
+        item.append(select, ...this.tabActions(tab, state));
+        return item;
       }),
     );
+  }
+
+  // タブの並べて表示・閉じるのボタン。並べて表示は、表示しているタブが 1 つのときは外せず、並べられる数まで並べているときは
+  // 加えられない。最後のタブは閉じられない
+  private tabActions({ id, name }: Tab, { tabs, shown, maxShown }: SidebarState) {
+    const isShown = shown.includes(id);
+    const toggle = smallButton("⊞", `${name} を並べて表示`, `toggle-${id}`, () => this.actions.toggleTab(id));
+    toggle.className = "tab-toggle";
+    toggle.setAttribute("aria-pressed", String(isShown));
+    toggle.disabled = isShown ? shown.length === 1 : shown.length >= maxShown;
+    toggle.title = isShown
+      ? "並べるのをやめる"
+      : shown.length >= maxShown
+        ? `並べられるのは ${maxShown} つまで`
+        : "並べて表示（⌘ / Ctrl を押しながらタブを選んでも並べられる）";
+    const close = smallButton("×", `${name} を閉じる`, `close-${id}`, () => this.actions.closeTab(id));
+    close.className = "tab-close";
+    close.disabled = tabs.length === 1;
+    return [toggle, close];
   }
 
   // タブを選ぶボタン。押すとそのタブだけを表示し、⌘ / Ctrl を押しながら押すと、並べているタブに加える・外す

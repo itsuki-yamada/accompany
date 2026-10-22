@@ -314,7 +314,7 @@ function paneFor(id: string) {
 }
 
 // 境界をドラッグして割合を変える。手元ではすぐに反映し、サーバーに伝える（自分の表示と、自分に追従している人の表示に効く）。
-// 自分で表示を変えるので、ペアプロモードはやめる
+// 実際に割合を変えたら、自分で表示を変えたので、ペアプロモードはやめる（押しただけではやめない）
 function divider(split: HTMLElement, node: Extract<Layout, { type: "split" }>, first: HTMLElement, second: HTMLElement) {
   const element = document.createElement("div");
   element.className = "divider";
@@ -323,15 +323,18 @@ function divider(split: HTMLElement, node: Extract<Layout, { type: "split" }>, f
   element.addEventListener("pointerdown", (down) => {
     down.preventDefault();
     element.setPointerCapture(down.pointerId);
-    stopFollowing();
     dragging = true;
+    let ratio = node.ratio;
     const move = (event: PointerEvent) => {
       const rect = split.getBoundingClientRect();
-      const ratio =
+      const moved =
         node.direction === "row"
           ? (event.clientX - rect.left) / rect.width
           : (event.clientY - rect.top) / rect.height;
-      const clamped = Math.min(0.9, Math.max(0.1, ratio));
+      const clamped = Math.min(0.9, Math.max(0.1, moved));
+      if (clamped === ratio) return;
+      ratio = clamped;
+      stopFollowing();
       first.style.flex = `${clamped} 1 0`;
       second.style.flex = `${1 - clamped} 1 0`;
       send({ type: "resize-split", split: node.id, ratio: clamped });

@@ -77,29 +77,49 @@ body {
   scrollbar-width: none;
 }
 
-#tabs .toolbar-tab {
-  padding: 0 10px;
+/* ツールバーのタブ。名前のボタンに、並べて表示・閉じるの小さなボタンを添える */
+.toolbar-tab-item {
+  display: flex;
+  align-items: stretch;
   color: #999;
-  white-space: nowrap;
   border-bottom: 2px solid transparent;
 }
 
-#tabs .toolbar-tab:hover {
+.toolbar-tab-item:hover {
   background: #222;
 }
 
-#tabs .toolbar-tab[aria-selected="true"] {
+.toolbar-tab-item:has([role="tab"][aria-selected="true"]) {
   color: #fff;
   background: #1f1f1f;
   border-bottom-color: #4fc3f7;
 }
 
-#tabs .toolbar-tab[data-status="working"] {
+.toolbar-tab-item[data-status="working"] {
   box-shadow: inset 0 2px 0 #ffd54f;
 }
 
-#tabs .toolbar-tab[data-status="done"] {
+.toolbar-tab-item[data-status="done"] {
   box-shadow: inset 0 2px 0 #64ffda;
+}
+
+#tabs .toolbar-tab {
+  padding: 0 4px 0 10px;
+  white-space: nowrap;
+}
+
+#tabs .tab-toggle,
+#tabs .tab-close {
+  padding: 0 3px;
+  color: #777;
+}
+
+#tabs .tab-toggle[aria-pressed="true"] {
+  color: #4fc3f7;
+}
+
+#tabs .tab-close {
+  padding-right: 8px;
 }
 
 #tabs .toolbar-tabs .new-tab {

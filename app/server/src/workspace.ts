@@ -352,7 +352,8 @@ export class Workspace {
     return view !== undefined && terminalIds(view).length < maxPanes;
   }
 
-  // added を、terminalId のターミナルの右・下に並べる。terminalId を表示していなければ、全体の右・下に並べる
+  // added を、terminalId のターミナルの右・下に並べる。terminalId を表示していなければ、全体の右・下に並べる。
+  // 同じ向きに並んだものは均等な大きさにする（左右に 3 つなら 3 等分。Chrome の画面分割と同じ）
   private placeBeside(view: Layout, added: Layout, terminalId: string | undefined, direction: "row" | "column") {
     const split = (target: Layout): Layout => ({
       type: "split",
@@ -361,8 +362,8 @@ export class Workspace {
       ratio: 0.5,
       children: [target, added],
     });
-    if (terminalId === undefined || !terminalIds(view).includes(terminalId)) return split(view);
-    return replaceLeaf(view, terminalId, split(leaf(terminalId)));
+    if (terminalId === undefined || !terminalIds(view).includes(terminalId)) return balance(split(view));
+    return balance(replaceLeaf(view, terminalId, split(leaf(terminalId))));
   }
 
   // 参加者が自分で表示を変える。change が undefined を返したら変えない。ペアプロモードで追従していればやめる
@@ -541,4 +542,18 @@ function withRatio(node: Layout, splitId: string, ratio: number): Layout {
   if (node.type === "terminal") return node;
   if (node.id === splitId) return { ...node, ratio };
   return mapChildren(node, (child) => withRatio(child, splitId, ratio));
+}
+
+// 同じ向きの分割が続くところ（左右に 3 つなど）は、並んでいるものが均等な大きさになるよう割合を決め直す
+function balance(node: Layout): Layout {
+  if (node.type === "terminal") return node;
+  const children = node.children.map(balance) as [Layout, Layout];
+  const [first, second] = children.map((child) => slots(child, node.direction));
+  return { ...node, ratio: first! / (first! + second!), children };
+}
+
+// その向きに並ぶものの数。同じ向きの分割は、中に並ぶものを数える
+function slots(node: Layout, direction: "row" | "column"): number {
+  if (node.type === "terminal" || node.direction !== direction) return 1;
+  return slots(node.children[0], direction) + slots(node.children[1], direction);
 }
