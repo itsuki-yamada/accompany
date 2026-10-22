@@ -14,9 +14,14 @@ if brew tap | grep -qx "$tap"; then
   exit 1
 fi
 
+# brew style は開発者のコマンドで、開発者モードを勝手に有効にする。元が無効なら、終わったあとに戻す
+developer_was_off=false
+if brew developer | grep -q "is disabled"; then developer_was_off=true; fi
+
 cleanup() {
   brew uninstall --formula "$formula" > /dev/null 2>&1 || true
   brew untap "$tap" > /dev/null 2>&1 || true
+  if [ "$developer_was_off" = true ]; then brew developer off > /dev/null; fi
 }
 trap cleanup EXIT
 
