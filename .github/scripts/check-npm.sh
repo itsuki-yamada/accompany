@@ -21,9 +21,9 @@ port=$(node -e 'const s = require("node:net").createServer().listen(0, "127.0.0.
 state=$(mktemp -d)
 log="$state/accompany.log"
 # 端末で起動したときと同じく、別のプロセスグループで起動し、Ctrl+C と同じくグループ全体に SIGINT を送る
-# （ジョブ制御がないと、バックグラウンドのコマンドは SIGINT を無視する）。--no: レジストリから取らず、入れたものだけを使う
+# （ジョブ制御がないと、バックグラウンドのコマンドは SIGINT を無視する）。入れたディレクトリで起動するので、入れたものを使う
 set -m
-ACCOMPANY_STATE_DIR="$state/state" npx --no accompany --port "$port" > "$log" 2>&1 &
+ACCOMPANY_STATE_DIR="$state/state" npx accompany --port "$port" > "$log" 2>&1 &
 pid=$!
 set +m
 stop() {

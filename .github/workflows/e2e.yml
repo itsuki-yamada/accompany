@@ -62,7 +62,7 @@ jobs:
           .github/scripts/build-binaries.sh "$dir/binaries"
           .github/scripts/build-npm-packages.sh "$dir/binaries" "$dir/packages"
           .github/scripts/check-npm.sh "$dir/packages" "$dir/install"
-          echo "ACCOMPANY_CMD=npx --prefix $dir/install --no accompany" >> "$GITHUB_ENV"
+          echo "ACCOMPANY_CMD=npx --prefix $dir/install accompany" >> "$GITHUB_ENV"
 
       - name: Playwright の Chromium を入れる
         working-directory: e2e
