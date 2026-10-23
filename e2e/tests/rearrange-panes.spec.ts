@@ -196,12 +196,13 @@ test("右クリックのメニューで、左右の並びを上下に、上下�
   await expectSideBySide(page, 1, 2);
   await expectFullHeight(page, 1);
 
-  // 1 つだけ表示しているときは、入れ替えも向きの変更もできない
+  // 1 つだけ表示しているときは、入れ替えも向きの変更もメニューに出さない（1 つのときのメニューはこれまでのまま）
   await tab(page, 1).click();
   await expect(panes(page)).toHaveCount(1);
   await openPaneMenu(page, 1);
-  for (const name of ["左右を入れ替える", "上下を入れ替える", "上下に並べる"]) {
-    await expect(menuItem(page, name)).toHaveAttribute("aria-disabled", "true");
+  await expect(menuItem(page, "右に分割")).toBeVisible();
+  for (const name of ["左右を入れ替える", "上下を入れ替える", "上下に並べる", "左右に並べる"]) {
+    await expect(menuItem(page, name)).toHaveCount(0);
   }
 });
 
