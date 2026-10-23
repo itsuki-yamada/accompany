@@ -5,7 +5,7 @@ import { TrimmedLines } from "../trimmed-lines";
 import { themeColors, type Appearance } from "./appearance";
 import { acceptFileDrop } from "./file-drop";
 import { isSearchKey, SearchBar } from "./search";
-import { showContextMenu } from "./context-menu";
+import { showContextMenu, type MenuItem } from "./context-menu";
 import type { WindowSize } from "./min-window";
 import { firstLine, type QuickCommand } from "./quick-commands";
 import { shortcutFor, withKeys, type Shortcut } from "./shortcuts";
@@ -15,6 +15,10 @@ const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 
 export type PaneActions = {
   split: (direction: "row" | "column") => void;
+  // ほかのターミナル（from）のバーをこのターミナルにドロップして、位置を入れ替える（docs/adr/163-rearrange-panes.md）
+  swap: (from: string) => void;
+  // 右クリックのメニューの、分割の項目の前に出す、並べ方を変える項目（入れ替え・向きの変更）。出さないときは空
+  arrangeItems: () => MenuItem[];
   close: () => void;
   // キー入力の先がこのターミナルに移ったとき
   focused: () => void;
@@ -82,6 +86,9 @@ type CellSize = { width: number; height: number };
 
 // 1 つのターミナルの表示。配置が変わっても同じ要素と接続を使い回す
 export class Pane {
+  // バーをドラッグしているターミナル。ドラッグを受け付けるのは、このページのターミナルのバーだけ
+  // （タブの並べ替えのドラッグや、ファイルのドロップとは別に扱う）
+  private static dragged: string | undefined;
   readonly element = document.createElement("section");
   private bar = document.createElement("div");
   // タブの名前（付けた名前、なければ「ターミナル N」）と、付けた名前
@@ -317,6 +324,7 @@ export class Pane {
     );
     // ドロップしたファイルのパスは、このターミナルの入力として貼り付ける
     acceptFileDrop(this.element, (text) => this.terminal.paste(text));
+    this.enableSwapDrag();
 
     // 右クリックでは Accompany のメニューを出す。TUI がマウスの報告モードを有効にしていても、
     // 右クリックはアプリに渡さない（xterm.js より先に受け取って止める）
@@ -399,11 +407,14 @@ export class Pane {
 
   // バーの名前の場所に、名前の入力欄を出す。Enter・Esc で閉じたら、ターミナルにキー入力の先を戻す
   rename() {
+    // 入力欄の中で文字を選ぶときに、バーのドラッグを始めない
+    this.bar.draggable = false;
     editTabName(this.title, {
       value: this.customName ?? "",
       placeholder: `ターミナル ${this.id}`,
       commit: (name) => this.actions.rename(name),
       finish: (keyboard) => {
+        this.bar.draggable = true;
         if (keyboard) this.terminal.focus();
       },
     });
@@ -519,11 +530,48 @@ export class Pane {
         // 参加者全員の画面とサーバー側の画面をリセットする（docs/adr/33-context-menu.md）
         { label: "ターミナルのリセット", action: () => this.socket.send(JSON.stringify({ type: "reset" })) },
         "separator",
+        ...actions.arrangeItems(),
         { label: "右に分割", disabled: !this.splittable, action: () => actions.split("row") },
         { label: "下に分割", disabled: !this.splittable, action: () => actions.split("column") },
       ],
       () => this.terminal.focus(),
     );
+  }
+
+  // バーをほかのターミナルへドラッグすると、位置を入れ替える。重ねている間は、入れ替える先に印を出す（data-swap-target）
+  private enableSwapDrag() {
+    const bar = this.bar;
+    bar.draggable = true;
+    bar.addEventListener("dragstart", (event) => {
+      // バーのボタン（ほかの参加者の名前など）から始めたドラッグも、バーのドラッグとして扱う
+      Pane.dragged = this.id;
+      event.dataTransfer!.effectAllowed = "move";
+      // 中身は使わないが、Firefox では何か入れないとドラッグが始まらない
+      event.dataTransfer!.setData("text/plain", "");
+      this.element.dataset.dragging = "true";
+    });
+    bar.addEventListener("dragend", () => {
+      Pane.dragged = undefined;
+      delete this.element.dataset.dragging;
+      for (const element of document.querySelectorAll<HTMLElement>("[data-swap-target]")) delete element.dataset.swapTarget;
+    });
+    const accepts = () => Pane.dragged !== undefined && Pane.dragged !== this.id;
+    this.element.addEventListener("dragover", (event) => {
+      if (!accepts()) return;
+      event.preventDefault();
+      event.dataTransfer!.dropEffect = "move";
+      this.element.dataset.swapTarget = "true";
+    });
+    this.element.addEventListener("dragleave", (event) => {
+      if (!this.element.contains(event.relatedTarget as Node | null)) delete this.element.dataset.swapTarget;
+    });
+    this.element.addEventListener("drop", (event) => {
+      const from = Pane.dragged;
+      if (from === undefined || !accepts()) return;
+      event.preventDefault();
+      delete this.element.dataset.swapTarget;
+      this.actions.swap(from);
+    });
   }
 
   // よく使うコマンドの一覧を、ボタンの下にメニューで出す

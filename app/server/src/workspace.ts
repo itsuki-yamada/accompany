@@ -213,6 +213,29 @@ export class Workspace {
           findSplit(view, splitId) ? withRatio(view, splitId, Math.min(0.9, Math.max(0.1, ratio))) : undefined,
         );
       },
+      // 並べている 2 つのタブの位置を入れ替える。どちらも自分の表示にあり、別のタブのときだけ（docs/adr/163-rearrange-panes.md）
+      swapPanes: (tabId: string, otherId: string) => {
+        this.changeView(member, (view) => {
+          const ids = terminalIds(view);
+          return tabId !== otherId && ids.includes(tabId) && ids.includes(otherId) ? swapLeaves(view, tabId, otherId) : undefined;
+        });
+      },
+      // 分割の 2 つの子（左右・上下）を入れ替える。大きさも一緒に動く
+      flipSplit: (splitId: string) => {
+        this.changeView(member, (view) =>
+          findSplit(view, splitId)
+            ? mapSplit(view, splitId, (s) => ({ ...s, ratio: 1 - s.ratio, children: [s.children[1], s.children[0]] }))
+            : undefined,
+        );
+      },
+      // 分割の向き（左右 ⇄ 上下）を変える。並び方が変わるので、割合は均等に戻す（同じ向きに並んだ 3 つは 3 等分）
+      rotateSplit: (splitId: string) => {
+        this.changeView(member, (view) =>
+          findSplit(view, splitId)
+            ? balance(mapSplit(view, splitId, (s) => ({ ...s, direction: s.direction === "row" ? "column" : "row" })))
+            : undefined,
+        );
+      },
       focus: (terminalId: string) => {
         member.terminal = terminalId;
         this.notifyPresence();
@@ -593,9 +616,20 @@ function removeLeaf(node: Layout, id: string): Layout | undefined {
 }
 
 function withRatio(node: Layout, splitId: string, ratio: number): Layout {
+  return mapSplit(node, splitId, (split) => ({ ...split, ratio }));
+}
+
+// splitId の節を change で作り直す
+function mapSplit(node: Layout, splitId: string, change: (split: Split) => Split): Layout {
   if (node.type === "terminal") return node;
-  if (node.id === splitId) return { ...node, ratio };
-  return mapChildren(node, (child) => withRatio(child, splitId, ratio));
+  if (node.id === splitId) return change(node);
+  return mapChildren(node, (child) => mapSplit(child, splitId, change));
+}
+
+// 2 つの葉の位置を入れ替える。節（向きと割合）はそのまま
+function swapLeaves(node: Layout, a: string, b: string): Layout {
+  if (node.type === "terminal") return node.id === a ? leaf(b) : node.id === b ? leaf(a) : node;
+  return mapChildren(node, (child) => swapLeaves(child, a, b));
 }
 
 // 同じ向きの分割が続くところ（左右に 3 つなど）は、並んでいるものが均等な大きさになるよう割合を決め直す

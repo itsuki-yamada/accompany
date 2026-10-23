@@ -507,6 +507,31 @@ body[data-pair-mode="following"] .pane-bar {
   background: rgb(240 98 146 / 15%);
 }
 
+/* ターミナルのバーをドラッグして、ほかのターミナルと位置を入れ替える（docs/adr/163-rearrange-panes.md）。
+   バーはつかんで動かせることが分かるようにし、重ねている先のターミナルには、入れ替える先であることを重ねて出す */
+.pane-bar {
+  cursor: grab;
+}
+
+.pane[data-dragging="true"] {
+  opacity: 0.5;
+}
+
+.pane[data-swap-target="true"]::after {
+  content: "ここと入れ替える";
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed #4fc3f7;
+  background: rgb(79 195 247 / 15%);
+  color: #fff;
+  font-size: 14px;
+  pointer-events: none;
+}
+
 /* ターミナルの右クリックメニュー。ターミナルに重ねるもの（検索バーなど）より手前に出す */
 .context-menu {
   position: fixed;
