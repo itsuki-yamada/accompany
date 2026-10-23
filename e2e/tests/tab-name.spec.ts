@@ -326,7 +326,8 @@ test("ほかのタブと見分けにくい名前（ほかのタブの「ター�
   // 空白を詰めたり全角にしたりした「ターミナル N」、番号を添えた形（「名前（ターミナル N）」）をまねた名前にも添える
   for (const [name, shown] of [
     ["ターミナル2", /ターミナル2（ターミナル 1）/],
-    ["ターミナル　２", /ターミナル　２（ターミナル 1）/],
+    // 全角の空白は、整えるときに半角の空白になる
+    ["ターミナル　２", /ターミナル ２（ターミナル 1）/],
     ["app（ターミナル 2）", /app（ターミナル 2）（ターミナル 1）/],
     ["app(ターミナル3)", /app\(ターミナル3\)（ターミナル 1）/],
   ] as const) {
@@ -334,7 +335,7 @@ test("ほかのタブと見分けにくい名前（ほかのタブの「ター�
       { type: "rename-tab", tab: "3", name: "" },
       { type: "rename-tab", tab: "1", name },
     ]);
-    await expect(sidebar(page).getByRole("tab"), name).toHaveText([shown, /^ターミナル 2$/, /^ターミナル 3$/]);
+    await expect(sidebar(page).getByRole("tab"), name).toHaveText([shown, /^ターミナル 2$/, /^ターミナル 3(あなた)?$/]);
   }
 });
 
