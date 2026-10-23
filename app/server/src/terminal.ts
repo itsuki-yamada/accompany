@@ -49,6 +49,9 @@ const detectDelayMs = 500;
 
 // 保存のためにカレントディレクトリを調べるのを待つ上限。止めるときの保存（最大 3 秒待つ）に収まるようにする
 const cwdLookupTimeoutMs = 1500;
+// Enter を押してからシェルが cd し終えるまでの間に調べると、前のディレクトリが返る。調べ始める前のこの時間までに入力があれば、
+// 調べ終えたあとも、調べ直すべきものとして残す
+const cwdSettleMs = 200;
 
 // 再起動の前のサーバー側の画面。大きさは、書き出したときの端末の大きさ
 export type Restored = Size & { scrollback: string };
@@ -87,9 +90,12 @@ export class TerminalSession {
   // 作業が終わってから、まだ誰も見ていない（docs/adr/74-unseen-done.md）。保存はしない
   private unseen = false;
   private startDir: string | undefined;
-  // 保存のために最後に調べたカレントディレクトリと、そのあとに入力があったか（docs/adr/151-restore-cwd.md）
+  // 保存のために最後に調べたカレントディレクトリ、調べ始めた時刻と、そのとき前面だったプロセスグループ。
+  // 最後に入力があった時刻と比べて、調べ直すか決める（docs/adr/151-restore-cwd.md）
   private lastCwd: string | undefined;
-  private inputSinceCwd = true;
+  private cwdCheckedAt = Number.NEGATIVE_INFINITY;
+  private cwdPgid: number | undefined;
+  private lastInputAt = Number.NEGATIVE_INFINITY;
 
   constructor(
     private command: string[],
@@ -226,18 +232,25 @@ export class TerminalSession {
   }
 
   // 保存するカレントディレクトリ。保存のたびに ps と lsof を動かさないよう、ふだんは前に調べてから入力があったときだけ調べ直す
-  // （cd は入力して動かすので）。止めるとき（refresh）は、入力がなくても前面のコマンドが終わっているかもしれないので必ず調べる。
+  // （cd は入力して動かすので）。ただし、前に調べたときと同じエージェントが前面にいる間は、入力（エージェントへの指示）があっても
+  // 調べ直さない。止めるとき（refresh）は、入力がなくても前面のコマンドが終わっているかもしれないので必ず調べる。
   // 調べるのは cwdLookupTimeoutMs までで、調べられなければ前に調べたものを使う。まだ起動していなければ、起動するディレクトリ
   async savedCwd({ refresh = false } = {}) {
-    if (this.proc === undefined || (!refresh && !this.inputSinceCwd)) return this.lastCwd;
-    this.inputSinceCwd = false;
+    if (this.proc === undefined) return this.lastCwd;
+    if (!refresh) {
+      const inputSinceCheck = this.lastInputAt >= this.cwdCheckedAt - cwdSettleMs;
+      const sameAgent = this.foreground?.agent === true && this.foreground.pgid === this.cwdPgid;
+      if (!inputSinceCheck || sameAgent) return this.lastCwd;
+    }
+    this.cwdCheckedAt = performance.now();
+    this.cwdPgid = this.foreground?.pgid;
     const found = await Promise.race([this.cwd(), Bun.sleep(cwdLookupTimeoutMs).then(() => undefined)]);
     if (found) this.lastCwd = found;
     return this.lastCwd;
   }
 
   write(data: string) {
-    this.inputSinceCwd = true;
+    this.lastInputAt = performance.now();
     this.activity.input(data);
     this.scheduleDetect();
     this.proc?.terminal?.write(data);
