@@ -423,17 +423,23 @@ export class Workspace {
     this.updateSeen();
   }
 
-  // 付けた名前が、ほかのタブの名前（付けた名前と「ターミナル N」）と同じか、ほかの番号の「ターミナル N」と同じなら、
-  // 番号を添えて見分けられるようにする。同じかは参加者の名前と同じく nameKey で比べる（docs/adr/110-tab-name.md）
+  // 付けた名前が次のどれかなら、番号を添えて見分けられるようにする（docs/adr/110-tab-name.md）
+  // - ほかのタブの名前（付けた名前と「ターミナル N」）と同じ
+  // - ほかの番号の「ターミナル N」と同じ
+  // - 番号を添えた形（「名前（ターミナル N）」）をまねている
+  // 同じかは参加者の名前と同じ nameKey で比べ、さらに空白を無視する（「ターミナル2」「ターミナル　２」も「ターミナル 2」とみなす）
   private tabsEvent(): WorkspaceEvent {
-    const keys = new Map(this.order.map((id) => [id, nameKey(this.tabNames.get(id) ?? defaultTabName(id))]));
+    const toKey = (name: string) => nameKey(name).replace(/\s/g, "");
+    const keys = new Map(this.order.map((id) => [id, toKey(this.tabNames.get(id) ?? defaultTabName(id))]));
     const tabs = this.order.map((id): Tab => {
       const custom = this.tabNames.get(id);
       if (custom === undefined) return { id, name: defaultTabName(id) };
       const key = keys.get(id)!;
-      const looksDefault = key.match(/^ターミナル (\d+)$/);
+      const looksDefault = key.match(/^ターミナル(\d+)$/);
       const clash =
         (looksDefault !== null && looksDefault[1] !== id) ||
+        // NFKC で全角の括弧も半角になる
+        /\(ターミナル\d+\)$/.test(key) ||
         this.order.some((other) => other !== id && keys.get(other) === key);
       return { id, name: clash ? `${custom}（${defaultTabName(id)}）` : custom, custom };
     });

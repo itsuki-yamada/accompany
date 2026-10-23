@@ -372,11 +372,12 @@ export class Sidebar {
       const dragged = this.dragged;
       if (dragged === undefined) return;
       event.preventDefault();
-      const tabs = this.state?.tabs ?? [];
-      const rest = tabs.map((t) => t.id).filter((t) => t !== dragged);
-      const index = rest.indexOf(id) + (placeOf(event) === "after" ? 1 : 0);
+      const place = placeOf(event);
+      // ドラッグしている間に届いた並び（ほかの参加者の並べ替えなど）を先に出してから、その並びで位置を数える
       this.endDrag();
-      if (dragged !== id && index >= 0) this.move(dragged, index);
+      const rest = (this.state?.tabs ?? []).map((t) => t.id).filter((t) => t !== dragged);
+      const index = rest.indexOf(id) + (place === "after" ? 1 : 0);
+      if (dragged !== id && rest.includes(id)) this.move(dragged, index);
     });
   }
 
