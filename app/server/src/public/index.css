@@ -244,6 +244,30 @@ body {
   box-shadow: inset 0 -2px 0 var(--selection-color);
 }
 
+/* 直前のコマンドの出力をコピーしたとき、コピーした範囲を一瞬光らせる（docs/adr/112-copy-last-output.md）。
+   マウスの操作は下の端末に通す */
+.copied-outputs {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.copied-output {
+  position: absolute;
+  background: rgb(255 214 0 / 40%);
+  animation: copied-output-fade 800ms ease-out forwards;
+}
+
+@keyframes copied-output-fade {
+  from {
+    background: rgb(255 214 0 / 55%);
+  }
+  to {
+    background: rgb(255 214 0 / 0%);
+  }
+}
+
 /* フォーカスしている参加者の表示。自分がフォーカスしているターミナルは、枠を自分の色で強調する */
 .pane {
   box-sizing: border-box;
@@ -587,6 +611,11 @@ body[data-pair-mode="following"] .pane-bar {
   color: #fff;
   font-size: 12px;
   pointer-events: none;
+}
+
+/* 警告ではない知らせ（コピーしたことなど） */
+.pane-notice[data-tone="info"] {
+  background: #1f3f5f;
 }
 
 .pane-notice[hidden] {

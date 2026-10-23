@@ -1,5 +1,6 @@
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal, type IMarker } from "@xterm/xterm";
+import { CommandMarks, type CommandMarksState, type Unavailable } from "../command-marks";
 import { scrollback } from "../scrollback";
 import { TrimmedLines } from "../trimmed-lines";
 import { themeColors, type Appearance } from "./appearance";
@@ -59,6 +60,23 @@ type PlacedSelection = {
   start: { x: number; marker: IMarker };
   end: { x: number; marker: IMarker };
 };
+
+// 直前のコマンドの出力をコピーできないときの、メニューに出す短い説明と、ツールチップ・知らせに出す説明
+// （docs/adr/112-copy-last-output.md）
+const unavailableReasons: Record<Unavailable, { detail: string; title: string }> = {
+  "no-integration": {
+    detail: "シェルの統合が要ります",
+    title:
+      "シェルの統合が要ります。シェルの rc に eval \"$(accompany --shell-integration zsh)\" など（bash・fish も）を書いてください",
+  },
+  "no-command": {
+    detail: "まだありません",
+    title: "まだコマンドを実行していません（または、出力がスクロールバックから押し出されました）",
+  },
+  alternate: { detail: "全画面のアプリの中", title: "全画面のアプリの中では使えません" },
+};
+// コピーした範囲を光らせる時間（ミリ秒）
+const copiedFlashMs = 800;
 
 // このターミナルで動いているエージェントの状態。サーバーが判定して全員に配る。
 // 「入力待ち」はほかの参加者の入力を待っているようにも読めるので、エージェントが指示を待っていると書く（docs/adr/70-agent-detection.md）
@@ -128,6 +146,13 @@ export class Pane {
   loaded = false;
   // スクロールバックから押し出された行の数。選択範囲の行は、これを足した「出力の始めからの行の番号」でやりとりする
   private trimmed: TrimmedLines;
+  // シェルの統合（OSC 133）で覚えた、直前のコマンドの出力の範囲。つないだときにサーバーから届いた範囲は、画面を書き終えてから覚える
+  private marks: CommandMarks;
+  private receivedMarks: CommandMarksState | undefined;
+  // コピーした範囲を光らせる層と、光らせている範囲（バッファの行）
+  private copiedLayer = document.createElement("div");
+  private copied: { start: { x: number; y: number }; end: { x: number; y: number } } | undefined;
+  private copiedTimer: ReturnType<typeof setTimeout> | undefined;
   private firstOutput = true;
   // 最後にサーバーに伝えた自分の選択範囲
   private sentSelection = "null";
@@ -246,12 +271,17 @@ export class Pane {
     this.remoteLayer.className = "remote-selections";
     this.remoteLayer.setAttribute("aria-hidden", "true");
     this.terminal.element?.querySelector(".xterm-screen")?.append(this.remoteLayer);
+    this.copiedLayer.className = "copied-outputs";
+    this.copiedLayer.setAttribute("aria-hidden", "true");
+    this.terminal.element?.querySelector(".xterm-screen")?.append(this.copiedLayer);
     this.terminal.onRender(() => {
       this.drawRemoteSelections();
+      this.drawCopied();
       this.remeasure();
       this.syncScrollPosition();
     });
     this.trimmed = new TrimmedLines(this.terminal);
+    this.marks = new CommandMarks(this.terminal, this.trimmed);
     this.terminal.onSelectionChange(() => this.sendSelection());
     // スクロールバックがいっぱいのとき、xterm は古い行を押し出して選択範囲の行を詰めるが、選択の変化は知らせない。
     // 選択した行が押し出されて選択がなくなったときも知らせないので、出力のたびに読み直し、変わっていれば送り直す
@@ -269,9 +299,12 @@ export class Pane {
         } else if (message.type === "trimmed" && this.firstOutput) {
           // 途中から開いたときは、サーバー側の画面がそれまでに押し出していた行の数から数え始める
           this.trimmed.count = message.lines;
+        } else if (message.type === "marks") {
+          this.receivedMarks = message;
         } else if (message.type === "restored" && !this.loaded) {
           // 届いた画面を書き終えてから知らせる
           this.terminal.write("", () => {
+            if (this.receivedMarks) this.marks.restore(this.receivedMarks);
             this.loaded = true;
             actions.loaded();
           });
@@ -505,6 +538,7 @@ export class Pane {
     this.sendSelection(true);
     this.disposeRemoteSelections();
     clearTimeout(this.noticeTimer);
+    clearTimeout(this.copiedTimer);
     this.closeMenu();
     this.resizeObserver.disconnect();
     this.bottomObserver.disconnect();
@@ -516,12 +550,23 @@ export class Pane {
   }
 
   private openMenu(x: number, y: number, actions: PaneActions) {
+    const output = this.marks.lastOutput();
+    const reason = "unavailable" in output ? unavailableReasons[output.unavailable] : undefined;
     this.closeMenu = showContextMenu(
       x,
       y,
       `${this.element.getAttribute("aria-label")} のメニュー`,
       [
         { label: "コピー", disabled: !this.terminal.hasSelection(), action: () => this.copy() },
+        // シェルの統合（OSC 133）で見分けた、直前のコマンドの出力（docs/adr/112-copy-last-output.md）
+        {
+          label: copyLastOutputLabel,
+          detail: reason?.detail,
+          title: reason?.title ?? withKeys(copyLastOutputLabel),
+          ariaLabel: reason ? `${copyLastOutputLabel}、${reason.detail}` : undefined,
+          disabled: reason !== undefined,
+          action: () => this.copyLastOutput(),
+        },
         { label: "ペースト", action: () => this.paste() },
         { label: "すべて選択", action: () => this.terminal.selectAll() },
         "separator",
@@ -620,6 +665,27 @@ export class Pane {
     }
   }
 
+  // 直前のコマンドの出力を、操作した参加者のクリップボードにだけ入れる。ほかの参加者には何も送らない。
+  // コピーした範囲を一瞬光らせ、何行コピーしたかを知らせる。コピーできないときは、その理由を知らせる
+  async copyLastOutput() {
+    const output = this.marks.lastOutput();
+    if ("unavailable" in output) return this.showNotice(unavailableReasons[output.unavailable].title);
+    if (output.lines === 0) return this.showNotice("直前のコマンドは何も出力していません", "info");
+    try {
+      await navigator.clipboard.writeText(output.text);
+    } catch {
+      return this.showNotice("クリップボードに書き込めませんでした");
+    }
+    this.showNotice(`直前のコマンドの出力をコピーしました（${output.lines} 行）`, "info");
+    this.copied = { start: output.start, end: output.end };
+    this.drawCopied();
+    clearTimeout(this.copiedTimer);
+    this.copiedTimer = setTimeout(() => {
+      this.copied = undefined;
+      this.drawCopied();
+    }, copiedFlashMs);
+  }
+
   // クリップボードの読み取りはブラウザの許可が要る。許可されないときは、許可なしで使えるキーボードでのペーストを案内する
   private async paste() {
     try {
@@ -631,8 +697,10 @@ export class Pane {
     }
   }
 
-  private showNotice(text: string) {
+  // tone が info なら、警告ではなく知らせとして出す
+  private showNotice(text: string, tone: "warning" | "info" = "warning") {
     this.notice.textContent = text;
+    this.notice.dataset.tone = tone;
     this.notice.hidden = false;
     clearTimeout(this.noticeTimer);
     this.noticeTimer = setTimeout(() => (this.notice.hidden = true), 5000);
@@ -743,6 +811,31 @@ export class Pane {
     }
     if (elements.length === 0 && this.remoteLayer.childElementCount === 0) return;
     this.remoteLayer.replaceChildren(...elements);
+  }
+
+  // コピーした範囲のうち、表示領域に入っている行を、行ごとに 1 つの要素で光らせる。代替画面を表示しているときは出さない
+  private drawCopied() {
+    const cell = cellSize(this.terminal);
+    const buffer = this.terminal.buffer.active;
+    const { cols, rows } = this.terminal;
+    const elements: HTMLElement[] = [];
+    const range = this.copied;
+    if (range && cell && buffer.type === "normal") {
+      for (let y = Math.max(range.start.y, buffer.viewportY); y <= Math.min(range.end.y, buffer.viewportY + rows - 1); y++) {
+        const from = Math.min(y === range.start.y ? range.start.x : 0, cols);
+        const to = y === range.end.y ? Math.min(range.end.x, cols) : cols;
+        if (to <= from) continue;
+        const element = document.createElement("div");
+        element.className = "copied-output";
+        element.style.left = `${from * cell.width}px`;
+        element.style.top = `${(y - buffer.viewportY) * cell.height}px`;
+        element.style.width = `${(to - from) * cell.width}px`;
+        element.style.height = `${cell.height}px`;
+        elements.push(element);
+      }
+    }
+    if (elements.length === 0 && this.copiedLayer.childElementCount === 0) return;
+    this.copiedLayer.replaceChildren(...elements);
   }
 
   private send(data: string) {
@@ -881,6 +974,8 @@ export class Pane {
     return width > 0 && height > 0 ? { width, height } : undefined;
   }
 }
+
+const copyLastOutputLabel = "直前のコマンドの出力をコピー";
 
 // 出力の URL を新しいタブで開く。開いたページから元のページを操作されないよう、opener を切る。
 // javascript: などでスクリプトが動かないよう、xterm.js の絞り込みとは別に、http・https の URL だけを開く（docs/adr/61-link-scheme-check.md）

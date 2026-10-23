@@ -123,6 +123,23 @@ bunx --package "$PWD/accompany-0.6.0.tgz" accompany
 
 Bun 1.3 までは、画面の JS と CSS が読み込まれず、画面が空になる（docs/adr/78-binaries.md）。古い Bun で起動すると、必要な版を表示して終了するので、`bun upgrade` で上げるか、実行ファイルを使う。
 
+### 直前のコマンドの出力をコピーする（シェルの統合）
+
+ターミナルを右クリックして「直前のコマンドの出力をコピー」を選ぶか、⌘⇧L（Windows・Linux は Ctrl+Shift+L）を押すと、直前に実行したコマンドの出力が、操作した人のクリップボードに入る。コマンドの区切りはシェルの統合（OSC 133）で見分けるので、シェルの rc に次の 1 行を書いておく（docs/adr/112-copy-last-output.md）。
+
+```sh
+# zsh（~/.zshrc）
+eval "$(accompany --shell-integration zsh)"
+# bash 4.4 以上（~/.bashrc）
+eval "$(accompany --shell-integration bash)"
+# fish（~/.config/fish/config.fish）。fish 4.0 以上は書かなくてもよい
+accompany --shell-integration fish | source
+```
+
+- プロンプト（PS1 など）は書き換えない。Accompany の外の端末で読み込んでも害はない
+- ほかのシェルの統合（fish 4.0 以上の組み込みのものなど）で OSC 133 の C（出力の始まり）と D（出力の終わり）の印が出ていれば、書かなくても使える
+- 全画面のアプリ（vim や Claude Code の全画面の表示など）の中では使えない
+
 ## Live Share で使う
 
 1. ホストが、自分のマシンで Accompany を起動する（[使い方](#使い方)）。例: `./accompany-0.6.0-darwin-arm64 -- claude`。表示された `http://127.0.0.1:3000` を、ホスト自身のブラウザで開く
