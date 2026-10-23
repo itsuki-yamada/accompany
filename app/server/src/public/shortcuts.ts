@@ -31,9 +31,9 @@ const bindings: Binding[] = [
     repeat: true,
     shortcut: { type: "move-focus", direction } as const,
   })),
-  // キー入力の先のターミナルを含む分割（一番内側のもの）に効く。L は Layout。K はほかに空いていて、Chrome のどの OS の
-  // アクセラレータ表にもない（docs/adr/163-rearrange-panes.md）
-  { label: "分割の向きを変える", code: "KeyL", key: "L", repeat: false, shortcut: { type: "rotate-split" } },
+  // キー入力の先のターミナルを含む分割（一番内側のもの）に効く。Y・K は、Chrome のどの OS のアクセラレータ表にもない
+  // （L は縦のタブの折りたたみに使われているので避けた。docs/adr/72-sidebar.md、docs/adr/163-rearrange-panes.md）
+  { label: "分割の向きを変える", code: "KeyY", key: "Y", repeat: false, shortcut: { type: "rotate-split" } },
   { label: "並べたターミナルを入れ替える", code: "KeyK", key: "K", repeat: false, shortcut: { type: "flip-split" } },
   { label: "新しいタブ", code: "KeyO", key: "O", repeat: false, shortcut: { type: "new-tab" } },
   { label: "次のタブ", code: "Period", key: ".", repeat: true, shortcut: { type: "next-tab" } },
@@ -49,6 +49,8 @@ const mouseActions = [
   { label: "範囲を強制して選択", mac: "Option+ドラッグ", other: "Shift+ドラッグ" },
   // 並べたターミナルどうしの位置を入れ替える（docs/adr/163-rearrange-panes.md）
   { label: "ターミナルの位置を入れ替える", mac: "バーを別のターミナルへドラッグ", other: "バーを別のターミナルへドラッグ" },
+  // 3 つ並べたときの外側の分割は、境界の右クリックのメニューで選ぶ
+  { label: "分割を入れ替える・向きを変える", mac: "境界を右クリック", other: "境界を右クリック" },
 ];
 
 // 一覧にだけ出す、サイドメニュー・ツールバーのタブにキー入力しているときのキー（docs/adr/139-tab-order.md）

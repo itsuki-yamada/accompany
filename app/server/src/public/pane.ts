@@ -570,6 +570,8 @@ export class Pane {
       if (from === undefined || !accepts()) return;
       event.preventDefault();
       delete this.element.dataset.swapTarget;
+      // ドラッグしている間に元のターミナルが画面から外れると dragend が届かないことがあるので、ここでも終える
+      Pane.dragged = undefined;
       this.actions.swap(from);
     });
   }
