@@ -188,6 +188,30 @@ test("サイドメニュー・ツールバーのタブのダブルクリック�
   await expect(barName(page, 2)).toHaveText("logs");
 });
 
+test("入力欄を離れたときにも名前が決まる", async ({ browser }) => {
+  accompany = await start();
+  const page = await openAsParticipant(browser, accompany.url);
+  const guest = await openAsParticipant(browser, accompany.url);
+
+  // バーの入力欄から、ターミナルを押して離れる
+  await barName(page, 1).dblclick();
+  await expect(nameEditor(page)).toBeFocused();
+  await nameEditor(page).fill("app");
+  await pane(page, 1).locator(".xterm-screen").click();
+  await expect(nameEditor(page)).toHaveCount(0);
+  await expect(barName(page, 1)).toHaveText("app");
+  await expect(barName(guest, 1)).toHaveText("app");
+
+  // サイドメニューの入力欄から、サイドメニューの見出しを押して離れる
+  await namedTab(page, "app").dblclick();
+  await expect(nameEditor(page)).toBeFocused();
+  await nameEditor(page).fill("app2");
+  await sidebar(page).getByRole("heading", { name: "タブ" }).click();
+  await expect(nameEditor(page)).toHaveCount(0);
+  await expect(namedTab(page, "app2")).toBeVisible();
+  await expect(barName(guest, 1)).toHaveText("app2");
+});
+
 test("名前を空にすると、これまでどおりの表示（「ターミナル N」と、コマンドが設定したタイトル）に戻る", async ({
   browser,
 }) => {
@@ -298,6 +322,20 @@ test("ほかのタブと見分けにくい名前（ほかのタブの「ター�
     /^ターミナル 2$/,
     /APP（ターミナル 3）/,
   ]);
+
+  // 空白を詰めたり全角にしたりした「ターミナル N」、番号を添えた形（「名前（ターミナル N）」）をまねた名前にも添える
+  for (const [name, shown] of [
+    ["ターミナル2", /ターミナル2（ターミナル 1）/],
+    ["ターミナル　２", /ターミナル　２（ターミナル 1）/],
+    ["app（ターミナル 2）", /app（ターミナル 2）（ターミナル 1）/],
+    ["app(ターミナル3)", /app\(ターミナル3\)（ターミナル 1）/],
+  ] as const) {
+    await sendRaw(page, [
+      { type: "rename-tab", tab: "3", name: "" },
+      { type: "rename-tab", tab: "1", name },
+    ]);
+    await expect(sidebar(page).getByRole("tab"), name).toHaveText([shown, /^ターミナル 2$/, /^ターミナル 3$/]);
+  }
 });
 
 test("長い名前でも、バー・サイドメニュー・ツールバーが崩れず、ページが横にはみ出さない。全文はツールチップで見られる", async ({
