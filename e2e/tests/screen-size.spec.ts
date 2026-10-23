@@ -183,7 +183,7 @@ async function copyWordAt(page: Page, point: { x: number; y: number }) {
   await page.mouse.click(point.x, point.y, { button: "right" });
   const menu = page.getByRole("menu");
   await expect(menu).toBeVisible();
-  await menu.getByRole("menuitem", { name: "コピー" }).click();
+  await menu.getByRole("menuitem", { name: "コピー", exact: true }).click();
   return page.evaluate(() => navigator.clipboard.readText());
 }
 
@@ -380,7 +380,8 @@ test.describe("スクロールした位置でも、マウスの位置どおり�
     const { guest } = await openLargeAndSmall(browser);
     await scrollTo(guest, "end");
     const area = (await guest.locator(".pane-terminal").boundingBox())!;
-    const point = { x: area.x + area.width / 3, y: area.y + area.height / 3 };
+    // メニューが画面の下にはみ出して上にずらされない高さで右クリックする
+    const point = { x: area.x + area.width / 3, y: area.y + area.height / 5 };
 
     await guest.mouse.click(point.x, point.y, { button: "right" });
 
