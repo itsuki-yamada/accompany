@@ -6,6 +6,8 @@ export type Shortcut =
   | { type: "split"; direction: "row" | "column" }
   | { type: "close" }
   | { type: "move-focus"; direction: Direction }
+  | { type: "flip-split" }
+  | { type: "rotate-split" }
   | { type: "new-tab" }
   | { type: "next-tab" }
   | { type: "previous-tab" }
@@ -29,6 +31,10 @@ const bindings: Binding[] = [
     repeat: true,
     shortcut: { type: "move-focus", direction } as const,
   })),
+  // キー入力の先のターミナルを含む分割（一番内側のもの）に効く。L は Layout。K はほかに空いていて、Chrome のどの OS の
+  // アクセラレータ表にもない（docs/adr/163-rearrange-panes.md）
+  { label: "分割の向きを変える", code: "KeyL", key: "L", repeat: false, shortcut: { type: "rotate-split" } },
+  { label: "並べたターミナルを入れ替える", code: "KeyK", key: "K", repeat: false, shortcut: { type: "flip-split" } },
   { label: "新しいタブ", code: "KeyO", key: "O", repeat: false, shortcut: { type: "new-tab" } },
   { label: "次のタブ", code: "Period", key: ".", repeat: true, shortcut: { type: "next-tab" } },
   { label: "前のタブ", code: "Comma", key: ",", repeat: true, shortcut: { type: "previous-tab" } },
@@ -37,9 +43,13 @@ const bindings: Binding[] = [
   { label: "サイドメニューへ移る", code: "KeyE", key: "E", repeat: false, shortcut: { type: "focus-sidebar" } },
 ];
 
-// 一覧にだけ出すマウスの操作（xterm が扱う）。マウスの報告モードを使うアプリの上で、アプリにマウスを渡さずに選択する
-// （docs/adr/114-force-selection.md）
-const mouseActions = [{ label: "範囲を強制して選択", mac: "Option+ドラッグ", other: "Shift+ドラッグ" }];
+// 一覧にだけ出すマウスの操作。マウスの報告モードを使うアプリの上で、アプリにマウスを渡さずに選択する（xterm が扱う。
+// docs/adr/114-force-selection.md）
+const mouseActions = [
+  { label: "範囲を強制して選択", mac: "Option+ドラッグ", other: "Shift+ドラッグ" },
+  // 並べたターミナルどうしの位置を入れ替える（docs/adr/163-rearrange-panes.md）
+  { label: "ターミナルの位置を入れ替える", mac: "バーを別のターミナルへドラッグ", other: "バーを別のターミナルへドラッグ" },
+];
 
 // 一覧にだけ出す、サイドメニュー・ツールバーのタブにキー入力しているときのキー（docs/adr/139-tab-order.md）
 const tabActions = [

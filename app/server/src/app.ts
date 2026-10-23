@@ -87,7 +87,7 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
 
   // タブの並び、参加者ごとの名前・フォーカス先と選択範囲・ペアプロモードで追従している相手・スクロール位置、
   // よく使うコマンドの一覧を全員に、その参加者の表示（どのタブをどう並べているか）を本人に配る。
-  // 自分の表示の変更（新しいタブ・分割・タブを選ぶ・並べる・外す・割合の変更）、タブの並べ替え・名前・閉じる、フォーカスの移動・選択範囲・
+  // 自分の表示の変更（新しいタブ・分割・タブを選ぶ・並べる・外す・割合の変更・位置の入れ替え・向きの変更）、タブの並べ替え・名前・閉じる、フォーカスの移動・選択範囲・
   // ページが見えているか、名前の変更、ペアプロモードの開始・終了とスクロール位置、よく使うコマンドの登録・編集・削除、
   // 端末の大きさの下限の変更を受け付ける（docs/adr/100-terminal-tabs.md）
   app.get(
@@ -113,6 +113,13 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
             workspace.close(String(message.terminal));
           } else if (message?.type === "resize-split" && typeof message.ratio === "number") {
             member?.resizeSplit(String(message.split), message.ratio);
+          } else if (message?.type === "swap-panes" && typeof message.tab === "string" && typeof message.with === "string") {
+            // 自分の表示にないタブや、ない分割は、workspace が無視する（docs/adr/163-rearrange-panes.md）
+            member?.swapPanes(message.tab, message.with);
+          } else if (message?.type === "flip-split" && typeof message.split === "string") {
+            member?.flipSplit(message.split);
+          } else if (message?.type === "rotate-split" && typeof message.split === "string") {
+            member?.rotateSplit(message.split);
           } else if (message?.type === "new-tab") {
             void member?.newTab(terminal);
           } else if (message?.type === "select-tab") {
