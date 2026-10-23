@@ -1,0 +1,3 @@
+#!/bin/sh
+# E2E で $SHELL の代わりに起動し、OSC 52 でクリップボードへの書き込みを頼むアプリを動かす
+exec bun e2e/fixtures/clipboard-app.ts
