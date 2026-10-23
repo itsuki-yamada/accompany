@@ -178,6 +178,28 @@ test("右クリックのメニューの「左右を入れ替える」「上下�
   await expectFullHeight(page, 1);
 });
 
+test("左右・上下を入れ替えると、それぞれの大きさも一緒に動く", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+  await splitTwo(page);
+  const area = (await page.getByRole("main").boundingBox())!;
+  // 境界をドラッグして、1 を狭く（3 割ほどに）する
+  const line = (await divider(page, "vertical").boundingBox())!;
+  await page.mouse.move(line.x + line.width / 2, line.y + line.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(area.x + area.width * 0.3, line.y + line.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => (await boxOf(page, 1)).width / area.width).toBeLessThan(0.35);
+
+  await openPaneMenu(page, 1);
+  await menuItem(page, "左右を入れ替える").click();
+
+  // 狭い 1 が右に、広い 2 が左に移る（場所ではなく、中身と一緒に大きさが動く）
+  await expectSideBySide(page, 2, 1);
+  await expect.poll(async () => (await boxOf(page, 1)).width / area.width).toBeLessThan(0.35);
+  expect((await boxOf(page, 2)).width / area.width).toBeGreaterThan(0.6);
+});
+
 test("右クリックのメニューで、左右の並びを上下に、上下の並びを左右に変える", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
@@ -239,7 +261,7 @@ test("3 つ並べているときは、境界の右クリックのメニューで
 });
 
 for (const modifier of modifiers) {
-  test(`${modifier}+L で分割の向きを変え、${modifier}+K で並びを入れ替える。キー入力の先はそのまま`, async ({ browser }) => {
+  test(`${modifier}+Y で分割の向きを変え、${modifier}+K で並びを入れ替える。キー入力の先はそのまま`, async ({ browser }) => {
     accompany = await startAccompany([], fakeShell);
     const page = await openAsParticipant(browser, accompany.url);
     await splitThree(page);
@@ -252,7 +274,7 @@ for (const modifier of modifiers) {
     await expect(input).toBeFocused();
 
     // キー入力の先を含む分割の向きを変える（3 と 2 が左右に並ぶ）
-    await page.keyboard.press(`${modifier}+L`);
+    await page.keyboard.press(`${modifier}+Y`);
     await expectSideBySide(page, 3, 2);
     await expectSideBySide(page, 1, 3);
     await expect(input).toBeFocused();
@@ -271,9 +293,11 @@ test("入れ替え・向きの変更のショートカットとドラッグが�
   const list = page.getByRole("dialog", { name: "キーボードショートカット" });
   await expect(list).toBeVisible();
   for (const [label, mac, other] of [
-    ["分割の向きを変える", "⌘⇧L", "Ctrl+Shift+L"],
+    ["分割の向きを変える", "⌘⇧Y", "Ctrl+Shift+Y"],
     ["並べたターミナルを入れ替える", "⌘⇧K", "Ctrl+Shift+K"],
     ["ターミナルの位置を入れ替える", "バーを別のターミナルへドラッグ", "バーを別のターミナルへドラッグ"],
+    // 3 つ並べたときの外側の分割は、境界の右クリックで選ぶ
+    ["分割を入れ替える・向きを変える", "境界を右クリック", "境界を右クリック"],
   ]) {
     await expect(list.getByRole("row").filter({ hasText: label! })).toHaveText(new RegExp([label, mac, other].map(escape).join(".*")));
   }
@@ -341,11 +365,14 @@ test("ないタブ・ない分割・表示していないタブの入れ替え�
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
   await splitTwo(page);
+  // 3 つ目のタブも開くが、下の接続の表示には並べない
+  await page.getByRole("button", { name: "新しいタブ" }).click();
+  await expectPaneToShow(page, 3, "Fake Shell ready");
   await tab(page, 1).click();
   await expect(panes(page)).toHaveCount(1);
 
   // 改造したブラウザなどから、配置の WebSocket に直接送る。この接続も 1 人の参加者で、自分の表示（view）が届く。
-  // タブ 2 を並べてから、正しくないものを 1 件ずつ送り、表示が届かない（変わらない）ことを確かめる
+  // タブ 1 と 2 を並べてから、正しくないものを 1 件ずつ送り、表示が届かない（変わらない）ことを確かめる
   const result = await page.evaluate(
     () =>
       new Promise<{ invalid: string[]; valid: string[] }>((resolve) => {
@@ -364,6 +391,8 @@ test("ないタブ・ない分割・表示していないタブの入れ替え�
           const invalid: string[] = [];
           for (const message of [
             { type: "swap-panes", tab: "1", with: "9" },
+            // 開いているが、表示していないタブ
+            { type: "swap-panes", tab: "1", with: "3" },
             { type: "swap-panes", tab: "1", with: "1" },
             { type: "swap-panes", tab: 1, with: 2 },
             { type: "swap-panes", tab: "1" },
