@@ -229,6 +229,31 @@ test("タブの右クリックのメニューから、前・後ろへ移せる�
   await expect(toolbarTabs(page)).toHaveText(names(2, 1, 3));
 });
 
+// Windows / Linux の Chrome では Alt+← / → が「戻る・進む」なので、タブで押したときは端でも既定の動作を止める。
+// ヘッドレスのブラウザは戻る・進むのキーを扱わないので、ページが既定の動作を止めたか（defaultPrevented）で確かめる
+test("ツールバーのタブで押した Alt+← / → は、端でも、ブラウザの戻る・進むにしない", async ({ browser }) => {
+  accompany = await start();
+  const page = await openAsParticipant(browser, accompany.url);
+  await openThreeTabs(page);
+  await sidebarToggle(page).click();
+  await page.evaluate(() => {
+    const w = window as any;
+    w.prevented = [];
+    window.addEventListener("keydown", (event) => {
+      if (event.key.startsWith("Arrow")) w.prevented.push(event.defaultPrevented);
+    });
+  });
+  const prevented = () => page.evaluate(() => (window as any).prevented as boolean[]);
+
+  await tab(page, 1).focus();
+  // 端（左へは動かない）、右へ移す、右へ移す、端（右へは動かない）
+  for (const key of ["Alt+ArrowLeft", "Alt+ArrowRight", "Alt+ArrowRight", "Alt+ArrowRight"]) {
+    await page.keyboard.press(key);
+  }
+  await expect(toolbarTabs(page)).toHaveText(names(2, 3, 1));
+  expect(await prevented()).toEqual([true, true, true, true]);
+});
+
 test("並び順を変えても、参加者ごとの表示とペアプロモードの追従は変わらず、次・前のタブへ移るショートカットは新しい並びに従う", async ({
   browser,
 }) => {
