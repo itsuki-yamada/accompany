@@ -328,10 +328,25 @@ test("シェルから起動したエージェントを見分けて状態を出�
   await expect(pane(page, 1)).not.toHaveAttribute("data-agent");
 });
 
+test("シェルで exec claude と打って動かしたエージェントも、起動直後の描画では作業中にならない", async ({ browser }) => {
+  accompany = await startAccompany([], realShell);
+  const page = await openAsParticipant(browser, accompany.url, "granted", true, "$");
+
+  // exec で起動すると、エージェントはシェルと同じプロセス（起動したプロセス）として動く
+  await typeInPane(page, 1, "exec claude\n");
+  await expect(agentStatus(page, 1)).toHaveText("指示待ち", { timeout: 5_000 });
+  await expectPaneToShow(page, 1, "Busy Agent ready");
+  // 指示待ちと判定されるまでの時間（2 秒）を過ぎるまで待つ
+  await page.waitForTimeout(2_500);
+  expect(await statusHistory(page)).not.toContain("作業中");
+  expect(await notificationTitles(page)).toEqual([]);
+});
+
 test("起動時のコマンドとして動かしたエージェントは、見分ける前に出した最初の指示から作業中になり、終わると通知が出る", async ({
   browser,
 }) => {
-  // 前面のプロセスを調べる ps を遅くし、エージェントだと見分ける前に最初の指示を出す
+  // 前面のプロセスを調べる ps を遅くし、エージェントだと見分ける前に最初の指示を出す。
+  // psLog は確かめには使わない（slow-ps が呼ばれた引数を書き出す先として渡すだけ）
   const psLog = join(mkdtempSync(join(tmpdir(), "accompany-e2e-ps-")), "ps.log");
   writeFileSync(psLog, "");
   accompany = await startAccompany(busyAgent, {
