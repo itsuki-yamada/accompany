@@ -34,8 +34,10 @@ export type Member = {
   scroll?: { terminal: string; offset: number };
 };
 
-// タブ。ターミナル 1 つが 1 つのタブで、id はターミナルの ID
-export type Tab = { id: string; name: string };
+// タブ。ターミナル 1 つが 1 つのタブで、id はターミナルの ID。name は画面に出す名前で、参加者が付けた名前（custom）、
+// 付けていなければ「ターミナル N」。付けた名前がほかのタブと見分けにくいときは「名前（ターミナル N）」にする
+// （docs/adr/110-tab-name.md）
+export type Tab = { id: string; name: string; custom?: string };
 
 // 参加者に配るもの
 export type WorkspaceEvent =
@@ -63,6 +65,8 @@ export class Workspace {
   private terminals = new Map<string, TerminalSession>();
   // タブの並び（ターミナルの ID）。開いた順に後ろへ足し、参加者が並べ替える（docs/adr/139-tab-order.md）
   private order: string[] = [];
+  // 参加者が付けたタブの名前（整えたもの）。付けていないタブは含めない（docs/adr/110-tab-name.md）
+  private tabNames = new Map<string, string>();
   private members = new Map<Listener, Member>();
   // 参加者ごとの表示
   private views = new Map<Member, Layout>();
@@ -109,6 +113,7 @@ export class Workspace {
       if (restored.initial) this.initialTerminal = id;
       this.addTerminal(id, restored.initial ? (initialCommand ?? shellCommand) : shellCommand, restored);
     }
+    for (const [id, name] of Object.entries(saved.names ?? {})) this.tabNames.set(id, name);
     this.commands = saved.commands;
     const next = (ids: string[]) => Math.max(0, ...ids.map(Number)) + 1;
     this.nextId = next(this.order);
@@ -129,6 +134,7 @@ export class Workspace {
       version: 2,
       cwd,
       tabs: [...this.order],
+      names: Object.fromEntries(this.tabNames),
       terminals,
       commands: this.commands,
       ...(this.savedMinWindow && { minWindow: this.savedMinWindow }),
@@ -288,6 +294,15 @@ export class Workspace {
     this.notifyTabs();
   }
 
+  // タブに名前を付ける。name は整えたもので、undefined なら付けた名前をやめて「ターミナル N」に戻す。
+  // 名前は全員で共有するので、全員に配って保存する（docs/adr/110-tab-name.md）
+  renameTab(terminalId: string, name: string | undefined) {
+    if (!this.terminals.has(terminalId) || this.tabNames.get(terminalId) === name) return;
+    if (name === undefined) this.tabNames.delete(terminalId);
+    else this.tabNames.set(terminalId, name);
+    this.notifyTabs();
+  }
+
   // よく使うコマンドの登録・編集・削除。変わるたびに一覧を全員に配る
   addCommand(command: QuickCommandInput) {
     if (this.commands.length >= maxQuickCommands) return;
@@ -347,6 +362,7 @@ export class Workspace {
   private removeTerminal(id: string) {
     this.terminals.get(id)?.kill();
     this.terminals.delete(id);
+    this.tabNames.delete(id);
     let changed = false;
     for (const member of this.members.values()) {
       if (!Object.hasOwn(member.selections, id)) continue;
@@ -407,8 +423,27 @@ export class Workspace {
     this.updateSeen();
   }
 
+  // 付けた名前が次のどれかなら、番号を添えて見分けられるようにする（docs/adr/110-tab-name.md）
+  // - ほかのタブの名前（付けた名前と「ターミナル N」）と同じ
+  // - ほかの番号の「ターミナル N」と同じ
+  // - 番号を添えた形（「名前（ターミナル N）」）をまねている
+  // 同じかは参加者の名前と同じ nameKey で比べ、さらに空白を無視する（「ターミナル2」「ターミナル　２」も「ターミナル 2」とみなす）
   private tabsEvent(): WorkspaceEvent {
-    return { type: "tabs", tabs: this.order.map((id) => ({ id, name: `ターミナル ${id}` })) };
+    const toKey = (name: string) => nameKey(name).replace(/\s/g, "");
+    const keys = new Map(this.order.map((id) => [id, toKey(this.tabNames.get(id) ?? defaultTabName(id))]));
+    const tabs = this.order.map((id): Tab => {
+      const custom = this.tabNames.get(id);
+      if (custom === undefined) return { id, name: defaultTabName(id) };
+      const key = keys.get(id)!;
+      const looksDefault = key.match(/^ターミナル(\d+)$/);
+      const clash =
+        (looksDefault !== null && looksDefault[1] !== id) ||
+        // NFKC で全角の括弧も半角になる
+        /\(ターミナル\d+\)$/.test(key) ||
+        this.order.some((other) => other !== id && keys.get(other) === key);
+      return { id, name: clash ? `${custom}（${defaultTabName(id)}）` : custom, custom };
+    });
+    return { type: "tabs", tabs };
   }
 
   // タブの並びが変わったら全員に配り、保存する
@@ -512,6 +547,10 @@ export class Workspace {
 
 function defaultName(id: number) {
   return `参加者 ${id}`;
+}
+
+function defaultTabName(id: string) {
+  return `ターミナル ${id}`;
 }
 
 type Split = Extract<Layout, { type: "split" }>;

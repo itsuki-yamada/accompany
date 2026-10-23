@@ -125,6 +125,32 @@ test("サイドメニューのタブをドラッグすると、ドロップす�
   await expect(pane(guest, 1)).toBeVisible();
 });
 
+test("ドラッグしている間にほかの参加者が並べ替えても、手を離したときの並びで、重ねたタブの前・後ろへ移す", async ({
+  browser,
+}) => {
+  accompany = await start();
+  const host = await openAsParticipant(browser, accompany.url);
+  await openThreeTabs(host);
+  const guest = await openAsParticipant(browser, accompany.url);
+
+  // host がターミナル 3 をターミナル 1 の前までドラッグしている間に、guest がターミナル 2 を先頭へ移す
+  const source = (await sidebarRow(host, 3).boundingBox())!;
+  const target = (await sidebarRow(host, 1).boundingBox())!;
+  await host.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await host.mouse.down();
+  await host.mouse.move(target.x + target.width / 2, target.y + target.height * 0.2, { steps: 10 });
+  await expect(host.locator('[data-drop="before"]')).toHaveCount(1);
+  await tab(guest, 2).focus();
+  await guest.keyboard.press("Alt+ArrowUp");
+  await expect(sidebarTabs(guest)).toHaveText(names(2, 1, 3));
+  await host.waitForTimeout(300);
+  await host.mouse.up();
+
+  // 手を離したときの並び（2, 1, 3）で、ターミナル 1 の前に移す
+  await expect(sidebarTabs(host)).toHaveText(names(2, 3, 1));
+  await expect(sidebarTabs(guest)).toHaveText(names(2, 3, 1));
+});
+
 test("サイドメニューを隠している間は、ツールバーのタブをドラッグして並び順を変えられる", async ({ browser }) => {
   accompany = await start();
   const host = await openAsParticipant(browser, accompany.url);
@@ -201,6 +227,31 @@ test("タブの右クリックのメニューから、前・後ろへ移せる�
   await expect(menu.getByRole("menuitem", { name: "左へ移す" })).toHaveAttribute("aria-disabled", "true");
   await menu.getByRole("menuitem", { name: "右へ移す" }).click();
   await expect(toolbarTabs(page)).toHaveText(names(2, 1, 3));
+});
+
+// Windows / Linux の Chrome では Alt+← / → が「戻る・進む」なので、タブで押したときは端でも既定の動作を止める。
+// ヘッドレスのブラウザは戻る・進むのキーを扱わないので、ページが既定の動作を止めたか（defaultPrevented）で確かめる
+test("ツールバーのタブで押した Alt+← / → は、端でも、ブラウザの戻る・進むにしない", async ({ browser }) => {
+  accompany = await start();
+  const page = await openAsParticipant(browser, accompany.url);
+  await openThreeTabs(page);
+  await sidebarToggle(page).click();
+  await page.evaluate(() => {
+    const w = window as any;
+    w.prevented = [];
+    window.addEventListener("keydown", (event) => {
+      if (event.key.startsWith("Arrow")) w.prevented.push(event.defaultPrevented);
+    });
+  });
+  const prevented = () => page.evaluate(() => (window as any).prevented as boolean[]);
+
+  await tab(page, 1).focus();
+  // 端（左へは動かない）、右へ移す、右へ移す、端（右へは動かない）
+  for (const key of ["Alt+ArrowLeft", "Alt+ArrowRight", "Alt+ArrowRight", "Alt+ArrowRight"]) {
+    await page.keyboard.press(key);
+  }
+  await expect(toolbarTabs(page)).toHaveText(names(2, 3, 1));
+  expect(await prevented()).toEqual([true, true, true, true]);
 });
 
 test("並び順を変えても、参加者ごとの表示とペアプロモードの追従は変わらず、次・前のタブへ移るショートカットは新しい並びに従う", async ({
@@ -283,18 +334,22 @@ test("ないタブや範囲外の位置への並べ替えが直接届いても�
         }),
       messages,
     );
-  await sendRaw([
+  // 1 件ずつ送り、そのたびに並びが変わっていないことを確かめる。位置を丸めて受け付けると並びが変わる値にする
+  // （先頭のタブを上限を超えた位置へ、最後のタブを 0 未満や小数の位置へ）
+  for (const message of [
     { type: "move-tab", tab: "9", index: 0 },
-    { type: "move-tab", tab: "3", index: 3 },
+    { type: "move-tab", tab: "1", index: 3 },
+    { type: "move-tab", tab: "1", index: 1e100 },
     { type: "move-tab", tab: "3", index: -1 },
     { type: "move-tab", tab: "3", index: 0.5 },
     { type: "move-tab", tab: "3", index: "0" },
-    { type: "move-tab", tab: "3", index: 1e100 },
     { type: "move-tab", tab: 3, index: 0 },
     { type: "move-tab", index: 0 },
-  ]);
-  await page.waitForTimeout(300);
-  await expect(sidebarTabs(page)).toHaveText(names(1, 2, 3));
+  ]) {
+    await sendRaw([message]);
+    await page.waitForTimeout(100);
+    await expect(sidebarTabs(page), JSON.stringify(message)).toHaveText(names(1, 2, 3));
+  }
 
   // 正しいものは受け付ける
   await sendRaw([{ type: "move-tab", tab: "3", index: 0 }]);

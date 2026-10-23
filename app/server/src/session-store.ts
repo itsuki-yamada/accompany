@@ -2,12 +2,13 @@ import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
+import { sanitizeName } from "./member-name";
 import { parseMinWindow, type WindowSize } from "./min-window";
 import { parseQuickCommand, type QuickCommand } from "./quick-commands";
 import { clampSize, type Size } from "./terminal";
 
 // 再起動しても戻す、タブの並びとターミナルごとのスクロールバック、よく使うコマンド（docs/adr/34-session-restore.md）、
-// 端末の大きさの下限（docs/adr/99-smallest-size.md）。参加者ごとの表示は保存しない（docs/adr/100-terminal-tabs.md）
+// 端末の大きさの下限（docs/adr/99-smallest-size.md）、タブに付けた名前（docs/adr/110-tab-name.md）。参加者ごとの表示は保存しない（docs/adr/100-terminal-tabs.md）
 export type SavedTerminal = Size & {
   // サーバー側の画面を書き出したもの（xterm の SerializeAddon）
   scrollback: string;
@@ -20,6 +21,8 @@ export type SavedSession = {
   cwd: string;
   // タブ（ターミナルの ID）の並び
   tabs: string[];
+  // タブ（ターミナルの ID）に付けた名前。名前を保存する前の版のファイルにはない
+  names?: Record<string, string>;
   terminals: Record<string, SavedTerminal>;
   commands: QuickCommand[];
   // 下限を保存する前の版のファイルにはない
@@ -112,8 +115,16 @@ export function parseSavedSession(data: unknown): SavedSession | undefined {
     if (command && !commands.some((x) => x.id === c.id)) commands.push({ id: c.id as string, ...command });
   }
 
+  // 名前は全員の画面に出るので、届いたときと同じく整え直す
+  const savedNames = isObject(data.names) ? data.names : {};
+  const names: Record<string, string> = {};
+  for (const id of tabs) {
+    const name = typeof savedNames[id] === "string" ? sanitizeName(savedNames[id]) : undefined;
+    if (name !== undefined) names[id] = name;
+  }
+
   const minWindow = parseMinWindow(data.minWindow);
-  return { version: 2, cwd: String(data.cwd ?? ""), tabs, terminals, commands, ...(minWindow && { minWindow }) };
+  return { version: 2, cwd: String(data.cwd ?? ""), tabs, names, terminals, commands, ...(minWindow && { minWindow }) };
 }
 
 // タブの並び。ターミナルの ID が重なっていないこと

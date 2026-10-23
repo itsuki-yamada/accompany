@@ -7,6 +7,7 @@ import { Pane, type AgentStatus, type SelectionRange, type Viewer } from "./pane
 import { QuickCommands } from "./quick-commands";
 import { shortcutList, type Direction, type Shortcut } from "./shortcuts";
 import { Sidebar, type Tab } from "./sidebar";
+import { isEditingTabName } from "./tab-name";
 
 // 自分の表示。並べているタブ（ターミナル 1 つが 1 つのタブ）を葉に持つ分割の木。どのタブをどう並べるかは参加者ごとで、
 // サーバーが持って本人に配る（docs/adr/100-terminal-tabs.md）
@@ -137,6 +138,8 @@ const sidebar = new Sidebar(document.getElementById("sidebar")!, {
   closeTab: (id) => send({ type: "close", terminal: id }),
   // 並び順は全員で共有し、参加者ごとの表示は変えないので、ペアプロモードはやめない（docs/adr/139-tab-order.md）
   moveTab: (id, index) => send({ type: "move-tab", tab: id, index }),
+  // 名前は全員で共有する。整えるのはサーバー（docs/adr/110-tab-name.md）
+  renameTab: (id, name) => send({ type: "rename-tab", tab: id, name }),
   returnFocus: () => {
     const mine = members.find((m) => m.id === you)?.terminal;
     ((mine && panes.get(mine)) || panes.values().next().value)?.focus();
@@ -198,6 +201,7 @@ socket.onmessage = (event) => {
   } else if (message.type === "tabs") {
     tabs = message.tabs;
     panes.forEach((pane) => pane.setClosable(tabs.length > 1));
+    showTabNames();
   } else if (message.type === "view") {
     if (dragging) deferredView = message.layout;
     else renderView(message.layout);
@@ -248,10 +252,12 @@ function render(layout: Layout) {
   });
   showViewers();
   showSelections();
+  showTabNames();
   showTitles();
   showStatuses();
   if (pendingFocus && panes.has(pendingFocus)) {
-    focusPane(pendingFocus);
+    // タブをダブルクリックして名前を付け始めたときは、そのタブに切り替わっても、入力欄からキー入力の先を奪わない
+    if (!isEditingTabName()) focusPane(pendingFocus);
     pendingFocus = undefined;
   } else if (isFirstRender) panes.values().next().value?.focus();
   else if (lostFocus) nearestPane(lostFocus)?.focus();
@@ -291,6 +297,7 @@ function paneFor(id: string) {
         sendScroll();
       },
       shortcut: (shortcut) => runShortcut(id, shortcut),
+      rename: (name) => send({ type: "rename-tab", tab: id, name }),
       commands: () => quickCommands.list,
       minWindow: () => minWindow.current,
       loaded: finishLoadingIfReady,
@@ -480,6 +487,14 @@ function showSelections() {
   }
 }
 
+// タブの名前（付けた名前、なければ「ターミナル N」）を、ターミナルのバーに出す
+function showTabNames() {
+  for (const [id, pane] of panes) {
+    const tab = tabs.find((t) => t.id === id);
+    pane.setName(tab?.name ?? `ターミナル ${id}`, tab?.custom);
+  }
+}
+
 function showTitles() {
   panes.forEach((pane, id) => pane.setTitle(titles[id] ?? ""));
 }
@@ -495,7 +510,8 @@ function notifyFinished(previous: Record<string, AgentStatus>, next: Record<stri
   for (const [id, status] of Object.entries(next)) {
     if (previous[id] !== "working" || status === "working") continue;
     if (!document.hidden && panes.has(id) && focused === id) continue;
-    notifyDone(`ターミナル ${id}: 指示待ち`, () => focusTerminal(id));
+    const name = tabs.find((t) => t.id === id)?.name ?? `ターミナル ${id}`;
+    notifyDone(`${name}: 指示待ち`, () => focusTerminal(id));
   }
 }
 

@@ -1,13 +1,14 @@
 // サイドメニュー。タブ（ターミナル 1 つが 1 つのタブ）の一覧を、状態・タイトル・フォーカスしている参加者とともに出す。
 // 出す・隠すは参加者ごとで、ブラウザに覚えておく（docs/adr/72-sidebar.md）。隠している間は、ツールバーにタブを並べる
 // （docs/adr/100-terminal-tabs.md）。タブはドラッグ、Alt+矢印、右クリックのメニューで並べ替えられ、並びは全員で共有する
-// （docs/adr/139-tab-order.md）
+// （docs/adr/139-tab-order.md）。タブの名前のダブルクリックか右クリックのメニューで、タブに名前を付けられる（docs/adr/110-tab-name.md）
 import { showContextMenu } from "./context-menu";
 import { statusDescriptions, statusLabels, type AgentStatus } from "./pane";
 import { shortcutFor, withKeys } from "./shortcuts";
+import { editTabName } from "./tab-name";
 
-// サーバーから届く、タブの並び
-export type Tab = { id: string; name: string };
+// サーバーから届く、タブの並び。name は画面に出す名前、custom は参加者が付けた名前（付けていなければない）
+export type Tab = { id: string; name: string; custom?: string };
 type Member = { id: number; name: string; color: string; terminal?: string };
 
 export type SidebarState = {
@@ -31,6 +32,8 @@ export type SidebarActions = {
   closeTab: (id: string) => void;
   // タブを並びの index 番目（並べ替えたあとの位置）へ移す
   moveTab: (id: string, index: number) => void;
+  // タブに名前を付ける。空なら名前をやめる
+  renameTab: (id: string, name: string) => void;
   // サイドメニューから、表示中のターミナルにキー入力の先を戻す
   returnFocus: () => void;
 };
@@ -50,6 +53,8 @@ export class Sidebar {
   private state: SidebarState | undefined;
   // ドラッグしているタブ。ドラッグしている間は、組み直すとドラッグしている要素がなくなるので、届いた状態は手を離してから出す
   private dragged: string | undefined;
+  // 名前を付けている途中か。組み直すと入力欄がなくなるので、ドラッグと同じく、届いた状態は閉じてから出す
+  private editing = false;
   private deferred: SidebarState | undefined;
 
   constructor(
@@ -111,7 +116,7 @@ export class Sidebar {
   }
 
   update(state: SidebarState) {
-    if (this.dragged !== undefined) {
+    if (this.dragged !== undefined || this.editing) {
       this.deferred = state;
       return;
     }
@@ -160,6 +165,8 @@ export class Sidebar {
         const label = document.createElement("span");
         label.className = "session-name";
         label.textContent = tab.name;
+        // 長い名前は末尾を省くので、全文はツールチップで見る
+        label.title = tab.name;
         line.append(label);
         select.append(line);
         const title = titles[id];
@@ -205,7 +212,7 @@ export class Sidebar {
         const status = state.statuses[tab.id];
         if (status) item.dataset.status = status;
         select.textContent = tab.name;
-        select.title = [state.titles[tab.id], status && statusLabels[status]].filter(Boolean).join(" ・ ");
+        select.title = [tab.name, state.titles[tab.id], status && statusLabels[status]].filter(Boolean).join(" ・ ");
         item.append(select, ...this.tabActions(tab, state));
         this.enableDrag(item, tab.id, false);
         return item;
@@ -251,6 +258,7 @@ export class Sidebar {
       const at = event.clientX || event.clientY ? event : select.getBoundingClientRect();
       this.openMenu(tab, at.x, at.y, this.list.contains(select));
     });
+    select.addEventListener("dblclick", () => this.rename(tab.id));
     return select;
   }
 
@@ -266,6 +274,8 @@ export class Sidebar {
       [
         { label: before, disabled: index <= 0, action: () => this.move(tab.id, index - 1) },
         { label: after, disabled: index < 0 || index >= tabs.length - 1, action: () => this.move(tab.id, index + 1) },
+        "separator",
+        { label: "名前を変更…", action: () => this.rename(tab.id) },
       ],
       () => this.focusTab(tab.id),
     );
@@ -281,6 +291,31 @@ export class Sidebar {
     tabs.splice(index, 0, moved);
     this.update({ ...this.state, tabs });
     this.actions.moveTab(id, index);
+  }
+
+  // 出ている方（サイドメニューかツールバー）のタブの場所に、名前の入力欄を出す。Enter・Esc で閉じたら、タブにキー入力の先を戻す
+  private rename(id: string) {
+    const tab = this.state?.tabs.find((t) => t.id === id);
+    const scope = this.visible ? this.element : this.strip;
+    const select = scope.querySelector<HTMLElement>(`[data-key="tab-${id}"]`);
+    if (!tab || !select || this.editing) return;
+    this.editing = true;
+    // 入力欄の中で文字を選ぶときに、タブのドラッグを始めない
+    const draggable = select.parentElement;
+    if (draggable) draggable.draggable = false;
+    editTabName(select, {
+      value: tab.custom ?? "",
+      placeholder: `ターミナル ${id}`,
+      commit: (name) => this.actions.renameTab(id, name),
+      finish: (keyboard) => {
+        if (draggable) draggable.draggable = true;
+        this.editing = false;
+        const deferred = this.deferred;
+        this.deferred = undefined;
+        if (deferred) this.update(deferred);
+        if (keyboard) this.focusTab(id);
+      },
+    });
   }
 
   // 出ている方（サイドメニューかツールバー）のタブにキー入力の先を移す
@@ -337,11 +372,12 @@ export class Sidebar {
       const dragged = this.dragged;
       if (dragged === undefined) return;
       event.preventDefault();
-      const tabs = this.state?.tabs ?? [];
-      const rest = tabs.map((t) => t.id).filter((t) => t !== dragged);
-      const index = rest.indexOf(id) + (placeOf(event) === "after" ? 1 : 0);
+      const place = placeOf(event);
+      // ドラッグしている間に届いた並び（ほかの参加者の並べ替えなど）を先に出してから、その並びで位置を数える
       this.endDrag();
-      if (dragged !== id && index >= 0) this.move(dragged, index);
+      const rest = (this.state?.tabs ?? []).map((t) => t.id).filter((t) => t !== dragged);
+      const index = rest.indexOf(id) + (place === "after" ? 1 : 0);
+      if (dragged !== id && rest.includes(id)) this.move(dragged, index);
     });
   }
 

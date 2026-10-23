@@ -2,11 +2,11 @@
 // このブラウザに保存し、つないだときと変えたときにサーバーへ送る。整えるのはサーバー（docs/adr/96-member-name.md）
 const storageKey = "accompany.name";
 // サーバーの上限（app/server/src/member-name.ts の maxNameLength）と同じ。見た目の 1 文字（書記素）で数える
-const maxNameLength = 32;
+export const maxNameLength = 32;
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 // 前後の空白を除き、上限の文字数までに切り詰める。入力欄の maxLength は UTF-16 の単位で数え、絵文字を途中で切るので使わない
-function trimName(name: string) {
+export function trimName(name: string) {
   return [...graphemes.segment(name.trim())]
     .slice(0, maxNameLength)
     .map((s) => s.segment)
