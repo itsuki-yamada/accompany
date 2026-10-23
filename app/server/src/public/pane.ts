@@ -3,6 +3,7 @@ import { Terminal, type IMarker } from "@xterm/xterm";
 import { scrollback } from "../scrollback";
 import { TrimmedLines } from "../trimmed-lines";
 import { themeColors, type Appearance } from "./appearance";
+import { ClipboardPrompt } from "./clipboard";
 import { acceptFileDrop } from "./file-drop";
 import { isSearchKey, SearchBar } from "./search";
 import { showContextMenu } from "./context-menu";
@@ -108,6 +109,8 @@ export class Pane {
   private search: SearchBar;
   private notice = document.createElement("div");
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  // アプリが OSC 52 で頼んだクリップボードへの書き込み（docs/adr/113-osc52-clipboard.md）
+  private clipboard = new ClipboardPrompt((text) => this.showNotice(text));
   // 開いている右クリックメニューを閉じる。ターミナルがなくなったら、メニューも閉じる
   private closeMenu = () => {};
   // ほかの参加者の選択範囲。受け取ったものと、行に印を置いたもの、それを描く層
@@ -202,7 +205,7 @@ export class Pane {
     this.notice.className = "pane-notice";
     this.notice.setAttribute("role", "alert");
     this.notice.hidden = true;
-    this.element.append(bar, this.search.element, container, this.notice);
+    this.element.append(bar, this.search.element, container, this.notice, this.clipboard.element);
 
     // 検索バーを開くキーとキーボードショートカットは、xterm やブラウザ（ページ内検索など）より先に拾う
     this.element.addEventListener(
@@ -262,6 +265,10 @@ export class Pane {
         } else if (message.type === "trimmed" && this.firstOutput) {
           // 途中から開いたときは、サーバー側の画面がそれまでに押し出していた行の数から数え始める
           this.trimmed.count = message.lines;
+        } else if (message.type === "clipboard" && typeof message.text === "string") {
+          this.clipboard.request(message.text);
+        } else if (message.type === "clipboard-too-large") {
+          this.clipboard.tooLarge();
         } else if (message.type === "restored" && !this.loaded) {
           // 届いた画面を書き終えてから知らせる
           this.terminal.write("", () => {

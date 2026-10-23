@@ -2,6 +2,7 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import { Terminal } from "@xterm/headless";
 import type { Subprocess } from "bun";
 import { ActivityMonitor, type AgentStatus } from "./activity";
+import { type ClipboardRequest, parseClipboardRequest } from "./clipboard";
 import { type Foreground, foregroundOf } from "./agent-detect";
 import { processCwd } from "./process-cwd";
 import { scrollback } from "./scrollback";
@@ -26,7 +27,9 @@ export type Message =
   | { type: "trimmed"; lines: number }
   // つないだときの画面を送り終えた。画面が空のときは output を送らないので、ブラウザはこれで読み込みを終えたと分かる
   // （docs/adr/111-loading.md）
-  | { type: "restored" };
+  | { type: "restored" }
+  // アプリが OSC 52 で頼んだクリップボードへの書き込み。最後に入力した参加者にだけ送る（docs/adr/113-osc52-clipboard.md）
+  | ClipboardRequest;
 type Listener = (message: Message) => void;
 
 // 参加者のブラウザから届く大きさ。fits は表示領域（フル HD までとみなす）に収まる大きさ、
@@ -35,6 +38,7 @@ type Listener = (message: Message) => void;
 export type Requested = { fits: Size; min?: Size };
 
 export type Participant = {
+  write: (data: string) => void;
   resize: (requested: Requested) => void;
   detach: () => void;
 };
@@ -64,6 +68,9 @@ export class TerminalSession {
   // 下限より表示領域の小さい参加者は、はみ出した部分をスクロールするか、縮小して見る（docs/adr/99-smallest-size.md）
   private size: Size = { cols: 80, rows: 24 };
   private requestedSizes = new Map<Listener, Requested>();
+  // 最後にこのターミナルへ入力した参加者。アプリが OSC 52 で頼んだクリップボードへの書き込みは、この人にだけ送る。
+  // 抜けたら誰にも送らない（docs/adr/113-osc52-clipboard.md）
+  private lastWriter: Listener | undefined;
   // 途中から参加したブラウザに現在の画面を送るため、PTY の出力をサーバー側の端末にも反映しておく
   private screen = new Terminal({ ...this.size, scrollback, allowProposedApi: true });
   private serializer = new SerializeAddon();
@@ -135,6 +142,13 @@ export class TerminalSession {
       this.title = sanitized;
       this.onTitleChange();
     });
+    // OSC 52 はサーバー側の画面（書き出して途中から参加した人に送るもの、保存するもの）には残らないので、
+    // ここで読んで、最後に入力した参加者に送る。ブラウザの端末は OSC 52 を扱わない（docs/adr/113-osc52-clipboard.md）
+    this.screen.parser.registerOscHandler(52, (data) => {
+      const request = parseClipboardRequest(data);
+      if (request) this.lastWriter?.(request);
+      return true;
+    });
     for (const [final, enabled] of [["h", true], ["l", false]] as const) {
       this.screen.parser.registerCsiHandler({ prefix: "?", final }, (params) => {
         if (params.includes(25)) this.cursorHidden = !enabled;
@@ -198,12 +212,17 @@ export class TerminalSession {
     }
 
     return {
+      write: (data) => {
+        this.lastWriter = receive;
+        this.write(data);
+      },
       resize: (requested) => {
         this.requestedSizes.set(receive, requested);
         this.fitToSmallest();
       },
       detach: () => {
         this.listeners.delete(receive);
+        if (this.lastWriter === receive) this.lastWriter = undefined;
         this.requestedSizes.delete(receive);
         this.fitToSmallest();
       },

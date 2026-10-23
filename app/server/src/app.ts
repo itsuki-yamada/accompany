@@ -173,7 +173,7 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
         onMessage: (event) => {
           const message = parseJson(event.data);
           if (message?.type === "input" && typeof message.data === "string") {
-            session.write(message.data);
+            participant?.write(message.data);
           } else if (message?.type === "reset") {
             session.reset();
           } else if (message?.type === "resize") {

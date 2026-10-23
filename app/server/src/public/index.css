@@ -568,6 +568,41 @@ body[data-pair-mode="following"] .pane-bar {
   display: none;
 }
 
+/* アプリが OSC 52 で頼んだコピーを、ブラウザが断ったときに出す。押すとクリップボードに入れる（docs/adr/113-osc52-clipboard.md） */
+.pane-clipboard {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: #1f3a5a;
+  color: #fff;
+  font-size: 12px;
+}
+
+.pane-clipboard[hidden] {
+  display: none;
+}
+
+.pane-clipboard span {
+  flex: 1;
+}
+
+.pane-clipboard button {
+  font: inherit;
+  color: inherit;
+  background: #2f5a8a;
+  border: 1px solid #6a9ad0;
+  border-radius: 3px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
 /* キーボードショートカットの一覧。ツールバーのボタンで開き、Escape や外側のクリックで閉じる */
 .shortcut-list {
   padding: 12px 16px;
