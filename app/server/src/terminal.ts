@@ -47,6 +47,9 @@ export const restartedMark = "── Accompany を再起動しました ──";
 // 入出力があってから、この時間を置いて前面のプロセスを調べる。出力のたびには調べない（docs/adr/70-agent-detection.md）
 const detectDelayMs = 500;
 
+// 保存のためにカレントディレクトリを調べるのを待つ上限。止めるときの保存（最大 3 秒待つ）に収まるようにする
+const cwdLookupTimeoutMs = 1500;
+
 // 再起動の前のサーバー側の画面。大きさは、書き出したときの端末の大きさ
 export type Restored = Size & { scrollback: string };
 
@@ -84,6 +87,9 @@ export class TerminalSession {
   // 作業が終わってから、まだ誰も見ていない（docs/adr/74-unseen-done.md）。保存はしない
   private unseen = false;
   private startDir: string | undefined;
+  // 保存のために最後に調べたカレントディレクトリと、そのあとに入力があったか（docs/adr/151-restore-cwd.md）
+  private lastCwd: string | undefined;
+  private inputSinceCwd = true;
 
   constructor(
     private command: string[],
@@ -103,6 +109,7 @@ export class TerminalSession {
     }: { restored?: Restored; onOutput?: () => void; cwd?: string } = {},
   ) {
     this.startDir = cwd;
+    this.lastCwd = cwd;
     this.onOutput = onOutput;
     this.onStatus = onStatus;
     // エージェントが前面にいないときの判定の変化は知らせない。作業中から指示待ちに変わったら、誰かが見るまで未確認にする
@@ -218,7 +225,19 @@ export class TerminalSession {
     return (found && (await processCwd(found.foreground.pgid))) ?? (await processCwd(pid));
   }
 
+  // 保存するカレントディレクトリ。保存のたびに ps と lsof を動かさないよう、ふだんは前に調べてから入力があったときだけ調べ直す
+  // （cd は入力して動かすので）。止めるとき（refresh）は、入力がなくても前面のコマンドが終わっているかもしれないので必ず調べる。
+  // 調べるのは cwdLookupTimeoutMs までで、調べられなければ前に調べたものを使う。まだ起動していなければ、起動するディレクトリ
+  async savedCwd({ refresh = false } = {}) {
+    if (this.proc === undefined || (!refresh && !this.inputSinceCwd)) return this.lastCwd;
+    this.inputSinceCwd = false;
+    const found = await Promise.race([this.cwd(), Bun.sleep(cwdLookupTimeoutMs).then(() => undefined)]);
+    if (found) this.lastCwd = found;
+    return this.lastCwd;
+  }
+
   write(data: string) {
+    this.inputSinceCwd = true;
     this.activity.input(data);
     this.scheduleDetect();
     this.proc?.terminal?.write(data);

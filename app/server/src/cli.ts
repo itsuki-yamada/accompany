@@ -57,9 +57,9 @@ const server = Bun.serve({
 
 // 保存できないことが続いても（書き込めない保存先など）、警告は保存できるようになるまで 1 回だけ出す
 let saveFailed = false;
-async function save() {
+async function save({ stopping = false } = {}) {
   try {
-    store.save(await workspace.snapshot(cwd));
+    store.save(await workspace.snapshot(cwd, { refreshCwd: stopping }));
     saveFailed = false;
   } catch (error) {
     if (!saveFailed) console.warn(`Accompany: 画面を保存できませんでした: ${error}`);
@@ -91,7 +91,7 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     if (stopping) return;
     stopping = true;
     clearTimeout(saveTimer);
-    await Promise.race([save(), Bun.sleep(stopSaveTimeoutMs)]);
+    await Promise.race([save({ stopping: true }), Bun.sleep(stopSaveTimeoutMs)]);
     workspace.killAll();
     uploads.remove();
     process.exit(0);

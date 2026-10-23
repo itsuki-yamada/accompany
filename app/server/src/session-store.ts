@@ -14,6 +14,9 @@ export type SavedTerminal = Size & {
   scrollback: string;
   // 起動時のコマンドを動かしていたターミナルか
   initial: boolean;
+  // シェル（前面のプロセス）のカレントディレクトリ。開き直したときにここでシェルを始める（docs/adr/151-restore-cwd.md）。
+  // ディレクトリを保存する前の版のファイルや、調べられなかったターミナルにはない
+  cwd?: string;
 };
 export type SavedSession = {
   version: 2;
@@ -106,6 +109,7 @@ export function parseSavedSession(data: unknown): SavedSession | undefined {
       ...(isObject(t) && isSize(t) ? clampSize({ cols: t.cols, rows: t.rows }) : { cols: 80, rows: 24 }),
       scrollback: isObject(t) && typeof t.scrollback === "string" ? t.scrollback : "",
       initial: isObject(t) && t.initial === true,
+      ...(isObject(t) && isDirPath(t.cwd) && { cwd: t.cwd }),
     };
   }
 
@@ -169,6 +173,11 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function isNumericId(value: unknown): value is string {
   return typeof value === "string" && /^[1-9]\d{0,8}$/.test(value);
+}
+
+// 絶対パスのときだけ使う。相対パスだと、Accompany を起動したディレクトリからの場所として扱われてしまう
+function isDirPath(value: unknown): value is string {
+  return typeof value === "string" && isAbsolute(value) && !value.includes("\0");
 }
 
 function isSize(value: Record<string, unknown>): value is Record<string, unknown> & Size {
