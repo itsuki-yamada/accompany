@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 // 最初に読み込み、古い Bun では、ほかのモジュールを動かす前に終了する
 import "./require-bun";
-import { parseArgs } from "node:util";
 import { websocket } from "hono/bun";
 import { createApp } from "./app";
+import { parseCliArgs } from "./cli-args";
 import index from "./public/index.html";
 import { maxMinWindow, parseMinWindowOption } from "./min-window";
 import { SessionStore, stateDir } from "./session-store";
@@ -11,18 +11,11 @@ import { compressedRoutes } from "./static-assets";
 import { Uploads } from "./uploads";
 import { Workspace } from "./workspace";
 
-// accompany [--port <port>] [--fresh] [--min-window <幅>x<高さ>] [-- <command...>]
+// accompany [--port <port>] [--fresh] [--min-window <幅>x<高さ>] [-v | --version] [-h | --help] [-- <command...>]
 // --fresh: 前回の画面の配置とスクロールバックを戻さずに、新しく始める
 // --min-window: 端末の大きさの下限を、ウィンドウの大きさ（ピクセル）で指定する。保存した下限より優先し、保存はしない
 // （docs/adr/99-smallest-size.md）
-const { values, positionals } = parseArgs({
-  options: {
-    port: { type: "string", default: "3000" },
-    fresh: { type: "boolean", default: false },
-    "min-window": { type: "string" },
-  },
-  allowPositionals: true,
-});
+const { values, positionals } = parseCliArgs();
 const minWindowOption = values["min-window"];
 const minWindow = minWindowOption === undefined ? undefined : parseMinWindowOption(minWindowOption);
 if (minWindowOption !== undefined && !minWindow) {

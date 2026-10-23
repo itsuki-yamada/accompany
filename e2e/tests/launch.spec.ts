@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,6 +36,59 @@ test("起動の引数が誤っていると、エラーを表示して終了コ�
   });
 
   expect(result.stdout + result.stderr).toContain("--min-window は「幅x高さ」");
+  expect(result.status).toBe(1);
+});
+
+// 起動せずに終わる引数（版・使い方・誤った引数）を付けて実行する
+function runWithArgs(args: string) {
+  return spawnSync(`${accompanyCommand()} ${args}`, {
+    cwd: repoRoot,
+    shell: true,
+    encoding: "utf8",
+    env: { ...process.env, ACCOMPANY_STATE_DIR: stateDir },
+    timeout: 30_000,
+  });
+}
+
+const { version } = JSON.parse(readFileSync(join(repoRoot, "app/server/package.json"), "utf8"));
+
+for (const flag of ["--version", "-v"]) {
+  test(`${flag} を付けると、版を表示して終了コード 0 で終わる`, () => {
+    const result = runWithArgs(flag);
+
+    expect(result.stdout.trim()).toBe(`accompany ${version}`);
+    expect(result.status).toBe(0);
+  });
+}
+
+for (const flag of ["--help", "-h"]) {
+  test(`${flag} を付けると、使い方を表示して終了コード 0 で終わる`, () => {
+    const result = runWithArgs(flag);
+
+    expect(result.stdout).toContain("使い方: accompany [オプション] [-- <コマンド...>]");
+    for (const option of ["--port", "--fresh", "--min-window", "--version", "--help"]) {
+      expect(result.stdout).toContain(option);
+    }
+    expect(result.status).toBe(0);
+  });
+}
+
+test("知らないオプションを付けると、例外のスタックではなく短いエラーと使い方を表示して終了コード 1 で終わる", () => {
+  const result = runWithArgs("--no-such-option");
+
+  expect(result.stderr).toContain("Accompany: 知らないオプションです: --no-such-option");
+  expect(result.stderr).toContain("使い方: accompany [オプション] [-- <コマンド...>]");
+  // スタック（「at …」の行）や例外の名前を出さない
+  expect(result.stderr).not.toMatch(/TypeError|ERR_PARSE_ARGS|^\s+at /m);
+  expect(result.status).toBe(1);
+});
+
+test("値の要るオプションに値がないと、短いエラーと使い方を表示して終了コード 1 で終わる", () => {
+  const result = runWithArgs("--port");
+
+  expect(result.stderr).toContain("Accompany: --port には値が要ります");
+  expect(result.stderr).toContain("使い方: accompany [オプション] [-- <コマンド...>]");
+  expect(result.stderr).not.toMatch(/TypeError|ERR_PARSE_ARGS|^\s+at /m);
   expect(result.status).toBe(1);
 });
 
