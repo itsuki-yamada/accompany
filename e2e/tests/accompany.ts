@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -55,12 +56,15 @@ export function startAccompany(
     detached: true,
     env: { ...process.env, ...(ownStateDir && { ACCOMPANY_STATE_DIR: ownStateDir }), ...env },
   });
-  // 次のテストが同じポートで起動できるよう、プロセスグループ全体が終わるまで待つ。
+  // 次のテストが同じポートで起動できるよう、プロセスグループ全体が終わり、ポートが空くまで待つ。
+  // 終了している途中のプロセスは、グループの確かめ（isAlive）では見つからないが、まだポートで待ち受けていることがある（docs/adr/145-wait-port-free.md）
+  let listening: URL | undefined;
   const stop = async (signal: NodeJS.Signals = "SIGTERM", { onlyCommand = false } = {}) => {
     const pgid = child.pid;
     if (!pgid) return;
     if (isAlive(pgid)) process.kill(onlyCommand ? pgid : -pgid, signal);
-    while (isAlive(pgid)) await new Promise((r) => setTimeout(r, 20));
+    while (isAlive(pgid)) await sleep(20);
+    if (listening) await waitUntilFree(listening.hostname, Number(listening.port));
     if (ownStateDir) rmSync(join(ownStateDir, ".."), { recursive: true, force: true });
   };
 
@@ -69,13 +73,34 @@ export function startAccompany(
     const onData = (chunk: Buffer) => {
       output += chunk.toString();
       const url = output.match(/https?:\/\/\S+/)?.[0];
-      if (url) resolve({ url, stop });
+      if (!url) return;
+      listening = new URL(url);
+      resolve({ url, stop });
     };
     child.stdout?.on("data", onData);
     child.stderr?.on("data", onData);
     child.on("exit", (code) =>
       reject(new Error(`Accompany が URL を表示する前に終了した (code: ${code})\n${output}`)),
     );
+  });
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// 同じアドレスとポートで待ち受けられるようになるまで待つ。空かないままなら、次のテストの起動ではなくここで落とす
+async function waitUntilFree(hostname: string, port: number, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await canListen(hostname, port))) {
+    if (Date.now() > deadline) throw new Error(`Accompany を止めたあと ${timeoutMs} ms たっても、${hostname}:${port} が空かない`);
+    await sleep(20);
+  }
+}
+
+function canListen(hostname: string, port: number) {
+  return new Promise<boolean>((resolve) => {
+    const server = createServer();
+    server.once("error", () => resolve(false));
+    server.listen(port, hostname, () => server.close(() => resolve(true)));
   });
 }
 
