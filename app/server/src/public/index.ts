@@ -392,6 +392,8 @@ function runShortcut(terminal: string, shortcut: Shortcut) {
       return sidebar.toggle();
     case "focus-sidebar":
       return sidebar.focus();
+    case "copy-last-output":
+      return void panes.get(terminal)?.copyLastOutput();
   }
 }
 
