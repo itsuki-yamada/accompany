@@ -111,7 +111,10 @@ export class Workspace {
     for (const id of saved.tabs) {
       const restored: SavedTerminal = saved.terminals[id]!;
       if (restored.initial) this.initialTerminal = id;
-      this.addTerminal(id, restored.initial ? (initialCommand ?? shellCommand) : shellCommand, restored);
+      // 戻したシェルは保存したディレクトリで始める。起動時のコマンドを指定したときは、そのコマンドは起動したディレクトリで動かす
+      // （docs/adr/151-restore-cwd.md）
+      const runsInitial = restored.initial && initialCommand !== undefined;
+      this.addTerminal(id, runsInitial ? initialCommand : shellCommand, restored, runsInitial ? undefined : restored.cwd);
     }
     for (const [id, name] of Object.entries(saved.names ?? {})) this.tabNames.set(id, name);
     this.commands = saved.commands;
@@ -122,12 +125,14 @@ export class Workspace {
     if (initialCommand && !this.initialTerminal) this.initialTerminal = this.createTerminal(initialCommand);
   }
 
-  // 保存するために、タブの並びとターミナルごとの画面、よく使うコマンドを書き出す。参加者ごとの表示は保存しない
-  async snapshot(cwd: string): Promise<SavedSession> {
+  // 保存するために、タブの並びとターミナルごとの画面とカレントディレクトリ、よく使うコマンドを書き出す。参加者ごとの表示は保存しない。
+  // refreshCwd は止めるときの保存で、カレントディレクトリを必ず調べ直す（docs/adr/151-restore-cwd.md）
+  async snapshot(cwd: string, { refreshCwd = false } = {}): Promise<SavedSession> {
     const terminals: Record<string, SavedTerminal> = {};
     await Promise.all(
       [...this.terminals].map(async ([id, t]) => {
-        terminals[id] = { ...(await t.snapshot()), initial: id === this.initialTerminal };
+        const [screen, dir] = await Promise.all([t.snapshot(), t.savedCwd({ refresh: refreshCwd })]);
+        terminals[id] = { ...screen, initial: id === this.initialTerminal, ...(dir && { cwd: dir }) };
       }),
     );
     return {
