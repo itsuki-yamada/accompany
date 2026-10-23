@@ -334,10 +334,14 @@ export class TerminalSession {
       if (previous?.agent) this.onStatus();
       return;
     }
-    // エージェントが前面になった（別のエージェントに替わった）ら、そこから判定を始める
+    // エージェントが前面になった（別のエージェントに替わった）ら、そこから判定を始める。
+    // ただし起動時のコマンド自身のプロセスグループ（番号は pid と同じ）は、シェルへの Enter で起動したものではないので、
+    // それまでの入出力を忘れない。見分ける前に出した最初の指示も数える（docs/adr/90-startup-agent.md）
     if (!previous?.agent || previous.pgid !== next.pgid) {
-      this.activity.reset();
-      this.unseen = false;
+      if (next.pgid !== pid) {
+        this.activity.reset();
+        this.unseen = false;
+      }
       this.onStatus();
     }
   }
