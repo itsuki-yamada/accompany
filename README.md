@@ -87,7 +87,7 @@ chmod +x accompany-*-darwin-arm64
 ./accompany-0.6.0-darwin-arm64
 ```
 
-表示された URL（`http://127.0.0.1:3000`）をブラウザで開く。起動のしかたは次のとおり（Homebrew で入れた `accompany` や、tarball から起動するときも同じ）。
+表示された URL（`http://127.0.0.1:3000`）をブラウザで開く。ポート（既定 3000、`--port` で指定したもの）がほかのプロセスに使われていたら、空いているポートまで 1 つずつ上げて（10 個まで）待ち受け、そのポートの URL を表示する。起動のしかたは次のとおり（Homebrew で入れた `accompany` や、tarball から起動するときも同じ）。
 
 ```sh
 ./accompany-0.6.0-darwin-arm64                 # 最初のターミナルで $SHELL を動かす
@@ -127,7 +127,7 @@ Bun 1.3 までは、画面の JS と CSS が読み込まれず、画面が空に
 
 1. ホストが、自分のマシンで Accompany を起動する（[使い方](#使い方)）。例: `./accompany-0.6.0-darwin-arm64 -- claude`。表示された `http://127.0.0.1:3000` を、ホスト自身のブラウザで開く
 2. ホストが VS Code で Live Share のセッションを始め、ゲストを招待する
-3. ホストが、Live Share のビュー（アクティビティバーの Live Share、またはエクスプローラーの Live Share）で **Share server**（サーバーの共有）を選び、Accompany のポート（既定は `3000`。`--port` で変えたときはその番号）を入力する。名前は任意（`Accompany` など）
+3. ホストが、Live Share のビュー（アクティビティバーの Live Share、またはエクスプローラーの Live Share）で **Share server**（サーバーの共有）を選び、Accompany のポート（起動したときに表示された URL のポート。既定は `3000`）を入力する。名前は任意（`Accompany` など）
 4. ゲストは、Live Share のビューの **Shared Servers** の一覧から Accompany を選ぶ（ブラウザで開く）か、自分のブラウザで `http://localhost:3000` を開く
 
 - ゲストの手元でそのポートが既に使われていると、Live Share は別のポートを割り当てる。そのときは **Shared Servers** の一覧に出るリンクを開く。ポート番号が変わっても、Accompany の制限には弾かれないはず（下記）

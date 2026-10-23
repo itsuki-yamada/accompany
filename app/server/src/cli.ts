@@ -3,7 +3,7 @@
 import "./require-bun";
 import { websocket } from "hono/bun";
 import { createApp } from "./app";
-import { parseCliArgs } from "./cli-args";
+import { maxPort, parseCliArgs } from "./cli-args";
 import index from "./public/index.html";
 import { maxMinWindow, parseMinWindowOption } from "./min-window";
 import { SessionStore, stateDir } from "./session-store";
@@ -34,19 +34,45 @@ const workspace = new Workspace(positionals.length > 0 ? positionals : undefined
 const uploads = new Uploads();
 const app = createApp(workspace, uploads);
 
-// 認証がないため、同じネットワークの他のマシンからは操作できないよう loopback だけで待ち受ける
-const server = Bun.serve({
-  hostname: "127.0.0.1",
-  port: Number(values.port),
-  development: false,
-  // 本番モードの既定では同じポートで二重に待ち受けてしまい、接続がどちらのコマンドにつながるか分からなくなる
-  reusePort: false,
-  routes: await compressedRoutes(index),
-  fetch: app.fetch,
-  // 途中から開いた人に送る画面（スクロールバックを含む）は大きいので、圧縮して送れるようにする。
-  // 何を圧縮するかは送るときに決める（docs/adr/111-loading.md）
-  websocket: { ...websocket, perMessageDeflate: true },
-});
+// 指定したポート（既定 3000）が使われていたら、空いているポートまで 1 つずつ上げて待ち受ける。
+// 上げるのは portAttempts 個まで（docs/adr/152-free-port.md）
+const portAttempts = 10;
+const requestedPort = Number(values.port);
+const routes = await compressedRoutes(index);
+let server: ReturnType<typeof Bun.serve> | undefined;
+for (let port = requestedPort; port < requestedPort + portAttempts && port <= maxPort; port++) {
+  try {
+    // 認証がないため、同じネットワークの他のマシンからは操作できないよう loopback だけで待ち受ける
+    server = Bun.serve({
+      hostname: "127.0.0.1",
+      port,
+      development: false,
+      // 本番モードの既定では同じポートで二重に待ち受けてしまい、接続がどちらのコマンドにつながるか分からなくなる
+      reusePort: false,
+      routes,
+      fetch: app.fetch,
+      // 途中から開いた人に送る画面（スクロールバックを含む）は大きいので、圧縮して送れるようにする。
+      // 何を圧縮するかは送るときに決める（docs/adr/111-loading.md）
+      websocket: { ...websocket, perMessageDeflate: true },
+    });
+    break;
+  } catch (error) {
+    if ((error as { code?: unknown }).code !== "EADDRINUSE") throw error;
+  }
+}
+if (!server) {
+  const last = Math.min(requestedPort + portAttempts - 1, maxPort);
+  console.error(
+    `Accompany: ポート ${requestedPort}〜${last} はすべて使われています。--port で別のポートを指定してください`,
+  );
+  // 最初のターミナルのコマンドは、待ち受ける前に起動しているので、残さずに止める
+  workspace.killAll();
+  uploads.remove();
+  process.exit(1);
+}
+if (server.port !== requestedPort && requestedPort !== 0) {
+  console.log(`Accompany: ポート ${requestedPort} は使われているので、${server.port} で待ち受けます`);
+}
 
 // 保存できないことが続いても（書き込めない保存先など）、警告は保存できるようになるまで 1 回だけ出す
 let saveFailed = false;
