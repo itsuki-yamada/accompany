@@ -1,7 +1,11 @@
+import { spawnSync } from "node:child_process";
+import { createServer, type Server } from "node:net";
+import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { startAccompany, testPort, type Accompany } from "./accompany";
+import { accompanyCommand, newStateDir, startAccompany, testPort, type Accompany } from "./accompany";
 import { expectTerminalToShow, typeInTerminal } from "./terminal";
 
+const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const fakeAgent = ["--", "bun", "e2e/fixtures/fake-agent.ts"];
 
 let accompany: Accompany | undefined;
@@ -44,12 +48,49 @@ test("--port で指定したポートで起動する", async ({ page }) => {
   await expectTerminalToShow(page, "Fake Agent ready");
 });
 
-test("同じポートで Accompany が動いているときは、起動に失敗する", async () => {
+// ポートが使われていたら、空いているポートまで 1 つずつ上げて起動する。同じポートで二重に待ち受けると、
+// ブラウザの接続がどちらのコマンドにつながるか分からなくなるので、同じポートでは待ち受けない（docs/adr/152-free-port.md）
+test("同じポートで Accompany が動いているときは、次の空いているポートで起動し、そのポートを表示する", async ({ page }) => {
   accompany = await startAccompany(["--port", testPort(2), ...fakeAgent]);
 
-  // 二重に待ち受けると、ブラウザの接続がどちらのコマンドにつながるか分からなくなる
-  const second = await startAccompany(["--port", testPort(2), ...fakeAgent]).catch((e: Error) => e);
-  if (!(second instanceof Error)) await second.stop();
-
-  expect(second).toBeInstanceOf(Error);
+  const second = await startAccompany(["--port", testPort(2), "--", "bun", "e2e/fixtures/line-printer.ts"]);
+  try {
+    expect(new URL(second.url).port).toBe(testPort(3));
+    await page.goto(second.url);
+    await expectTerminalToShow(page, "Line printer ready");
+    // 先に起動した Accompany は、元のポートでそのまま使える
+    await page.goto(accompany.url);
+    await expectTerminalToShow(page, "Fake Agent ready");
+  } finally {
+    await second.stop();
+  }
 });
+
+test("指定したポートから上限（10 個）まですべて使われていると、エラーを表示して終了コード 1 で終わる", async () => {
+  const ports = Array.from({ length: 10 }, (_, i) => testPort(2 + i));
+  const servers = await Promise.all(ports.map(listen));
+  try {
+    const result = spawnSync(`${accompanyCommand()} --port ${testPort(2)} --min-window 0x0`, {
+      cwd: repoRoot,
+      shell: true,
+      encoding: "utf8",
+      env: { ...process.env, ACCOMPANY_STATE_DIR: newStateDir() },
+      timeout: 30_000,
+    });
+
+    expect(result.stderr).toContain(`Accompany: ポート ${ports[0]}〜${ports.at(-1)} はすべて使われています`);
+    expect(result.stdout + result.stderr).not.toMatch(/https?:\/\//);
+    expect(result.status).toBe(1);
+  } finally {
+    await Promise.all(servers.map((server) => new Promise((resolve) => server.close(resolve))));
+  }
+});
+
+// Accompany ではないプロセスが、port で待ち受ける
+function listen(port: string) {
+  return new Promise<Server>((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(Number(port), "127.0.0.1", () => resolve(server));
+  });
+}
