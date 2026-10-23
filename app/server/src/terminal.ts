@@ -2,7 +2,7 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import { Terminal } from "@xterm/headless";
 import type { Subprocess } from "bun";
 import { ActivityMonitor, type AgentStatus } from "./activity";
-import { type Foreground, foregroundOf } from "./agent-detect";
+import { type Foreground, foregroundOf, isAgentCommand } from "./agent-detect";
 import { processCwd } from "./process-cwd";
 import { scrollback } from "./scrollback";
 import { TrimmedLines } from "./trimmed-lines";
@@ -96,6 +96,8 @@ export class TerminalSession {
   private cwdCheckedAt = Number.NEGATIVE_INFINITY;
   private cwdPgid: number | undefined;
   private lastInputAt = Number.NEGATIVE_INFINITY;
+  // 起動時のコマンドが、エージェントとみなす名前のものか（docs/adr/90-startup-agent.md）
+  private startedAsAgent: boolean;
 
   constructor(
     private command: string[],
@@ -115,6 +117,7 @@ export class TerminalSession {
     }: { restored?: Restored; onOutput?: () => void; cwd?: string } = {},
   ) {
     this.startDir = cwd;
+    this.startedAsAgent = isAgentCommand(command.join(" "));
     this.lastCwd = cwd;
     this.onOutput = onOutput;
     this.onStatus = onStatus;
@@ -335,10 +338,11 @@ export class TerminalSession {
       return;
     }
     // エージェントが前面になった（別のエージェントに替わった）ら、そこから判定を始める。
-    // ただし起動時のコマンド自身のプロセスグループ（番号は pid と同じ）は、シェルへの Enter で起動したものではないので、
-    // それまでの入出力を忘れない。見分ける前に出した最初の指示も数える（docs/adr/90-startup-agent.md）
+    // ただし起動時のコマンドがエージェントとみなす名前で、そのプロセスグループ（番号は pid と同じ）が前面なら、
+    // シェルへの Enter で起動したものではないので、それまでの入出力を忘れない。見分ける前に出した最初の指示も数える。
+    // シェルで exec claude と打ったときも pid は同じだが、起動時のコマンドはシェルなので忘れる（docs/adr/90-startup-agent.md）
     if (!previous?.agent || previous.pgid !== next.pgid) {
-      if (next.pgid !== pid) {
+      if (!this.startedAsAgent || next.pgid !== pid) {
         this.activity.reset();
         this.unseen = false;
       }
