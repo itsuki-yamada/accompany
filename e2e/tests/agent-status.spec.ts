@@ -328,6 +328,27 @@ test("シェルから起動したエージェントを見分けて状態を出�
   await expect(pane(page, 1)).not.toHaveAttribute("data-agent");
 });
 
+test("起動時のコマンドとして動かしたエージェントは、見分ける前に出した最初の指示から作業中になり、終わると通知が出る", async ({
+  browser,
+}) => {
+  // 前面のプロセスを調べる ps を遅くし、エージェントだと見分ける前に最初の指示を出す
+  const psLog = join(mkdtempSync(join(tmpdir(), "accompany-e2e-ps-")), "ps.log");
+  writeFileSync(psLog, "");
+  accompany = await startAccompany(busyAgent, {
+    PATH: `${slowPsDir}:${process.env.PATH}`,
+    E2E_PS_LOG: psLog,
+    E2E_PS_DELAY: "1.5",
+  });
+  const page = await openAsParticipant(browser, accompany.url, "granted", true);
+  await expect(agentStatus(page, 1)).toBeHidden();
+
+  // 指示を出すと、作業中を経て終わり、通知が出る。ページが見えていないので、終わると未確認になる
+  await typeInPane(page, 1, "work\n");
+  await expect(agentStatus(page, 1)).toHaveText("作業中", { timeout: 8_000 });
+  await expect(agentStatus(page, 1)).toHaveText("未確認", { timeout: 10_000 });
+  await expect.poll(() => notificationTitles(page)).toEqual(["ターミナル 1: 指示待ち"]);
+});
+
 test("シェルで動かしたふつうのコマンドは、出力が続いて止まっても状態を出さず、通知もしない", async ({ browser }) => {
   accompany = await startAccompany([], realShell);
   const page = await openAsParticipant(browser, accompany.url, "granted", true, "$");
