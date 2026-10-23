@@ -116,6 +116,27 @@ test("止める操作を経ずに落ちても、少し前に保存したディ�
   await expectPwd(page, 1, dir);
 });
 
+test("開き直したあとに一度も開かなかったタブも、次に開き直したときに保存したディレクトリで始まる", async ({ browser }) => {
+  accompany = await start();
+  let page = await open(browser, accompany.url);
+  const dir = newDir();
+  await page.getByRole("button", { name: "新しいタブ" }).click();
+  await expectPaneToShow(page, 2, "$");
+  await cd(page, 2, dir);
+  await accompany.stop();
+
+  // 最初のタブだけを表示するので、タブ 2 のシェルは起動しないまま止める
+  accompany = await start();
+  page = await open(browser, accompany.url);
+  await accompany.stop();
+
+  accompany = await start();
+  page = await open(browser, accompany.url);
+  await tab(page, 2).click();
+
+  await expectPwd(page, 2, dir);
+});
+
 test("保存したディレクトリがなくなっていたら、Accompany を起動したディレクトリで始まる", async ({ browser }) => {
   accompany = await start();
   let page = await open(browser, accompany.url);
