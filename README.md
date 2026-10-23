@@ -95,6 +95,8 @@ chmod +x accompany-*-darwin-arm64
 ./accompany-0.6.0-darwin-arm64 --port 4000     # 待ち受けるポートを変える
 ./accompany-0.6.0-darwin-arm64 --fresh         # 前回の画面を戻さずに始める
 ./accompany-0.6.0-darwin-arm64 --min-window 960x1080  # 端末の大きさの下限を、ウィンドウの大きさ（ピクセル）で指定する（保存はしない）
+./accompany-0.6.0-darwin-arm64 --version       # 版を表示する（-v でもよい）
+./accompany-0.6.0-darwin-arm64 --help          # 使い方を表示する（-h でもよい）
 ```
 
 #### macOS で、ダウンロードしたファイルを実行できないとき
