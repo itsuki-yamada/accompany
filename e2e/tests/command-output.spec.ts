@@ -73,6 +73,50 @@ test("右クリックのメニューで、直前のコマンドの出力だけ�
   await expect(pane(page, 1).locator(".copied-output")).toHaveCount(0);
 });
 
+function copyButton(page: Page) {
+  return pane(page, 1).getByRole("button", { name: menuLabel });
+}
+
+test("ペインの右下のコピーのボタンで、直前のコマンドの出力をコピーする", async ({ browser }) => {
+  accompany = await startAccompany(promptShell);
+  const page = await open(browser, accompany.url);
+  await expectPaneToShow(page, 1, "Prompt shell ready");
+
+  // ペインの右下に小さく置く
+  const button = copyButton(page);
+  await expect(button).toBeVisible();
+  const paneBox = (await pane(page, 1).boundingBox())!;
+  const box = (await button.boundingBox())!;
+  expect(box.x + box.width).toBeGreaterThan(paneBox.x + paneBox.width - 60);
+  expect(box.y + box.height).toBeGreaterThan(paneBox.y + paneBox.height - 40);
+  expect(box.width).toBeLessThan(120);
+  expect(box.height).toBeLessThan(40);
+
+  // まだコマンドの出力がないときは押せず、理由をツールチップに出す
+  await expect(button).toBeDisabled();
+  await expect(button).toHaveAttribute("title", /まだコマンドを実行していません/);
+
+  await run(page, "echo first output", "first output");
+  await run(page, "lines 2 second", "second 2");
+  await expect(button).toBeEnabled();
+  await expect(button).toHaveAttribute("title", /直前のコマンドの出力をコピー（⌘⇧L \/ Ctrl\+Shift\+L）/);
+  await button.click();
+
+  await expect.poll(() => readClipboard(page)).toBe("second 1\nsecond 2");
+  await expect(pane(page, 1).locator(".copied-output").first()).toBeVisible();
+  // 押したあとも、キー入力の先はターミナルのまま
+  await expect(pane(page, 1).locator(".xterm-helper-textarea")).toBeFocused();
+});
+
+test("シェルの統合がないときは、コピーのボタンを押せず、シェルの統合が要ることを説明する", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await open(browser, accompany.url);
+  await expectPaneToShow(page, 1, "Fake Shell ready");
+
+  await expect(copyButton(page)).toBeDisabled();
+  await expect(copyButton(page)).toHaveAttribute("title", /シェルの統合が要ります/);
+});
+
 for (const modifier of ["Meta+Shift", "Control+Shift"] as const) {
   test(`${modifier}+L で、直前のコマンドの出力をコピーする`, async ({ browser }) => {
     accompany = await startAccompany(promptShell);
