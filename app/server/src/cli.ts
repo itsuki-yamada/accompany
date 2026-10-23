@@ -3,7 +3,7 @@
 import "./require-bun";
 import { websocket } from "hono/bun";
 import { createApp } from "./app";
-import { parseCliArgs } from "./cli-args";
+import { maxPort, parseCliArgs } from "./cli-args";
 import index from "./public/index.html";
 import { maxMinWindow, parseMinWindowOption } from "./min-window";
 import { SessionStore, stateDir } from "./session-store";
@@ -40,7 +40,7 @@ const portAttempts = 10;
 const requestedPort = Number(values.port);
 const routes = await compressedRoutes(index);
 let server: ReturnType<typeof Bun.serve> | undefined;
-for (let port = requestedPort; port < requestedPort + portAttempts && port <= 65535; port++) {
+for (let port = requestedPort; port < requestedPort + portAttempts && port <= maxPort; port++) {
   try {
     // 認証がないため、同じネットワークの他のマシンからは操作できないよう loopback だけで待ち受ける
     server = Bun.serve({
@@ -61,10 +61,13 @@ for (let port = requestedPort; port < requestedPort + portAttempts && port <= 65
   }
 }
 if (!server) {
-  const last = Math.min(requestedPort + portAttempts - 1, 65535);
+  const last = Math.min(requestedPort + portAttempts - 1, maxPort);
   console.error(
     `Accompany: ポート ${requestedPort}〜${last} はすべて使われています。--port で別のポートを指定してください`,
   );
+  // 最初のターミナルのコマンドは、待ち受ける前に起動しているので、残さずに止める
+  workspace.killAll();
+  uploads.remove();
   process.exit(1);
 }
 if (server.port !== requestedPort && requestedPort !== 0) {

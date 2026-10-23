@@ -7,7 +7,7 @@ export const usage = `使い方: accompany [オプション] [-- <コマンド..
 -- のあとに書いたコマンドを最初のターミナルで動かす（省略すると $SHELL）
 
 オプション:
-  --port <ポート>          待ち受けるポート（既定: 3000）
+  --port <ポート>          待ち受けるポート（既定: 3000。使われていたら、空いているポートまで上げる。10 個まで）
   --fresh                  前回の画面の配置とスクロールバックを戻さずに、新しく始める
   --min-window <幅>x<高さ>  端末の大きさの下限を、ウィンドウの大きさ（ピクセル）で指定する（例: 480x1080。保存はしない）
   -v, --version            版を表示する
@@ -41,8 +41,16 @@ export function parseCliArgs(args = process.argv.slice(2)) {
     console.log(`accompany ${version}`);
     process.exit(0);
   }
+  // 数でない値や範囲の外の値で、ポートを試さずに、値の誤りとして終わる（docs/adr/152-free-port.md）
+  const port = parsed.values.port;
+  if (!/^\d+$/.test(port) || Number(port) > maxPort) {
+    console.error(`Accompany: --port は 0〜${maxPort} の整数で指定してください: ${port}\n\n${usage}`);
+    process.exit(1);
+  }
   return parsed;
 }
+
+export const maxPort = 65535;
 
 // parseArgs の例外を、短い日本語の説明にする。知らない種類のものは、元の説明をそのまま使う
 function describe(error: unknown) {
@@ -54,7 +62,9 @@ function describe(error: unknown) {
   }
   if (code === "ERR_PARSE_ARGS_INVALID_OPTION_VALUE") {
     const option = message.match(/Option '(-[^\s']+)/)?.[1];
-    if (option && /argument missing/.test(message)) return `${option} には値が要ります`;
+    // 値の要るオプションのあとに別のオプションが続いたとき（--port --fresh）は ambiguous になる
+    if (option && /argument missing|argument is ambiguous/.test(message)) return `${option} には値が要ります`;
+    if (option && /does not take an argument/.test(message)) return `${option} は値を取りません`;
   }
   return message;
 }
