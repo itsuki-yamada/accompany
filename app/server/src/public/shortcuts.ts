@@ -10,8 +10,7 @@ export type Shortcut =
   | { type: "next-tab" }
   | { type: "previous-tab" }
   | { type: "toggle-sidebar" }
-  | { type: "focus-sidebar" }
-  | { type: "copy-last-output" };
+  | { type: "focus-sidebar" };
 
 // code はキーの位置（event.code）。Latin 以外の配列でも効くように、event.key（入力される文字）ではなく位置で判定する。
 // key は画面に出す表記。repeat は、押し続けたときに繰り返してよいか（分割・閉じる・新しいタブ・サイドメニューは 1 回だけにする）
@@ -36,14 +35,6 @@ const bindings: Binding[] = [
   // S は Sidebar、E は VS Code のエクスプローラーへ移るキー（⌘⇧E）にならう（docs/adr/72-sidebar.md）
   { label: "サイドメニューを出す・隠す", code: "KeyS", key: "S", repeat: false, shortcut: { type: "toggle-sidebar" } },
   { label: "サイドメニューへ移る", code: "KeyE", key: "E", repeat: false, shortcut: { type: "focus-sidebar" } },
-  // L は Last（直前）。C は Ctrl+Shift+C で開発者ツールになるので使わない（docs/adr/112-copy-last-output.md）
-  {
-    label: "直前のコマンドの出力をコピー",
-    code: "KeyL",
-    key: "L",
-    repeat: false,
-    shortcut: { type: "copy-last-output" },
-  },
 ];
 
 // 一覧にだけ出すマウスの操作（xterm が扱う）。マウスの報告モードを使うアプリの上で、アプリにマウスを渡さずに選択する

@@ -72,11 +72,9 @@ export class CommandMarks {
 
   // 直前のコマンドの出力の文字列と行の数、範囲（バッファの行。end の位置の文字は含まない）。コピーできないときは、その理由
   lastOutput(): { text: string; lines: number; start: Position; end: Position } | { unavailable: Unavailable } {
-    if (!this.integrated) return { unavailable: "no-integration" };
-    if (this.terminal.buffer.active.type !== "normal") return { unavailable: "alternate" };
+    const unavailable = this.unavailable();
     const last = this.last;
-    // 終わりの行がスクロールバックから押し出された（または画面を消した）ら、もうコピーできない
-    if (!last || last.end.marker.isDisposed) return { unavailable: "no-command" };
+    if (unavailable || !last) return { unavailable: unavailable ?? "no-command" };
     // 始まりの行だけが押し出されたときは、残っている先頭の行から
     const start = last.start.marker.isDisposed ? { x: 0, y: 0 } : { x: last.start.x, y: last.start.marker.line };
     const end = { x: last.end.x, y: last.end.marker.line };
@@ -95,6 +93,15 @@ export class CommandMarks {
     text = text.replace(/\n+$/, "");
     const lines = text === "" ? 0 : text.split("\n").length;
     return { text, lines, start, end };
+  }
+
+  // コピーできないときは、その理由。文字列は読まないので、出力のたびに呼んでもよい
+  unavailable(): Unavailable | undefined {
+    if (!this.integrated) return "no-integration";
+    if (this.terminal.buffer.active.type !== "normal") return "alternate";
+    // 終わりの行がスクロールバックから押し出された（または画面を消した）ら、もうコピーできない
+    if (!this.last || this.last.end.marker.isDisposed) return "no-command";
+    return undefined;
   }
 
   // サーバー側の画面で覚えている範囲を、送る形にする

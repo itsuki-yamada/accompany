@@ -125,20 +125,22 @@ Bun 1.3 までは、画面の JS と CSS が読み込まれず、画面が空に
 
 ### 直前のコマンドの出力をコピーする（シェルの統合）
 
-ターミナルを右クリックして「直前のコマンドの出力をコピー」を選ぶか、⌘⇧L（Windows・Linux は Ctrl+Shift+L）を押すと、直前に実行したコマンドの出力が、操作した人のクリップボードに入る。コマンドの区切りはシェルの統合（OSC 133）で見分けるので、シェルの rc に次の 1 行を書いておく（docs/adr/112-copy-last-output.md）。
+ターミナルの右下の「⧉ コピー」を押す（右クリックのメニューの「直前のコマンドの出力をコピー」でもよい）と、直前に実行したコマンドの出力が、押した人のクリップボードに入る。コマンドの区切りはシェルの統合（OSC 133）で見分けるので、`mise activate` と同じように、シェルの設定ファイルに次の 1 行を書いておく（docs/adr/112-copy-last-output.md）。
 
 ```sh
 # zsh（~/.zshrc）
-eval "$(accompany --shell-integration zsh)"
+eval "$(accompany activate zsh)"
 # bash 4.4 以上（~/.bashrc）
-eval "$(accompany --shell-integration bash)"
+eval "$(accompany activate bash)"
 # fish（~/.config/fish/config.fish）。fish 4.0 以上は書かなくてもよい
-accompany --shell-integration fish | source
+accompany activate fish | source
 ```
 
-- プロンプト（PS1 など）は書き換えない。Accompany の外の端末で読み込んでも害はない
+- シェルを省く（`accompany activate`）と、`$SHELL` から決める。詳しくは `accompany activate --help`
+- プロンプト（PS1 など）は書き換えない。何度読み込んでも 1 回分だけ効く。Accompany の外の端末で読み込んでも害はない
 - ほかのシェルの統合（fish 4.0 以上の組み込みのものなど）で OSC 133 の C（出力の始まり）と D（出力の終わり）の印が出ていれば、書かなくても使える
 - 全画面のアプリ（vim や Claude Code の全画面の表示など）の中では使えない
+- `activate` という名前のコマンドを最初のターミナルで動かすときは、`accompany -- activate` と書く
 
 ## Live Share で使う
 

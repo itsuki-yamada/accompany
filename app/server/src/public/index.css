@@ -603,7 +603,8 @@ body[data-pair-mode="following"] .pane-bar {
   position: absolute;
   left: 8px;
   right: 8px;
-  bottom: 8px;
+  /* 右下のコピーのボタン（下の帯）の上に出す */
+  bottom: 28px;
   z-index: 5;
   padding: 6px 10px;
   border-radius: 4px;
@@ -611,6 +612,37 @@ body[data-pair-mode="following"] .pane-bar {
   color: #fff;
   font-size: 12px;
   pointer-events: none;
+}
+
+/* 右下の、直前のコマンドの出力をコピーするボタン（docs/adr/112-copy-last-output.md）。ターミナルの表示に重ねないよう、
+   ペインの下の細い帯の右端に置く。邪魔にならないよう小さく薄くし、マウスを乗せたときだけはっきり出す */
+.pane-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 1px 4px;
+  background: #1a1a1a;
+}
+
+.pane-copy-output {
+  padding: 0 6px;
+  border: 1px solid #444;
+  border-radius: 3px;
+  background: none;
+  color: #ccc;
+  font-size: 11px;
+  line-height: 15px;
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.pane-copy-output:hover,
+.pane-copy-output:focus-visible {
+  opacity: 1;
+}
+
+.pane-copy-output[aria-disabled="true"] {
+  opacity: 0.3;
+  cursor: default;
 }
 
 /* 警告ではない知らせ（コピーしたことなど） */
