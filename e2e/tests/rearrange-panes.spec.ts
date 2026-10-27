@@ -7,9 +7,6 @@ import { addToView, boxOf, expectPaneToShow, pane, panes, tab } from "./panes";
 // 分割で増えるターミナルは $SHELL を起動するので、入力をそのまま返す偽のシェルにする
 const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
 
-// ショートカットは macOS 向けの Cmd+Shift と、Windows / Linux 向けの Ctrl+Shift のどちらでも動く（docs/adr/31-shortcuts.md）
-const modifiers = ["Meta+Shift", "Control+Shift"] as const;
-
 let accompany: Accompany | undefined;
 
 test.afterEach(async () => {
@@ -107,10 +104,6 @@ async function dragBar(page: Page, from: number, to: number) {
   await expect(pane(page, to)).toHaveAttribute("data-swap-target", "true");
   await page.mouse.up();
   await expect(page.locator("[data-swap-target]")).toHaveCount(0);
-}
-
-function escape(text: string) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function sidebarTabs(page: Page) {
@@ -260,47 +253,13 @@ test("3 つ並べているときは、境界の右クリックのメニューで
   await expectSideBySide(page, 3, 2);
 });
 
-for (const modifier of modifiers) {
-  test(`${modifier}+Y で分割の向きを変え、${modifier}+K で並びを入れ替える。キー入力の先はそのまま`, async ({ browser }) => {
-    accompany = await startAccompany([], fakeShell);
-    const page = await openAsParticipant(browser, accompany.url);
-    await splitThree(page);
-    const input = pane(page, 2).locator(".xterm-helper-textarea");
-    await input.focus();
-
-    // キー入力の先（2）を含む分割（2 と 3 の上下）を入れ替える
-    await page.keyboard.press(`${modifier}+K`);
-    await expectStacked(page, 3, 2);
-    await expect(input).toBeFocused();
-
-    // キー入力の先を含む分割の向きを変える（3 と 2 が左右に並ぶ）
-    await page.keyboard.press(`${modifier}+Y`);
-    await expectSideBySide(page, 3, 2);
-    await expectSideBySide(page, 1, 3);
-    await expect(input).toBeFocused();
-
-    // シェルには届かない
-    await page.keyboard.type("after keys\n");
-    await expectPaneToShow(page, 2, "after keys");
-  });
-}
-
-test("入れ替え・向きの変更のショートカットとドラッグが、ショートカットの一覧に載る", async ({ browser }) => {
+test("境界とターミナルのバーのツールチップで、右クリック・ドラッグで並べ方を変えられることが分かる", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
+  await splitTwo(page);
 
-  await page.getByRole("button", { name: "キーボードショートカット" }).click();
-  const list = page.getByRole("dialog", { name: "キーボードショートカット" });
-  await expect(list).toBeVisible();
-  for (const [label, mac, other] of [
-    ["分割の向きを変える", "⌘⇧Y", "Ctrl+Shift+Y"],
-    ["並べたターミナルを入れ替える", "⌘⇧K", "Ctrl+Shift+K"],
-    ["ターミナルの位置を入れ替える", "バーを別のターミナルへドラッグ", "バーを別のターミナルへドラッグ"],
-    // 3 つ並べたときの外側の分割は、境界の右クリックで選ぶ
-    ["分割を入れ替える・向きを変える", "境界を右クリック", "境界を右クリック"],
-  ]) {
-    await expect(list.getByRole("row").filter({ hasText: label! })).toHaveText(new RegExp([label, mac, other].map(escape).join(".*")));
-  }
+  await expect(divider(page, "vertical")).toHaveAttribute("title", /右クリック.*入れ替え.*向き/);
+  await expect(pane(page, 1).locator(".pane-bar")).toHaveAttribute("title", /ドラッグ.*入れ替え/);
 });
 
 test("入れ替えや向きの変更は自分の表示だけに効き、ほかの参加者の表示は変わらない", async ({ browser }) => {
