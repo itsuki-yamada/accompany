@@ -20,9 +20,12 @@ const menuLabel = "直前のコマンドの出力をコピー";
 
 let accompany: Accompany | undefined;
 let tempDir: string | undefined;
+// テストの中で起動した別のブラウザ（テストのあとに閉じる）
+const otherBrowsers: Browser[] = [];
 
 test.afterEach(async () => {
   await closeContexts();
+  await Promise.allSettled(otherBrowsers.splice(0).map((b) => b.close()));
   await accompany?.stop();
   accompany = undefined;
   if (tempDir) rmSync(tempDir, { recursive: true, force: true });
@@ -156,6 +159,45 @@ test("途中から参加した人や、ページを読み込み直した人も�
   await expect.poll(() => readClipboard(host)).toBe("latest 1\nlatest 2");
 });
 
+// Chromium のクリップボードはブラウザごとに 1 つ（同じブラウザのコンテキストどうしで共有する）なので、
+// ほかの参加者は別のブラウザで開く
+test("コピーしても、ほかの参加者のクリップボードは変わらない", async ({ browser, playwright }) => {
+  accompany = await startAccompany(promptShell);
+  const host = await open(browser, accompany.url);
+  const otherBrowser = await playwright.chromium.launch();
+  otherBrowsers.push(otherBrowser);
+  const guest = await open(otherBrowser, accompany.url);
+  await expectPaneToShow(host, 1, "Prompt shell ready");
+  await expectPaneToShow(guest, 1, "Prompt shell ready");
+  await guest.evaluate(() => navigator.clipboard.writeText("guest clipboard"));
+  await run(host, "echo shared output", "shared output");
+  await expectPaneToShow(guest, 1, "shared output");
+
+  await openMenu(host);
+  await menuItem(host).click();
+  await expect.poll(() => readClipboard(host)).toBe("shared output");
+  await expect(pane(host, 1).getByRole("alert")).toContainText("コピーしました");
+  expect(await readClipboard(guest)).toBe("guest clipboard");
+});
+
+test("出力の始まりの行がスクロールバックから押し出されたときは、残っている行から、途中から参加した人も同じようにコピーできる", async ({
+  browser,
+}) => {
+  accompany = await startAccompany(promptShell);
+  const host = await open(browser, accompany.url);
+  await expectPaneToShow(host, 1, "Prompt shell ready");
+  // スクロールバック（1000 行）を超える出力
+  await run(host, "lines 1500 big", "big 1500");
+  const fromHost = await copyLastOutput(host);
+  await fromHost.toMatch(/big 1500$/);
+  const hostText = await readClipboard(host);
+  expect(hostText).not.toContain("big 1\n");
+
+  const guest = await open(browser, accompany.url);
+  await expectPaneToShow(guest, 1, "big 1500");
+  await (await copyLastOutput(guest)).toBe(hostText);
+});
+
 test("シェルの統合がないときは、メニューを押せず、シェルの統合が要ることを説明する", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await open(browser, accompany.url);
@@ -242,12 +284,26 @@ test("accompany activate bash を入れた bash で、直前のコマンドの�
   await (await copyLastOutput(page)).toBe("[_accompany_hook]");
 });
 
-// CI の Linux には zsh が入っていないことがあるので、入っているときだけ確かめる
+test("bash で set -u にしていても、PS0 がなくても読み込め、似た名前のフックを壊さない", async ({ browser }) => {
+  tempDir = mkdtempSync(join(tmpdir(), "accompany-e2e-"));
+  const rcfile = join(tempDir, "bashrc");
+  // 文字列の PROMPT_COMMAND に、名前が _accompany_hook で始まる別のフックがある
+  const before = "set -u\nunset PS0\n_accompany_hook_x() { :; }\nPROMPT_COMMAND='_accompany_hook_x;true'";
+  writeFileSync(rcfile, rcWithActivate("bash", `${before}\nPS1='bash$ '`));
+
+  accompany = await startAccompany(["--", "bash", "--noprofile", "--rcfile", rcfile]);
+  const page = await open(browser, accompany.url);
+  await expectCopiesLastOutput(page, "bash$");
+  await run(page, 'echo "[$PROMPT_COMMAND]"', "[_accompany_hook;_accompany_hook_x;true]");
+  await (await copyLastOutput(page)).toBe("[_accompany_hook;_accompany_hook_x;true]");
+});
+
+// CI では zsh を入れて必ず確かめる（.github/workflows/e2e.yml）。手元では、zsh が入っているときだけ確かめる
 const hasZsh = spawnSync("zsh", ["-c", "true"]).status === 0;
 test("accompany activate zsh を入れた zsh で、直前のコマンドの出力をコピーする。二重に読み込んでもフックは 1 つ", async ({
   browser,
 }) => {
-  test.skip(!hasZsh, "zsh が入っていない");
+  test.skip(!hasZsh && !process.env.CI, "zsh が入っていない");
   tempDir = mkdtempSync(join(tmpdir(), "accompany-e2e-"));
   writeFileSync(join(tempDir, ".zshrc"), rcWithActivate("zsh", "PS1='zsh%# '"));
 
