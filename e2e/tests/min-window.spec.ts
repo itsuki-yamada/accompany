@@ -122,6 +122,20 @@ test("下限の既定はフル HD を縦に 4 つに分けたウィンドウ（4
   expect(await scrollable(largePage)).toEqual({ x: false, y: true });
 });
 
+test("下限の行数は、下限のウィンドウで開いたときと同じく、ペインのバーと下の帯（コピーのボタン）の高さを除いて決める", async ({
+  browser,
+}) => {
+  accompany = await startAccompany(sizeReporter, {}, { minWindow: "1280x600" });
+  // 下限のウィンドウと同じ大きさの画面で開いたときの大きさ
+  const { page: exact, size } = await sizeAlone(browser, accompany.url, { width: 1280, height: 600 });
+  await exact.context().close();
+
+  // 下限より高い人と低い人だけになると、下限のウィンドウに収まる大きさになる
+  await openAsParticipant(browser, accompany.url, large);
+  const small = await openAsParticipant(browser, accompany.url, { width: 400, height: 300 });
+  await expect.poll(() => commandSize(small)).toBe(size);
+});
+
 test("1 人で使うときは、画面が下限より小さくても、端末は自分の画面に合わせ、はみ出さない", async ({ browser }) => {
   accompany = await startAccompany(sizeReporter, {}, { minWindow: null });
 

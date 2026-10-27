@@ -1,0 +1,4 @@
+#!/bin/sh
+# E2E で、activate という名前のコマンドの代わりに起動する（accompany -- activate で動かせることを確かめる）
+echo "activate command ran"
+exec cat

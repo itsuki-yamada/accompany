@@ -1,5 +1,6 @@
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal, type IMarker } from "@xterm/xterm";
+import { CommandMarks, type CommandMarksState, type Unavailable } from "../command-marks";
 import { scrollback } from "../scrollback";
 import { TrimmedLines } from "../trimmed-lines";
 import { themeColors, type Appearance } from "./appearance";
@@ -60,6 +61,23 @@ type PlacedSelection = {
   end: { x: number; marker: IMarker };
 };
 
+// 直前のコマンドの出力をコピーできないときの、メニューに出す短い説明と、ツールチップ・知らせに出す説明
+// （docs/adr/112-copy-last-output.md）
+const unavailableReasons: Record<Unavailable, { detail: string; title: string }> = {
+  "no-integration": {
+    detail: "シェルの統合が要ります",
+    title:
+      "シェルの統合が要ります。シェルの rc に eval \"$(accompany activate zsh)\" など（bash・fish も。accompany activate --help を参照）を書いてください",
+  },
+  "no-command": {
+    detail: "まだありません",
+    title: "まだコマンドを実行していません（または、出力がスクロールバックから押し出されました）",
+  },
+  alternate: { detail: "全画面のアプリの中", title: "全画面のアプリの中では使えません" },
+};
+// コピーした範囲を光らせる時間（ミリ秒）
+const copiedFlashMs = 800;
+
 // このターミナルで動いているエージェントの状態。サーバーが判定して全員に配る。
 // 「入力待ち」はほかの参加者の入力を待っているようにも読めるので、エージェントが指示を待っていると書く（docs/adr/70-agent-detection.md）
 // 作業が終わってまだ誰も見ていないものは「未確認」にする（docs/adr/74-unseen-done.md）
@@ -114,6 +132,10 @@ export class Pane {
   private bottomObserver: ResizeObserver;
   private search: SearchBar;
   private notice = document.createElement("div");
+  // 右下の、直前のコマンドの出力をコピーするボタンと、それを置く下の帯（docs/adr/112-copy-last-output.md）
+  private footer = document.createElement("div");
+  private copyButton: HTMLButtonElement;
+  private copyButtonKey = "";
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
   // 開いている右クリックメニューを閉じる。ターミナルがなくなったら、メニューも閉じる
   private closeMenu = () => {};
@@ -128,6 +150,13 @@ export class Pane {
   loaded = false;
   // スクロールバックから押し出された行の数。選択範囲の行は、これを足した「出力の始めからの行の番号」でやりとりする
   private trimmed: TrimmedLines;
+  // シェルの統合（OSC 133）で覚えた、直前のコマンドの出力の範囲。つないだときにサーバーから届いた範囲は、画面を書き終えてから覚える
+  private marks: CommandMarks;
+  private receivedMarks: CommandMarksState | undefined;
+  // コピーした範囲を光らせる層と、光らせている範囲（バッファの行）
+  private copiedLayer = document.createElement("div");
+  private copied: { start: { x: number; y: number }; end: { x: number; y: number } } | undefined;
+  private copiedTimer: ReturnType<typeof setTimeout> | undefined;
   private firstOutput = true;
   // 最後にサーバーに伝えた自分の選択範囲
   private sentSelection = "null";
@@ -209,7 +238,14 @@ export class Pane {
     this.notice.className = "pane-notice";
     this.notice.setAttribute("role", "alert");
     this.notice.hidden = true;
-    this.element.append(bar, this.search.element, container, this.notice);
+    // 押してもキー入力の先をターミナルから動かさない。押せないときも、マウスを乗せると理由が出るよう aria-disabled にする
+    this.copyButton = button(copyLastOutputLabel, "⧉ コピー", () => void this.copyLastOutput());
+    this.copyButton.className = "pane-copy-output";
+    this.copyButton.addEventListener("mousedown", (event) => event.preventDefault());
+    // ボタンはターミナルの表示に重ねず、下の帯の右端に置く
+    this.footer.className = "pane-footer";
+    this.footer.append(this.copyButton);
+    this.element.append(bar, this.search.element, container, this.footer, this.notice);
 
     // 検索バーを開くキーとキーボードショートカットは、xterm やブラウザ（ページ内検索など）より先に拾う
     this.element.addEventListener(
@@ -246,16 +282,25 @@ export class Pane {
     this.remoteLayer.className = "remote-selections";
     this.remoteLayer.setAttribute("aria-hidden", "true");
     this.terminal.element?.querySelector(".xterm-screen")?.append(this.remoteLayer);
+    this.copiedLayer.className = "copied-outputs";
+    this.copiedLayer.setAttribute("aria-hidden", "true");
+    this.terminal.element?.querySelector(".xterm-screen")?.append(this.copiedLayer);
     this.terminal.onRender(() => {
       this.drawRemoteSelections();
+      this.drawCopied();
       this.remeasure();
       this.syncScrollPosition();
     });
     this.trimmed = new TrimmedLines(this.terminal);
+    this.marks = new CommandMarks(this.terminal, this.trimmed);
+    this.updateCopyButton();
     this.terminal.onSelectionChange(() => this.sendSelection());
     // スクロールバックがいっぱいのとき、xterm は古い行を押し出して選択範囲の行を詰めるが、選択の変化は知らせない。
     // 選択した行が押し出されて選択がなくなったときも知らせないので、出力のたびに読み直し、変わっていれば送り直す
-    this.terminal.onWriteParsed(() => this.sendSelection());
+    this.terminal.onWriteParsed(() => {
+      this.sendSelection();
+      this.updateCopyButton();
+    });
 
     this.socket = new WebSocket(`${protocol}//${location.host}/ws/terminals/${id}`);
     this.socket.binaryType = "arraybuffer";
@@ -269,9 +314,13 @@ export class Pane {
         } else if (message.type === "trimmed" && this.firstOutput) {
           // 途中から開いたときは、サーバー側の画面がそれまでに押し出していた行の数から数え始める
           this.trimmed.count = message.lines;
+        } else if (message.type === "marks") {
+          this.receivedMarks = message;
         } else if (message.type === "restored" && !this.loaded) {
           // 届いた画面を書き終えてから知らせる
           this.terminal.write("", () => {
+            if (this.receivedMarks) this.marks.restore(this.receivedMarks);
+            this.updateCopyButton();
             this.loaded = true;
             actions.loaded();
           });
@@ -505,6 +554,7 @@ export class Pane {
     this.sendSelection(true);
     this.disposeRemoteSelections();
     clearTimeout(this.noticeTimer);
+    clearTimeout(this.copiedTimer);
     this.closeMenu();
     this.resizeObserver.disconnect();
     this.bottomObserver.disconnect();
@@ -516,12 +566,23 @@ export class Pane {
   }
 
   private openMenu(x: number, y: number, actions: PaneActions) {
+    const output = this.marks.lastOutput();
+    const reason = "unavailable" in output ? unavailableReasons[output.unavailable] : undefined;
     this.closeMenu = showContextMenu(
       x,
       y,
       `${this.element.getAttribute("aria-label")} のメニュー`,
       [
         { label: "コピー", disabled: !this.terminal.hasSelection(), action: () => this.copy() },
+        // シェルの統合（OSC 133）で見分けた、直前のコマンドの出力（docs/adr/112-copy-last-output.md）
+        {
+          label: copyLastOutputLabel,
+          detail: reason?.detail,
+          title: reason?.title,
+          ariaLabel: reason ? `${copyLastOutputLabel}、${reason.detail}` : undefined,
+          disabled: reason !== undefined,
+          action: () => this.copyLastOutput(),
+        },
         { label: "ペースト", action: () => this.paste() },
         { label: "すべて選択", action: () => this.terminal.selectAll() },
         "separator",
@@ -620,6 +681,28 @@ export class Pane {
     }
   }
 
+  // 直前のコマンドの出力を、操作した参加者のクリップボードにだけ入れる。ほかの参加者には何も送らない。
+  // コピーした範囲を一瞬光らせ、何行コピーしたかを知らせる。コピーできないときは、その理由を知らせる
+  private async copyLastOutput() {
+    this.updateCopyButton();
+    const output = this.marks.lastOutput();
+    if ("unavailable" in output) return this.showNotice(unavailableReasons[output.unavailable].title);
+    if (output.lines === 0) return this.showNotice("直前のコマンドは何も出力していません", "info");
+    try {
+      await navigator.clipboard.writeText(output.text);
+    } catch {
+      return this.showNotice("クリップボードに書き込めませんでした");
+    }
+    this.showNotice(`直前のコマンドの出力をコピーしました（${output.lines} 行）`, "info");
+    this.copied = { start: output.start, end: output.end };
+    this.drawCopied();
+    clearTimeout(this.copiedTimer);
+    this.copiedTimer = setTimeout(() => {
+      this.copied = undefined;
+      this.drawCopied();
+    }, copiedFlashMs);
+  }
+
   // クリップボードの読み取りはブラウザの許可が要る。許可されないときは、許可なしで使えるキーボードでのペーストを案内する
   private async paste() {
     try {
@@ -631,8 +714,21 @@ export class Pane {
     }
   }
 
-  private showNotice(text: string) {
+  // コピーのボタンを、コピーできるかに合わせて押せる・押せないにし、ツールチップに理由かキーを出す
+  private updateCopyButton() {
+    const unavailable = this.marks?.unavailable();
+    const key = unavailable ?? "";
+    if (key === this.copyButtonKey && this.copyButton.title) return;
+    this.copyButtonKey = key;
+    const reason = unavailable && unavailableReasons[unavailable];
+    this.copyButton.setAttribute("aria-disabled", String(reason !== undefined));
+    this.copyButton.title = reason ? reason.title : copyLastOutputLabel;
+  }
+
+  // tone が info なら、警告ではなく知らせとして出す
+  private showNotice(text: string, tone: "warning" | "info" = "warning") {
     this.notice.textContent = text;
+    this.notice.dataset.tone = tone;
     this.notice.hidden = false;
     clearTimeout(this.noticeTimer);
     this.noticeTimer = setTimeout(() => (this.notice.hidden = true), 5000);
@@ -745,6 +841,31 @@ export class Pane {
     this.remoteLayer.replaceChildren(...elements);
   }
 
+  // コピーした範囲のうち、表示領域に入っている行を、行ごとに 1 つの要素で光らせる。代替画面を表示しているときは出さない
+  private drawCopied() {
+    const cell = cellSize(this.terminal);
+    const buffer = this.terminal.buffer.active;
+    const { cols, rows } = this.terminal;
+    const elements: HTMLElement[] = [];
+    const range = this.copied;
+    if (range && cell && buffer.type === "normal") {
+      for (let y = Math.max(range.start.y, buffer.viewportY); y <= Math.min(range.end.y, buffer.viewportY + rows - 1); y++) {
+        const from = Math.min(y === range.start.y ? range.start.x : 0, cols);
+        const to = y === range.end.y ? Math.min(range.end.x, cols) : cols;
+        if (to <= from) continue;
+        const element = document.createElement("div");
+        element.className = "copied-output";
+        element.style.left = `${from * cell.width}px`;
+        element.style.top = `${(y - buffer.viewportY) * cell.height}px`;
+        element.style.width = `${(to - from) * cell.width}px`;
+        element.style.height = `${cell.height}px`;
+        elements.push(element);
+      }
+    }
+    if (elements.length === 0 && this.copiedLayer.childElementCount === 0) return;
+    this.copiedLayer.replaceChildren(...elements);
+  }
+
   private send(data: string) {
     this.socket.send(JSON.stringify({ type: "input", data }));
   }
@@ -779,14 +900,15 @@ export class Pane {
   }
 
   // 下限のウィンドウで Accompany を開いたときの、ターミナルの表示領域。ウィンドウの大きさから、ブラウザの枠
-  // （タブやアドレスバーなど。ウィンドウの外寸と内寸の差）と、Accompany のツールバーとペインのバーの実寸を引く。
+  // （タブやアドレスバーなど。ウィンドウの外寸と内寸の差）と、Accompany のツールバーとペインのバー・下の帯の実寸を引く。
   // サイドメニューは、狭いウィンドウでは隠して使うものとして引かない。幅・高さが 0 になる向きには下限を掛けない
   private minArea() {
     const min = this.actions.minWindow();
     if (!min) return { width: 0, height: 0 };
     const toolbar = document.getElementById("tabs")?.offsetHeight ?? 0;
     const width = min.width - Math.max(0, window.outerWidth - window.innerWidth) - (this.element.offsetWidth - this.container.offsetWidth);
-    const height = min.height - Math.max(0, window.outerHeight - window.innerHeight) - toolbar - this.bar.offsetHeight;
+    const height =
+      min.height - Math.max(0, window.outerHeight - window.innerHeight) - toolbar - this.bar.offsetHeight - this.footer.offsetHeight;
     return { width: Math.max(0, width), height: Math.max(0, height) };
   }
 
@@ -881,6 +1003,8 @@ export class Pane {
     return width > 0 && height > 0 ? { width, height } : undefined;
   }
 }
+
+const copyLastOutputLabel = "直前のコマンドの出力をコピー";
 
 // 出力の URL を新しいタブで開く。開いたページから元のページを操作されないよう、opener を切る。
 // javascript: などでスクリプトが動かないよう、xterm.js の絞り込みとは別に、http・https の URL だけを開く（docs/adr/61-link-scheme-check.md）

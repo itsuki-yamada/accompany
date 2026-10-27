@@ -123,6 +123,25 @@ bunx --package "$PWD/accompany-0.6.0.tgz" accompany
 
 Bun 1.3 までは、画面の JS と CSS が読み込まれず、画面が空になる（docs/adr/78-binaries.md）。古い Bun で起動すると、必要な版を表示して終了するので、`bun upgrade` で上げるか、実行ファイルを使う。
 
+### 直前のコマンドの出力をコピーする（シェルの統合）
+
+ターミナルの右下の「⧉ コピー」を押す（右クリックのメニューの「直前のコマンドの出力をコピー」でもよい）と、直前に実行したコマンドの出力が、押した人のクリップボードに入る。コマンドの区切りはシェルの統合（OSC 133）で見分けるので、`mise activate` と同じように、シェルの設定ファイルに次の 1 行を書いておく（docs/adr/112-copy-last-output.md）。
+
+```sh
+# zsh（~/.zshrc）
+eval "$(accompany activate zsh)"
+# bash 4.4 以上（~/.bashrc）
+eval "$(accompany activate bash)"
+# fish（~/.config/fish/config.fish）。fish 4.0 以上は書かなくてもよい
+accompany activate fish | source
+```
+
+- シェルを省く（`accompany activate`）と、`$SHELL` から決める。詳しくは `accompany activate --help`
+- プロンプト（PS1 など）は書き換えない。何度読み込んでも 1 回分だけ効く。Accompany の外の端末で読み込んでも害はない
+- ほかのシェルの統合（fish 4.0 以上の組み込みのものなど）で OSC 133 の C（出力の始まり）と D（出力の終わり）の印が出ていれば、書かなくても使える
+- 全画面のアプリ（vim や Claude Code の全画面の表示など）の中では使えない
+- `activate` という名前のコマンドを最初のターミナルで動かすときは、`accompany -- activate` と書く
+
 ## Live Share で使う
 
 1. ホストが、自分のマシンで Accompany を起動する（[使い方](#使い方)）。例: `./accompany-0.6.0-darwin-arm64 -- claude`。表示された `http://127.0.0.1:3000` を、ホスト自身のブラウザで開く

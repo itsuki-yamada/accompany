@@ -27,8 +27,9 @@ function menu(page: Page) {
   return page.getByRole("menu");
 }
 
+// 「コピー」と「直前のコマンドの出力をコピー」を取り違えないよう、名前は完全に一致させる
 function menuItem(page: Page, name: string) {
-  return menu(page).getByRole("menuitem", { name });
+  return menu(page).getByRole("menuitem", { name, exact: true });
 }
 
 // ターミナルの中央（または指定した位置）を右クリックして、メニューを出す

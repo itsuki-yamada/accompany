@@ -12,6 +12,7 @@ import { Uploads } from "./uploads";
 import { Workspace } from "./workspace";
 
 // accompany [--port <port>] [--fresh] [--min-window <幅>x<高さ>] [-v | --version] [-h | --help] [-- <command...>]
+// accompany activate [シェル]: シェルの統合のスクリプトを表示する（docs/adr/112-copy-last-output.md）
 // --fresh: 前回の画面の配置とスクロールバックを戻さずに、新しく始める
 // --min-window: 端末の大きさの下限を、ウィンドウの大きさ（ピクセル）で指定する。保存した下限より優先し、保存はしない
 // （docs/adr/99-smallest-size.md）

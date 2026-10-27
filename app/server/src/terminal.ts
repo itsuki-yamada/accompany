@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/headless";
 import type { Subprocess } from "bun";
 import { ActivityMonitor, type AgentStatus } from "./activity";
 import { type Foreground, foregroundOf, isAgentCommand } from "./agent-detect";
+import { CommandMarks, type CommandMarksState } from "./command-marks";
 import { processCwd } from "./process-cwd";
 import { scrollback } from "./scrollback";
 import { TrimmedLines } from "./trimmed-lines";
@@ -24,6 +25,8 @@ export type Message =
   | { type: "output"; data: Uint8Array }
   | { type: "resize"; size: Size }
   | { type: "trimmed"; lines: number }
+  // つないだときに送る、シェルの統合（OSC 133）で覚えた直前のコマンドの出力の範囲（docs/adr/112-copy-last-output.md）
+  | ({ type: "marks" } & CommandMarksState)
   // つないだときの画面を送り終えた。画面が空のときは output を送らないので、ブラウザはこれで読み込みを終えたと分かる
   // （docs/adr/111-loading.md）
   | { type: "restored" };
@@ -68,6 +71,8 @@ export class TerminalSession {
   private screen = new Terminal({ ...this.size, scrollback, allowProposedApi: true });
   private serializer = new SerializeAddon();
   private trimmed = new TrimmedLines(this.screen);
+  // 書き出した画面には OSC 133 の印が含まれないため、サーバー側の画面でも直前のコマンドの出力の範囲を覚えておく
+  private marks = new CommandMarks(this.screen, this.trimmed);
   // 書き出した画面にはカーソルの表示・非表示が含まれないため、DECTCEM（CSI ? 25 h/l）を見て自分で追う
   private cursorHidden = false;
   // 書き出した画面にはマウスの報告の形式も含まれないため、SGR 形式（CSI ? 1006 h/l、ピクセル単位は 1016）を見て自分で追う。
@@ -170,6 +175,7 @@ export class TerminalSession {
     this.screen.write("", () => {
       listener({ type: "resize", size: this.size });
       listener({ type: "trimmed", lines: this.trimmed.count });
+      listener({ type: "marks", ...this.marks.state() });
       const snapshot =
         this.serializer.serialize() +
         (this.cursorHidden ? "\x1b[?25l" : "") +
