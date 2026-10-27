@@ -29,7 +29,7 @@ Accompany の開発タスクは GitHub Issue と GitHub Project で管理する�
 
 ## Project の運用ルール
 
-- Issue はタイトルと本文を基本とし、テンプレートは使わない
+- Issue はタイトルと本文を基本とし、テンプレートは使わない。ただし不具合の報告は、版・入れ方・環境・手順・エラーの出力を集めるため、`.github/ISSUE_TEMPLATE/bug.yml` のテンプレートを使える（使わずに書いてもよい）
 - Project で管理するフィールドは Status のみ。Priority / Size など他のフィールドは使わない
 - Status option ID:
 
