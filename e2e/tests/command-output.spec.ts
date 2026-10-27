@@ -91,6 +91,9 @@ test("ペインの右下のコピーのボタンで、直前のコマンドの�
   expect(box.y + box.height).toBeGreaterThan(paneBox.y + paneBox.height - 40);
   expect(box.width).toBeLessThan(120);
   expect(box.height).toBeLessThan(40);
+  // ターミナルの表示（右下の文字）には重ねない
+  const area = (await pane(page, 1).locator(".pane-terminal").boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(area.y + area.height - 1);
 
   // まだコマンドの出力がないときは押せず、理由をツールチップに出す
   await expect(button).toBeDisabled();
@@ -99,7 +102,7 @@ test("ペインの右下のコピーのボタンで、直前のコマンドの�
   await run(page, "echo first output", "first output");
   await run(page, "lines 2 second", "second 2");
   await expect(button).toBeEnabled();
-  await expect(button).toHaveAttribute("title", /直前のコマンドの出力をコピー（⌘⇧L \/ Ctrl\+Shift\+L）/);
+  await expect(button).toHaveAttribute("title", menuLabel);
   await button.click();
 
   await expect.poll(() => readClipboard(page)).toBe("second 1\nsecond 2");
@@ -115,31 +118,21 @@ test("シェルの統合がないときは、コピーのボタンを押せず�
 
   await expect(copyButton(page)).toBeDisabled();
   await expect(copyButton(page)).toHaveAttribute("title", /シェルの統合が要ります/);
+  await expect(copyButton(page)).toHaveAttribute("title", /eval "\$\(accompany activate zsh\)"/);
+
+  // 押せない見た目のボタンを押すと、コピーせずに理由を知らせる
+  await page.evaluate(() => navigator.clipboard.writeText("unchanged"));
+  await copyButton(page).click({ force: true });
+  await expect(pane(page, 1).getByRole("alert")).toContainText("シェルの統合が要ります");
+  expect(await readClipboard(page)).toBe("unchanged");
 });
 
-for (const modifier of ["Meta+Shift", "Control+Shift"] as const) {
-  test(`${modifier}+L で、直前のコマンドの出力をコピーする`, async ({ browser }) => {
-    accompany = await startAccompany(promptShell);
-    const page = await open(browser, accompany.url);
-    await expectPaneToShow(page, 1, "Prompt shell ready");
-    await run(page, "lines 2 alpha", "alpha 2");
-    await run(page, "echo beta", "beta");
-
-    await pane(page, 1).locator(".xterm-helper-textarea").focus();
-    await page.keyboard.press(`${modifier}+KeyL`);
-
-    await expect.poll(() => readClipboard(page)).toBe("beta");
-  });
-}
-
-test("ショートカットの一覧に、直前のコマンドの出力のコピーが載る", async ({ browser }) => {
+test("コピーはマウスで操作する。ショートカットは作らず、ショートカットの一覧にも載せない", async ({ browser }) => {
   accompany = await startAccompany(promptShell);
   const page = await open(browser, accompany.url);
+  await expectPaneToShow(page, 1, "Prompt shell ready");
   await page.getByRole("button", { name: "キーボードショートカット" }).click();
-  const list = page.getByRole("dialog", { name: "キーボードショートカット" });
-  await expect(list).toContainText(menuLabel);
-  await expect(list).toContainText("⌘⇧L");
-  await expect(list).toContainText("Ctrl+Shift+L");
+  await expect(page.getByRole("dialog", { name: "キーボードショートカット" })).not.toContainText(menuLabel);
 });
 
 test("途中から参加した人や、ページを読み込み直した人も、直前のコマンドの出力をコピーできる", async ({ browser }) => {
@@ -175,12 +168,8 @@ test("シェルの統合がないときは、メニューを押せず、シェ�
   await expect(menuItem(page)).toHaveAttribute("title", /シェルの統合が要ります/);
   await page.keyboard.press("Escape");
 
-  // ショートカットでも、コピーせずに理由を出す
-  await page.evaluate(() => navigator.clipboard.writeText("unchanged"));
-  await pane(page, 1).locator(".xterm-helper-textarea").focus();
-  await page.keyboard.press("Control+Shift+KeyL");
-  await expect(pane(page, 1).getByRole("alert")).toContainText("シェルの統合が要ります");
-  expect(await readClipboard(page)).toBe("unchanged");
+  // 案内は accompany activate の形で出す
+  await expect(menuItem(page)).toHaveAttribute("title", /eval "\$\(accompany activate zsh\)"/);
 });
 
 test("まだコマンドを実行していないときと、全画面のアプリの中では、メニューを押せない", async ({ browser }) => {
@@ -209,58 +198,100 @@ test("まだコマンドを実行していないときと、全画面のアプ�
   await expect.poll(() => readClipboard(page)).toBe("after");
 });
 
-function shellIntegration(shell: string) {
-  return spawnSync(`${accompanyCommand()} --shell-integration ${shell}`, {
+// accompany activate [シェル] を実行する（mise activate と同じ形。docs/adr/112-copy-last-output.md）
+function activate(args: string, env: Record<string, string> = {}) {
+  return spawnSync(`${accompanyCommand()} activate ${args}`, {
     cwd: repoRoot,
     shell: true,
     encoding: "utf8",
+    env: { ...process.env, ...env },
     timeout: 30_000,
   });
 }
 
-// 利用者の rc に書くのと同じく、--shell-integration の出力を eval する
-function rcWithIntegration(shell: string, prompt: string) {
-  return `${prompt}\neval "$(${accompanyCommand()} --shell-integration ${shell})"\n`;
+// 利用者の rc に書くのと同じく、accompany activate の出力を eval する。二重に読み込んでも 1 回分だけ効くことも確かめるため、2 回書く
+function rcWithActivate(shell: string, prompt: string) {
+  const line = `eval "$(${accompanyCommand()} activate ${shell})"`;
+  return `${prompt}\n${line}\n${line}\n`;
+}
+
+async function copyLastOutput(page: Page) {
+  await openMenu(page);
+  await menuItem(page).click();
+  return expect.poll(() => readClipboard(page));
 }
 
 async function expectCopiesLastOutput(page: Page, ready: string) {
   await expectPaneToShow(page, 1, ready);
   await run(page, "echo one", "one");
   await run(page, "printf 'two\\nthree\\n'", "three");
-  await openMenu(page);
-  await menuItem(page).click();
-  await expect.poll(() => readClipboard(page)).toBe("two\nthree");
+  await (await copyLastOutput(page)).toBe("two\nthree");
 }
 
-// シェルの統合のスクリプトを入れた本物のシェルで確かめる
-test("--shell-integration bash のスクリプトを入れた bash で、直前のコマンドの出力をコピーする", async ({ browser }) => {
+// シェルの統合を入れた本物のシェルで確かめる
+test("accompany activate bash を入れた bash で、直前のコマンドの出力をコピーする。二重に読み込んでもフックは 1 つ", async ({
+  browser,
+}) => {
   tempDir = mkdtempSync(join(tmpdir(), "accompany-e2e-"));
   const rcfile = join(tempDir, "bashrc");
-  writeFileSync(rcfile, rcWithIntegration("bash", "PS1='bash$ '"));
+  writeFileSync(rcfile, rcWithActivate("bash", "PS1='bash$ '"));
 
   accompany = await startAccompany(["--", "bash", "--noprofile", "--rcfile", rcfile]);
-  await expectCopiesLastOutput(await open(browser, accompany.url), "bash$");
+  const page = await open(browser, accompany.url);
+  await expectCopiesLastOutput(page, "bash$");
+  await run(page, 'echo "[$PROMPT_COMMAND]"', "[_accompany_hook]");
+  await (await copyLastOutput(page)).toBe("[_accompany_hook]");
 });
 
 // CI の Linux には zsh が入っていないことがあるので、入っているときだけ確かめる
 const hasZsh = spawnSync("zsh", ["-c", "true"]).status === 0;
-test("--shell-integration zsh のスクリプトを入れた zsh で、直前のコマンドの出力をコピーする", async ({ browser }) => {
+test("accompany activate zsh を入れた zsh で、直前のコマンドの出力をコピーする。二重に読み込んでもフックは 1 つ", async ({
+  browser,
+}) => {
   test.skip(!hasZsh, "zsh が入っていない");
   tempDir = mkdtempSync(join(tmpdir(), "accompany-e2e-"));
-  writeFileSync(join(tempDir, ".zshrc"), rcWithIntegration("zsh", "PS1='zsh%# '"));
+  writeFileSync(join(tempDir, ".zshrc"), rcWithActivate("zsh", "PS1='zsh%# '"));
 
   accompany = await startAccompany(["--", "zsh"], { ZDOTDIR: tempDir });
-  await expectCopiesLastOutput(await open(browser, accompany.url), "zsh%");
+  const page = await open(browser, accompany.url);
+  await expectCopiesLastOutput(page, "zsh%");
+  await run(page, 'echo "[${#${(M)precmd_functions:#_accompany_hook}}]"', "[1]");
+  await (await copyLastOutput(page)).toBe("[1]");
 });
 
-test("--shell-integration は zsh・bash・fish のスクリプトを出し、知らないシェルではエラーで終わる", () => {
+test("accompany activate は zsh・bash・fish のスクリプトを出し、シェルを省くと $SHELL から決める", () => {
   for (const shell of ["zsh", "bash", "fish"]) {
-    const result = shellIntegration(shell);
+    const result = activate(shell);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("133;C");
     expect(result.stdout).toContain("133;D");
   }
-  const unknown = shellIntegration("tcsh");
-  expect(unknown.stdout + unknown.stderr).toContain("--shell-integration は zsh・bash・fish のどれか");
-  expect(unknown.status).toBe(1);
+  expect(activate("", { SHELL: "/usr/local/bin/fish" }).stdout).toBe(activate("fish").stdout);
+  expect(activate("", { SHELL: "/bin/zsh" }).stdout).toBe(activate("zsh").stdout);
+});
+
+test("accompany activate は、知らないシェルではエラーにし、対応しているシェルを示す", () => {
+  for (const result of [activate("tcsh"), activate("", { SHELL: "/bin/tcsh" })]) {
+    expect(result.stderr).toContain("tcsh");
+    expect(result.stderr).toContain("zsh・bash・fish");
+    expect(result.status).toBe(1);
+  }
+});
+
+test("accompany activate --help で、使い方と rc への書き方を出す", () => {
+  const result = activate("--help");
+  expect(result.status).toBe(0);
+  for (const text of ['eval "$(accompany activate zsh)"', 'eval "$(accompany activate bash)"', "accompany activate fish | source"]) {
+    expect(result.stdout).toContain(text);
+  }
+  // 全体の使い方にも載る
+  const help = spawnSync(`${accompanyCommand()} --help`, { cwd: repoRoot, shell: true, encoding: "utf8", timeout: 30_000 });
+  expect(help.stdout).toContain("accompany activate");
+});
+
+test("activate という名前のコマンドは、accompany -- activate で最初のターミナルで動かせる", async ({ browser }) => {
+  const bin = join(repoRoot, "e2e/fixtures/bin");
+  accompany = await startAccompany(["--", "activate"], { PATH: `${bin}:${process.env.PATH}` });
+  const page = await open(browser, accompany.url);
+  await expectPaneToShow(page, 1, "activate command ran");
 });
