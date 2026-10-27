@@ -11,7 +11,7 @@ body:
     id: what
     attributes:
       label: 起きたこと
-      description: 何をしたら、何が起きたか。思っていた動きも書いてください。
+      description: 何をしたら、何が起きたか。思っていた動きも書いてください。スクリーンショットはここに貼れます。
     validations:
       required: true
   - type: textarea
@@ -49,5 +49,5 @@ body:
     id: output
     attributes:
       label: エラーの出力
-      description: ターミナルやブラウザの開発者ツールに出たもの。スクリーンショットはここに貼れます。
+      description: ターミナルやブラウザの開発者ツールに出たもの
       render: shell
