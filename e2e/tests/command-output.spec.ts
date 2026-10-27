@@ -166,10 +166,9 @@ test("シェルの統合がないときは、メニューを押せず、シェ�
   await openMenu(page);
   await expect(menuItem(page)).toBeDisabled();
   await expect(menuItem(page)).toHaveAttribute("title", /シェルの統合が要ります/);
-  await page.keyboard.press("Escape");
-
   // 案内は accompany activate の形で出す
   await expect(menuItem(page)).toHaveAttribute("title", /eval "\$\(accompany activate zsh\)"/);
+  await page.keyboard.press("Escape");
 });
 
 test("まだコマンドを実行していないときと、全画面のアプリの中では、メニューを押せない", async ({ browser }) => {
@@ -255,7 +254,7 @@ test("accompany activate zsh を入れた zsh で、直前のコマンドの出�
   accompany = await startAccompany(["--", "zsh"], { ZDOTDIR: tempDir });
   const page = await open(browser, accompany.url);
   await expectCopiesLastOutput(page, "zsh%");
-  await run(page, 'echo "[${#${(M)precmd_functions:#_accompany_hook}}]"', "[1]");
+  await run(page, 'echo "[${#${(@M)precmd_functions:#_accompany_hook}}]"', "[1]");
   await (await copyLastOutput(page)).toBe("[1]");
 });
 
