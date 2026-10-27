@@ -1,4 +1,5 @@
 import { appearanceSettings, loadAppearance, type Appearance } from "./appearance";
+import { showContextMenu, type MenuItem } from "./context-menu";
 import { finishLoading, showDisconnected } from "./loading";
 import { NameSettings } from "./member-name";
 import { MinWindowSettings } from "./min-window";
@@ -14,6 +15,7 @@ import { isEditingTabName } from "./tab-name";
 type Layout =
   | { type: "terminal"; id: string }
   | { type: "split"; id: string; direction: "row" | "column"; ratio: number; children: [Layout, Layout] };
+type Split = Extract<Layout, { type: "split" }>;
 
 // 並べられるタブの数（サーバーと同じ）
 const maxPanes = 3;
@@ -290,6 +292,8 @@ function paneFor(id: string) {
   if (!pane) {
     pane = new Pane(id, {
       split: (direction) => splitPane(id, direction),
+      swap: (from) => swapPanes(from, id),
+      arrangeItems: () => arrangeItems(id),
       close: () => send({ type: "close", terminal: id }),
       focused: () => {
         focusedTerminal = id;
@@ -324,12 +328,24 @@ function paneFor(id: string) {
 
 // 境界をドラッグして割合を変える。手元ではすぐに反映し、サーバーに伝える（自分の表示と、自分に追従している人の表示に効く）。
 // 実際に割合を変えたら、自分で表示を変えたので、ペアプロモードはやめる（押しただけではやめない）
-function divider(split: HTMLElement, node: Extract<Layout, { type: "split" }>, first: HTMLElement, second: HTMLElement) {
+function divider(split: HTMLElement, node: Split, first: HTMLElement, second: HTMLElement) {
   const element = document.createElement("div");
   element.className = "divider";
   element.setAttribute("role", "separator");
   element.setAttribute("aria-orientation", node.direction === "row" ? "vertical" : "horizontal");
+  // 境界を右クリックできることは気づきにくいので、ツールチップで知らせる
+  element.title = "ドラッグで大きさを変える。右クリックで入れ替え・向きの変更";
+  // 右クリックでは、この境界の分割を入れ替えたり、向きを変えたりするメニューを出す（docs/adr/163-rearrange-panes.md）
+  element.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    // メニューを閉じたら、自分がフォーカスしていたターミナルにキー入力の先を戻す
+    showContextMenu(event.clientX, event.clientY, "境界のメニュー", splitItems(node), () => {
+      if (focusedTerminal) focusPane(focusedTerminal);
+    });
+  });
   element.addEventListener("pointerdown", (down) => {
+    // 右クリックではドラッグを始めない
+    if (down.button !== 0) return;
     down.preventDefault();
     element.setPointerCapture(down.pointerId);
     dragging = true;
@@ -401,6 +417,69 @@ function splitPane(terminal: string, direction: "row" | "column") {
   if (!view || terminalIds(view).length >= maxPanes) return;
   stopFollowing();
   send({ type: "split", terminal, direction });
+}
+
+// 並べている 2 つのタブの位置を入れ替える。自分で表示を変えるので、ペアプロモードはやめる（docs/adr/163-rearrange-panes.md）
+function swapPanes(tab: string, other: string) {
+  if (tab === other) return;
+  stopFollowing();
+  send({ type: "swap-panes", tab, with: other });
+}
+
+// 分割の 2 つの子（左右・上下）を入れ替える
+function flipSplit(split: string) {
+  stopFollowing();
+  send({ type: "flip-split", split });
+}
+
+// 分割の向き（左右 ⇄ 上下）を変える
+function rotateSplit(split: string) {
+  stopFollowing();
+  send({ type: "rotate-split", split });
+}
+
+// ターミナルの右クリックのメニューの、並べ方を変える項目。左右・上下の入れ替えは、そのターミナルを含む一番内側の、
+// その向きの分割に効く。向きの変更は、そのターミナルを含む一番内側の分割に効く。1 つだけ表示しているときは出さない
+// （そのときのメニューは、並べる前と同じにする）
+function arrangeItems(terminal: string): MenuItem[] {
+  const row = view && enclosingSplit(view, terminal, "row");
+  const column = view && enclosingSplit(view, terminal, "column");
+  const parent = view && parentSplit(view, terminal);
+  if (!parent) return [];
+  return [
+    { label: "左右を入れ替える", disabled: !row, action: () => row && flipSplit(row.id) },
+    { label: "上下を入れ替える", disabled: !column, action: () => column && flipSplit(column.id) },
+    { label: parent.direction === "column" ? "左右に並べる" : "上下に並べる", action: () => rotateSplit(parent.id) },
+    "separator",
+  ];
+}
+
+// 境界の右クリックのメニューの項目。その境界の分割を入れ替える・向きを変える
+function splitItems(node: Split): MenuItem[] {
+  return [
+    { label: node.direction === "row" ? "左右を入れ替える" : "上下を入れ替える", action: () => flipSplit(node.id) },
+    { label: node.direction === "row" ? "上下に並べる" : "左右に並べる", action: () => rotateSplit(node.id) },
+  ];
+}
+
+// そのターミナルを含む、一番内側の分割
+function parentSplit(node: Layout, terminal: string): Split | undefined {
+  if (node.type === "terminal") return;
+  return (
+    parentSplit(node.children[0], terminal) ??
+    parentSplit(node.children[1], terminal) ??
+    (node.children.some((child) => child.type === "terminal" && child.id === terminal) ? node : undefined)
+  );
+}
+
+// そのターミナルを含む、一番内側の、その向きの分割
+function enclosingSplit(node: Layout, terminal: string, direction: "row" | "column"): Split | undefined {
+  if (node.type === "terminal" || !terminalIds(node).includes(terminal)) return;
+  return (
+    enclosingSplit(node.children[0], terminal, direction) ??
+    enclosingSplit(node.children[1], terminal, direction) ??
+    (node.direction === direction ? node : undefined)
+  );
 }
 
 // そのタブだけを表示して、そのターミナルにフォーカスする。自分で表示を変えるので、ペアプロモードはやめる
