@@ -109,8 +109,9 @@ export class CommandMarks {
     const offset = this.trimmed.count;
     const position = (placed: Placed | undefined) =>
       placed && !placed.marker.isDisposed ? { x: placed.x, y: placed.marker.line + offset } : undefined;
-    const start = position(this.last?.start);
     const end = position(this.last?.end);
+    // 始まりの行だけが押し出されたときは、手元でコピーするとき（lastOutput）と同じく、残っている先頭の行から
+    const start = this.last?.start.marker.isDisposed ? { x: 0, y: offset } : position(this.last?.start);
     return {
       integrated: this.integrated,
       last: start && end ? { start, end } : undefined,

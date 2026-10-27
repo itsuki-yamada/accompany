@@ -66,6 +66,10 @@ jobs:
           .github/scripts/check-npm.sh "$dir/packages" "$dir/install"
           echo "ACCOMPANY_CMD=$dir/install/node_modules/.bin/accompany" >> "$GITHUB_ENV"
 
+      # シェルの統合（accompany activate zsh）を本物の zsh で確かめるため（docs/adr/112-copy-last-output.md）
+      - name: zsh を入れる
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends zsh
+
       - name: Playwright の Chromium を入れる
         working-directory: e2e
         run: bunx playwright install --with-deps chromium

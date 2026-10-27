@@ -34,7 +34,8 @@ precmd_functions=(_accompany_hook \${precmd_functions:#_accompany_hook})
 add-zsh-hook -d preexec _accompany_hook_preexec 2>/dev/null
 add-zsh-hook preexec _accompany_hook_preexec
 `,
-  // PS0（コマンドを読んでから実行する前に出す）を使うので、bash 4.4 以上で効く。PROMPT_COMMAND は文字列でも配列でもよい
+  // PS0（コマンドを読んでから実行する前に出す）を使うので、bash 4.4 以上で効く。PROMPT_COMMAND は文字列でも配列でもよい。
+  // set -u（未設定の変数を読むとエラー）にしていても止まらないようにする
   bash: `# Accompany のシェルの統合（OSC 133）。~/.bashrc に eval "$(accompany activate bash)" と書いて読み込む（bash 4.4 以上）
 if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
 	_accompany_hook() {
@@ -52,13 +53,19 @@ if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )
 		PROMPT_COMMAND=(_accompany_hook \${_accompany_commands[@]+"\${_accompany_commands[@]}"})
 		unset _accompany_commands _accompany_command
 	else
-		_accompany_command="\${PROMPT_COMMAND-}"
-		_accompany_command="\${_accompany_command//_accompany_hook;/}"
-		_accompany_command="\${_accompany_command//_accompany_hook/}"
+		# mise にならい、前後に ; を付けて ;_accompany_hook; を探す（_accompany_hook で始まる別の名前のものは外さない）
+		_accompany_command=";\${PROMPT_COMMAND-};"
+		while [[ $_accompany_command == *";_accompany_hook;"* ]]; do
+			_accompany_command="\${_accompany_command//;_accompany_hook;/;}"
+		done
+		_accompany_command="\${_accompany_command#;}"
+		_accompany_command="\${_accompany_command%;}"
 		PROMPT_COMMAND="_accompany_hook\${_accompany_command:+;$_accompany_command}"
 		unset _accompany_command
 	fi
 	_accompany_output_start=$'\\e]133;C\\a'
+	# set -u でも止まらないよう、PS0 がなくてもよい形で読む
+	PS0="\${PS0-}"
 	PS0="\${PS0//"$_accompany_output_start"/}$_accompany_output_start"
 	unset _accompany_output_start
 fi
