@@ -542,6 +542,8 @@ export class Pane {
   private enableSwapDrag() {
     const bar = this.bar;
     bar.draggable = true;
+    // バーのボタンや名前は、それぞれのツールチップを出す
+    bar.title = "ドラッグして別のターミナルに重ねると、位置を入れ替える";
     bar.addEventListener("dragstart", (event) => {
       // バーのボタン（ほかの参加者の名前など）から始めたドラッグも、バーのドラッグとして扱う
       Pane.dragged = this.id;

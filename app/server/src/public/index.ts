@@ -333,6 +333,8 @@ function divider(split: HTMLElement, node: Split, first: HTMLElement, second: HT
   element.className = "divider";
   element.setAttribute("role", "separator");
   element.setAttribute("aria-orientation", node.direction === "row" ? "vertical" : "horizontal");
+  // 境界を右クリックできることは気づきにくいので、ツールチップで知らせる
+  element.title = "ドラッグで大きさを変える。右クリックで入れ替え・向きの変更";
   // 右クリックでは、この境界の分割を入れ替えたり、向きを変えたりするメニューを出す（docs/adr/163-rearrange-panes.md）
   element.addEventListener("contextmenu", (event) => {
     event.preventDefault();
@@ -382,13 +384,6 @@ function runShortcut(terminal: string, shortcut: Shortcut) {
       return splitPane(terminal, shortcut.direction);
     case "close":
       return send({ type: "close", terminal });
-    case "flip-split":
-    case "rotate-split": {
-      // キー入力の先のターミナルを含む、一番内側の分割に効く
-      const parent = view && parentSplit(view, terminal);
-      if (!parent) return;
-      return shortcut.type === "flip-split" ? flipSplit(parent.id) : rotateSplit(parent.id);
-    }
     case "move-focus": {
       const next = neighborOf(terminal, shortcut.direction);
       if (next) {
