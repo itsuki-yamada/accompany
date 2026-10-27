@@ -307,7 +307,8 @@ test("accompany activate zsh を入れた zsh で、直前のコマンドの出�
   tempDir = mkdtempSync(join(tmpdir(), "accompany-e2e-"));
   writeFileSync(join(tempDir, ".zshrc"), rcWithActivate("zsh", "PS1='zsh%# '"));
 
-  accompany = await startAccompany(["--", "zsh"], { ZDOTDIR: tempDir });
+  // 環境ごとの /etc/zsh/zshrc（Ubuntu は compinit を呼び、CI では確認を求めて止まる）を読まず、書いた .zshrc だけを読む
+  accompany = await startAccompany(["--", "zsh", "--noglobalrcs"], { ZDOTDIR: tempDir });
   const page = await open(browser, accompany.url);
   await expectCopiesLastOutput(page, "zsh%");
   await run(page, 'echo "[${#${(@M)precmd_functions:#_accompany_hook}}]"', "[1]");
