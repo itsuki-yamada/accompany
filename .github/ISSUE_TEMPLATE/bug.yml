@@ -1,0 +1,53 @@
+name: 不具合の報告
+description: 思ったとおりに動かないことを知らせる
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        報告ありがとうございます。直すために、分かる範囲で書いてください。分からない項目は空のままで構いません。
+        パスワードやトークンなど、人に見られて困るものは書かないでください。セキュリティの問題は SECURITY.md の方法で知らせてください。
+  - type: textarea
+    id: what
+    attributes:
+      label: 起きたこと
+      description: 何をしたら、何が起きたか。思っていた動きも書いてください。
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現する手順
+      description: 分かる場合だけ。参加者が何人いたか、ホストとゲストのどちらで起きたかも書いてください。
+      placeholder: |
+        1. accompany を起動する
+        2. ゲストとして入る
+        3. ...
+  - type: input
+    id: version
+    attributes:
+      label: 版
+      description: "`accompany --version` の出力"
+      placeholder: accompany 0.21.0
+  - type: dropdown
+    id: install
+    attributes:
+      label: 入れ方
+      options:
+        - Homebrew
+        - npm / npx / bunx
+        - Release の実行ファイル
+        - Release の tarball
+        - ソースから
+        - その他
+  - type: input
+    id: env
+    attributes:
+      label: OS・ブラウザ
+      placeholder: macOS 26（Apple シリコン）、Chrome 155
+  - type: textarea
+    id: output
+    attributes:
+      label: エラーの出力
+      description: ターミナルやブラウザの開発者ツールに出たもの。スクリーンショットはここに貼れます。
+      render: shell
