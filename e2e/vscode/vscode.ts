@@ -15,6 +15,8 @@ const fakeLiveSharePath = join(repoRoot, "e2e/fixtures/vscode/fake-liveshare");
 
 export type VSCode = {
   page: Page;
+  // テストが使い捨てに作ったディレクトリ。閉じると消す
+  dir: string;
   // 偽の Live Share が書いた、拡張の呼び出し
   calls: () => Record<string, unknown>[];
   close: () => Promise<void>;
@@ -31,9 +33,17 @@ function accompanyLauncher(dir: string, env: Record<string, string>) {
   return path;
 }
 
-export async function launchVSCode({ env = {} }: { env?: Record<string, string> } = {}): Promise<VSCode> {
+// 確かめる VS Code の版。stable にすると、VS Code の新しい版が出ただけで CI が変わるので、固定する。
+// 新しい版で確かめるときは VSCODE_VERSION で上書きする
+export const vscodeVersion = process.env.VSCODE_VERSION ?? "1.143.1";
+
+// workspaceSettings を渡すと、開いたフォルダーの .vscode/settings.json に書く
+export async function launchVSCode({
+  env = {},
+  workspaceSettings,
+}: { env?: Record<string, string>; workspaceSettings?: Record<string, unknown> } = {}): Promise<VSCode> {
   const executable = await downloadAndUnzipVSCode({
-    version: process.env.VSCODE_VERSION ?? "stable",
+    version: vscodeVersion,
     cachePath: join(repoRoot, "e2e/.vscode-test"),
   });
   const dir = mkdtempSync(join(tmpdir(), "accompany-vscode-e2e-"));
@@ -41,6 +51,10 @@ export async function launchVSCode({ env = {} }: { env?: Record<string, string> 
   const workspace = join(dir, "workspace");
   mkdirSync(join(userData, "User"), { recursive: true });
   mkdirSync(workspace);
+  if (workspaceSettings) {
+    mkdirSync(join(workspace, ".vscode"));
+    writeFileSync(join(workspace, ".vscode/settings.json"), JSON.stringify(workspaceSettings));
+  }
   const log = join(dir, "liveshare.log");
   writeFileSync(log, "");
   const launcher = accompanyLauncher(dir, {
@@ -112,7 +126,7 @@ export async function launchVSCode({ env = {} }: { env?: Record<string, string> 
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line));
-  return { page, calls, close };
+  return { page, dir, calls, close };
 }
 
 // VS Code のウィンドウ（workbench）のページ。開いて、拡張が動き出すまで待つ

@@ -1,3 +1,4 @@
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { expect, test, type FrameLocator } from "@playwright/test";
 import { startAccompany, testPort, type Accompany } from "../tests/accompany";
@@ -163,4 +164,51 @@ test("パネルの中で、選択した文字をコピーでき、クリップ�
   // Windows・Linux の Ctrl+V は、ターミナル（xterm.js）が ^V としてコマンドに送るので、Ctrl+Shift+V でペーストする
   await page.keyboard.press(process.platform === "darwin" ? "Meta+KeyV" : "Control+Shift+KeyV");
   await expect(terminal(frame)).toContainText("pasted from vscode");
+});
+
+async function readClipboard(vscode: VSCode) {
+  const before = vscode.calls().filter((c) => c.call === "readClipboard").length;
+  await runCommand(vscode.page, "E2E: クリップボードを読む");
+  await expect.poll(() => vscode.calls().filter((c) => c.call === "readClipboard").length).toBe(before + 1);
+  return vscode.calls().findLast((c) => c.call === "readClipboard")?.text;
+}
+
+// Accompany のページ（ゲストではホストが配るもの）が、利用者の操作なしに、ゲストのクリップボードを書き換えられない。
+// webview は、利用者の操作の直後（一時的なユーザーアクティベーション）の、長すぎない書き込みだけを受け付ける
+test("パネルの中のページが、利用者の操作なしにクリップボードを書き換えられない", async () => {
+  accompany = await startAccompany([], fakeShell);
+  const { page, frame } = await joinAsGuest();
+  await expect(terminal(frame)).toContainText("Fake Shell ready", { timeout: 30_000 });
+  await runCommand(page, "E2E: クリップボードに書く");
+
+  // ユーザーアクティベーションが切れる（約 5 秒）のを待ってから、webview に書き込みを頼む
+  const accompanyPage = page.frames().find((f) => f.url().startsWith(`http://localhost:${testPort()}/`))!;
+  await accompanyPage.evaluate(() => {
+    setTimeout(() => {
+      window.parent.postMessage(
+        { type: "accompany.clipboard.write", text: "without user activation" },
+        location.ancestorOrigins[0],
+      );
+    }, 7000);
+  });
+  await new Promise((resolve) => setTimeout(resolve, 9000));
+
+  expect(await readClipboard(vscode!)).toBe("pasted from vscode\n");
+});
+
+// accompany.path は、開いたフォルダーの設定（.vscode/settings.json）では変えられない。
+// Live Share のホストが開いたリポジトリの設定で、任意のコマンドを起動させないため
+test("ワークスペースの設定で accompany.path を変えても使わず、ユーザーの設定の Accompany を起動する", async () => {
+  mkdirSync(test.info().outputDir, { recursive: true });
+  const marker = test.info().outputPath("workspace-command-ran");
+  const script = test.info().outputPath("workspace-command.sh");
+  writeFileSync(script, `#!/bin/sh\ntouch '${marker}'\nexit 1\n`);
+  chmodSync(script, 0o755);
+  vscode = await launchVSCode({ workspaceSettings: { "accompany.path": script } });
+  const { page } = vscode;
+
+  await runCommand(page, "Fake Live Share: ホストとして始める");
+
+  await expect(terminal(accompanyFrame(page))).toContainText("Fake Shell ready", { timeout: 30_000 });
+  expect(existsSync(marker)).toBe(false);
 });

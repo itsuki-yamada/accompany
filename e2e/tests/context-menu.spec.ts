@@ -1,5 +1,6 @@
+import { createServer } from "node:http";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
+import { closeContexts, newContext, startAccompany, testPort, type Accompany } from "./accompany";
 import { addToView, boxOf, expectPaneToShow, pane } from "./panes";
 import { expectTerminalToShow, terminalScreen, typeInTerminal } from "./terminal";
 
@@ -194,6 +195,36 @@ test("クリップボードの読み取りが許可されていないときは�
   await menuItem(page, "ペースト").click();
 
   await expect(pane(page, 1).getByRole("alert")).toContainText("Ctrl+V");
+});
+
+// VS Code の拡張のパネルでは、クリップボードに書き込めないとき、親の VS Code の webview に頼んで書き込む
+// （docs/adr/183-liveshare-extension.md）。ほかのページに iframe で埋め込まれたときは、親にコピーした文字を渡さない
+test("ほかのオリジンのページに埋め込まれたときは、コピーした文字を親のページに渡さない", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const context = await newContext(browser, { viewport: { width: 1280, height: 720 } });
+  const page = await context.newPage();
+  // 親は、Accompany（127.0.0.1）とはオリジンの違う localhost のページにする
+  const body = `<!DOCTYPE html><body style="margin:0">
+<iframe src="${accompany.url}/" style="width:1200px;height:680px;border:0"></iframe>
+<script>window.received = []; addEventListener("message", (e) => window.received.push(e.data));</script></body>`;
+  const parent = createServer((_req, res) => res.writeHead(200, { "Content-Type": "text/html" }).end(body));
+  await new Promise<void>((resolve) => parent.listen(Number(testPort(50)), "localhost", resolve));
+  try {
+    await page.goto(`http://localhost:${testPort(50)}/`);
+    const frame = page.frameLocator("iframe");
+    await expect(frame.locator(".xterm-rows")).toContainText("Fake Shell ready");
+    const screen = frame.locator(".xterm-screen");
+
+    await screen.click({ button: "right" });
+    await frame.getByRole("menuitem", { name: "すべて選択", exact: true }).click();
+    await screen.click({ button: "right" });
+    await frame.getByRole("menuitem", { name: "コピー", exact: true }).click();
+
+    await expect(frame.getByRole("alert")).toContainText("クリップボードに書き込めませんでした");
+    expect(await page.evaluate(() => (window as unknown as { received: unknown[] }).received)).toEqual([]);
+  } finally {
+    await new Promise((resolve) => parent.close(resolve));
+  }
 });
 
 test("TUI がマウスの報告モードを有効にしていても、右クリックはアプリに渡さずにメニューを出す", async ({ browser }) => {
