@@ -148,4 +148,4 @@ printf '%s\n' "$template" > "$formula"
 if [ "$formula" = "$root/Formula/accompany.rb" ]; then
   git -C "$root" --no-pager diff --stat -- Formula/accompany.rb
 fi
-echo "$formula を $version（$tarball_url、Intel の Mac は $binary_url）にした"
+echo "$formula を ${version}（${tarball_url}、Intel の Mac は ${binary_url}）にした"

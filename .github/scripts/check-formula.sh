@@ -56,5 +56,5 @@ brew style "$formula"
 brew install --formula "$formula"
 brew test "$formula"
 accompany_path=$(command -v accompany || true)
-echo "入れた accompany: $accompany_path（$(brew list --versions "$formula")）"
+echo "入れた accompany: ${accompany_path}（$(brew list --versions "$formula")）"
 echo "動かす bun: $(brew --prefix bun)/bin/bun（$(brew list --versions bun)）"

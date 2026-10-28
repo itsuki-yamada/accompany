@@ -51,7 +51,7 @@ check() {
   done
   cat "$log"
   if [[ $page != *"<title>Accompany</title>"* ]]; then
-    echo "::error::npx で起動した Accompany から画面が返らない（$expected）"
+    echo "::error::npx で起動した Accompany から画面が返らない（${expected}）"
     exit 1
   fi
 
@@ -85,7 +85,7 @@ check() {
   fi
   trap - EXIT
   rm -rf "$state"
-  echo "npx で起動して（$runs）画面が返り、SIGINT で止まった（終了コード $status）: $install_dir"
+  echo "npx で起動して（${runs}）画面が返り、SIGINT で止まった（終了コード ${status}）: $install_dir"
 }
 
 check binary "$path_without_bun"
