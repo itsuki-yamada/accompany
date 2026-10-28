@@ -1,0 +1,50 @@
+{
+  "name": "accompany",
+  "displayName": "Accompany for Live Share",
+  "description": "Live Share を始めると、ターミナルを共有する Accompany を起動して共有し、VS Code のパネルで開く",
+  "version": "0.0.1",
+  "publisher": "itsuki-yamada",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/itsuki-yamada/accompany.git"
+  },
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "accompany.openPanel",
+        "title": "Accompany: パネルで開く"
+      }
+    ],
+    "configuration": {
+      "title": "Accompany",
+      "properties": {
+        "accompany.path": {
+          "type": "string",
+          "default": "accompany",
+          "scope": "machine",
+          "markdownDescription": "Live Share のホストのときに起動する `accompany` の実行ファイル。ワークスペースの設定では変えられない"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "bun build src/extension.ts --outdir dist --target node --format cjs --external vscode && bun scripts/check-bundle.ts",
+    "package": "bun run build && cp ../../LICENSE LICENSE && bunx @vscode/vsce@4.0.0 package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/vscode": "1.100.0",
+    "vsls": "1.0.4753"
+  }
+}

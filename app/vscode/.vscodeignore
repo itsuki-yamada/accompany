@@ -1,0 +1,5 @@
+# vsix に入れるのは、同梱したコード（dist）と package.json・LICENSE だけにする（docs/adr/183-liveshare-extension.md）
+**
+!dist/extension.js
+!package.json
+!LICENSE
