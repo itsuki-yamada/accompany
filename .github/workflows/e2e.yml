@@ -148,11 +148,12 @@ jobs:
         working-directory: app/vscode
         run: bun run package
 
-      # VS Code（Electron）が要るライブラリと、画面のない環境で動かすための Xvfb を入れる
-      - name: VS Code を動かすためのライブラリを入れる
+      # VS Code（Electron）が要るライブラリと、画面のない環境で動かすための Xvfb を入れる。
+      # Chromium は、ほかの参加者としてブラウザで開くテストに使う
+      - name: VS Code を動かすためのライブラリと Chromium を入れる
         working-directory: e2e
         run: |
-          bunx playwright install-deps chromium
+          bunx playwright install --with-deps chromium
           sudo apt-get install -y --no-install-recommends xvfb
 
       - name: E2E を実行する

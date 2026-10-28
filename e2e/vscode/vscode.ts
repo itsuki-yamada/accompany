@@ -149,6 +149,8 @@ export async function runCommand(page: Page, title: string) {
   await input.fill(`>${title}`);
   await page.locator(".quick-input-list .monaco-list-row", { hasText: title }).first().waitFor();
   await input.press("Enter");
+  // 閉じきる前に次のコマンドを開こうとすると、閉じかけの入力欄に書き込もうとして止まるので、閉じるまで待つ
+  await expect(input).toBeHidden();
 }
 
 // Accompany のパネル（webview）の中の Accompany のページ。
