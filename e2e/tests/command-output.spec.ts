@@ -105,7 +105,8 @@ test("ペインの右下のコピーのボタンで、直前のコマンドの�
   await run(page, "echo first output", "first output");
   await run(page, "lines 2 second", "second 2");
   await expect(button).toBeEnabled();
-  await expect(button).toHaveAttribute("title", menuLabel);
+  // ツールチップにキー（Ctrl+T のあと y）を出す（docs/adr/177-prefix-keys.md）
+  await expect(button).toHaveAttribute("title", `${menuLabel}（Ctrl+T → y）`);
   await button.click();
 
   await expect.poll(() => readClipboard(page)).toBe("second 1\nsecond 2");
@@ -130,12 +131,13 @@ test("シェルの統合がないときは、コピーのボタンを押せず�
   expect(await readClipboard(page)).toBe("unchanged");
 });
 
-test("コピーはマウスで操作する。ショートカットは作らず、ショートカットの一覧にも載せない", async ({ browser }) => {
+// キーでのコピー（Ctrl+T のあと y）は e2e/tests/prefix-keys.spec.ts で確かめる
+test("コピーのキーを、ショートカットの一覧に載せる", async ({ browser }) => {
   accompany = await startAccompany(promptShell);
   const page = await open(browser, accompany.url);
   await expectPaneToShow(page, 1, "Prompt shell ready");
   await page.getByRole("button", { name: "キーボードショートカット" }).click();
-  await expect(page.getByRole("dialog", { name: "キーボードショートカット" })).not.toContainText(menuLabel);
+  await expect(page.getByRole("dialog", { name: "キーボードショートカット" })).toContainText(menuLabel);
 });
 
 test("途中から参加した人や、ページを読み込み直した人も、直前のコマンドの出力をコピーできる", async ({ browser }) => {

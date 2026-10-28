@@ -9,7 +9,7 @@ import { isSearchKey, SearchBar } from "./search";
 import { showContextMenu, type MenuItem } from "./context-menu";
 import type { WindowSize } from "./min-window";
 import { firstLine, type QuickCommand } from "./quick-commands";
-import { shortcutFor, withKeys, type Shortcut } from "./shortcuts";
+import { prefixKeyFor, shortcutFor, withKeys, type Shortcut } from "./shortcuts";
 import { editTabName } from "./tab-name";
 
 const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -253,6 +253,14 @@ export class Pane {
       (event) => {
         // 名前を付けている入力欄のキーは、入力欄に任せる
         if (event.target instanceof Element && event.target.classList.contains("tab-name-editor")) return;
+        // プレフィックス（Ctrl+T）のあとのキー（docs/adr/177-prefix-keys.md）
+        const prefixed = prefixKeyFor(event);
+        if (prefixed) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (prefixed !== "consume") this.runShortcut(prefixed, actions);
+          return;
+        }
         const shortcut = shortcutFor(event);
         if (!isSearchKey(event) && !shortcut) return;
         event.preventDefault();
@@ -527,6 +535,14 @@ export class Pane {
     this.terminal.focus();
   }
 
+  // このターミナルで済む操作はここで行い、ほかはページ全体に任せる
+  private runShortcut(shortcut: Shortcut, actions: PaneActions) {
+    if (shortcut.type === "send-prefix") this.send("\x14");
+    else if (shortcut.type === "copy-last-output") void this.copyLastOutput();
+    else if (shortcut.type === "rename-tab") this.rename();
+    else actions.shortcut(shortcut);
+  }
+
   // ほかの参加者の選択範囲を出す。参加者の情報は誰かが動くたびに届くので、変わったときだけ置き直す
   setRemoteSelections(selections: RemoteSelection[]) {
     const key = JSON.stringify(selections);
@@ -578,7 +594,7 @@ export class Pane {
         {
           label: copyLastOutputLabel,
           detail: reason?.detail,
-          title: reason?.title,
+          title: reason?.title ?? withKeys(copyLastOutputLabel),
           ariaLabel: reason ? `${copyLastOutputLabel}、${reason.detail}` : undefined,
           disabled: reason !== undefined,
           action: () => this.copyLastOutput(),
@@ -587,13 +603,13 @@ export class Pane {
         { label: "すべて選択", action: () => this.terminal.selectAll() },
         "separator",
         // タブ（このターミナル）に名前を付ける（docs/adr/110-tab-name.md）
-        { label: "名前を変更…", action: () => this.rename() },
+        { label: "名前を変更…", title: withKeys("タブの名前を変える", "名前を変更"), action: () => this.rename() },
         // 参加者全員の画面とサーバー側の画面をリセットする（docs/adr/33-context-menu.md）
         { label: "ターミナルのリセット", action: () => this.socket.send(JSON.stringify({ type: "reset" })) },
         "separator",
         ...actions.arrangeItems(),
-        { label: "右に分割", disabled: !this.splittable, action: () => actions.split("row") },
-        { label: "下に分割", disabled: !this.splittable, action: () => actions.split("column") },
+        { label: "右に分割", title: withKeys("右に分割"), disabled: !this.splittable, action: () => actions.split("row") },
+        { label: "下に分割", title: withKeys("下に分割"), disabled: !this.splittable, action: () => actions.split("column") },
       ],
       () => this.terminal.focus(),
     );
@@ -722,7 +738,7 @@ export class Pane {
     this.copyButtonKey = key;
     const reason = unavailable && unavailableReasons[unavailable];
     this.copyButton.setAttribute("aria-disabled", String(reason !== undefined));
-    this.copyButton.title = reason ? reason.title : copyLastOutputLabel;
+    this.copyButton.title = reason ? reason.title : withKeys(copyLastOutputLabel);
   }
 
   // tone が info なら、警告ではなく知らせとして出す

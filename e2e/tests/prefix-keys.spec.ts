@@ -148,19 +148,23 @@ test("Ctrl+T のあと { / } で前・次のターミナルと入れ替え、spa
   await expectPaneToShow(page, 2, "Fake Shell ready");
   // 1 が左、2 が右
 
+  // b の左端から a の左端までの距離・上端から上端までの距離
+  const dx = async (a: number, b: number) => (await boxOf(page, a)).x - (await boxOf(page, b)).x;
+  const dy = async (a: number, b: number) => (await boxOf(page, a)).y - (await boxOf(page, b)).y;
+
   await prefixed(page, "}");
-  await expect.poll(async () => (await boxOf(page, 1)).x).toBeGreaterThan((await boxOf(page, 2)).x);
+  await expect.poll(() => dx(1, 2)).toBeGreaterThan(10);
   // 入れ替えたターミナルにキー入力の先が残る
   await expectFocusOn(page, 1);
   await prefixed(page, "{");
-  await expect.poll(async () => (await boxOf(page, 2)).x).toBeGreaterThan((await boxOf(page, 1)).x);
+  await expect.poll(() => dx(2, 1)).toBeGreaterThan(10);
   await expectFocusOn(page, 1);
 
   await prefixed(page, " ");
-  await expect.poll(async () => (await boxOf(page, 2)).y).toBeGreaterThan((await boxOf(page, 1)).y + 10);
-  expect(Math.abs((await boxOf(page, 1)).x - (await boxOf(page, 2)).x)).toBeLessThan(2);
+  await expect.poll(() => dy(2, 1)).toBeGreaterThan(10);
+  expect(Math.abs(await dx(1, 2))).toBeLessThan(2);
   await prefixed(page, " ");
-  await expect.poll(async () => (await boxOf(page, 2)).x).toBeGreaterThan((await boxOf(page, 1)).x + 10);
+  await expect.poll(() => dx(2, 1)).toBeGreaterThan(10);
   await expectFocusOn(page, 1);
 });
 
@@ -185,6 +189,10 @@ test("Ctrl+T のあと y で、直前のコマンドの出力をコピーする"
   await focusPane(page, 1);
   await page.keyboard.type("lines 2 copied\n");
   await expectPaneToShow(page, 1, "copied 2");
+  await expect(pane(page, 1).getByRole("button", { name: "直前のコマンドの出力をコピー" })).toHaveAttribute(
+    "title",
+    "直前のコマンドの出力をコピー（Ctrl+T → y）",
+  );
 
   await prefixed(page, "y");
 
@@ -264,10 +272,6 @@ test("Ctrl+T のあと ? でショートカットの一覧を開き、一覧と�
   await expect(pane(page, 1).getByRole("button", { name: "下に分割" })).toHaveAttribute("title", '下に分割（Ctrl+T → "）');
   await expect(pane(page, 1).getByRole("button", { name: "閉じる" })).toHaveAttribute("title", "閉じる（Ctrl+T → x）");
   await expect(page.getByRole("button", { name: "新しいタブ" }).first()).toHaveAttribute("title", "新しいタブ（Ctrl+T → c）");
-  await expect(pane(page, 1).getByRole("button", { name: "直前のコマンドの出力をコピー" })).toHaveAttribute(
-    "title",
-    /Ctrl\+T → y/,
-  );
 
   const list = page.getByRole("dialog", { name: "キーボードショートカット" });
   await expect(list).toBeHidden();
@@ -287,9 +291,12 @@ test("Ctrl+T のあと ? でショートカットの一覧を開き、一覧と�
     await expect(list).toContainText(text);
   }
 
-  // 右クリックのメニューにもキーを出す
+  // Escape で閉じると、ターミナルにキー入力の先が戻る
   await page.keyboard.press("Escape");
   await expect(list).toBeHidden();
+  await expectFocusOn(page, 1);
+
+  // 右クリックのメニューにもキーを出す
   const box = (await pane(page, 1).locator(".xterm-screen").boundingBox())!;
   await page.mouse.click(box.x + 50, box.y + 50, { button: "right" });
   await expect(page.getByRole("menu").getByRole("menuitem", { name: "右に分割" })).toHaveAttribute(
