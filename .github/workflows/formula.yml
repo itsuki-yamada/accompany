@@ -19,6 +19,7 @@ jobs:
   check:
     name: formula (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     strategy:
       # 1 つが落ちても、ほかの OS と CPU の結果を残す
       fail-fast: false
