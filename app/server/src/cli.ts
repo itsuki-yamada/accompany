@@ -7,15 +7,16 @@ import { maxPort, parseCliArgs } from "./cli-args";
 import index from "./public/index.html";
 import { maxMinWindow, parseMinWindowOption } from "./min-window";
 import { SessionStore, stateDir } from "./session-store";
-import { compressedRoutes } from "./static-assets";
+import { compressedRoutes, contentSecurityPolicy } from "./static-assets";
 import { Uploads } from "./uploads";
 import { Workspace } from "./workspace";
 
-// accompany [--port <port>] [--fresh] [--min-window <幅>x<高さ>] [-v | --version] [-h | --help] [-- <command...>]
+// accompany [--port <port>] [--fresh] [--min-window <幅>x<高さ>] [--allow-vscode-webview] [-v | --version] [-h | --help] [-- <command...>]
 // accompany activate [シェル]: シェルの統合のスクリプトを表示する（docs/adr/112-copy-last-output.md）
 // --fresh: 前回の画面の配置とスクロールバックを戻さずに、新しく始める
 // --min-window: 端末の大きさの下限を、ウィンドウの大きさ（ピクセル）で指定する。保存した下限より優先し、保存はしない
 // （docs/adr/99-smallest-size.md）
+// --allow-vscode-webview: VS Code の拡張のパネル（webview）の中に埋め込むことを許す（docs/adr/185-frame-ancestors.md）
 const { values, positionals } = parseCliArgs();
 const minWindowOption = values["min-window"];
 const minWindow = minWindowOption === undefined ? undefined : parseMinWindowOption(minWindowOption);
@@ -39,7 +40,7 @@ const app = createApp(workspace, uploads);
 // 上げるのは portAttempts 個まで（docs/adr/152-free-port.md）
 const portAttempts = 10;
 const requestedPort = Number(values.port);
-const routes = await compressedRoutes(index);
+const routes = await compressedRoutes(index, contentSecurityPolicy({ allowVscodeWebview: values["allow-vscode-webview"] }));
 let server: ReturnType<typeof Bun.serve> | undefined;
 for (let port = requestedPort; port < requestedPort + portAttempts && port <= maxPort; port++) {
   try {
