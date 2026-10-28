@@ -1,9 +1,11 @@
-# Release の OS と CPU ごとの実行ファイルを入れる（docs/adr/131-homebrew.md）。
-# 版と sha256 は、Release を出したあとに .github/scripts/update-formula.sh <版> で書き換える
+# Release の tarball を入れ、その JS（dist/cli.js）を Homebrew の bun で動かす（docs/adr/191-run-on-bun.md）。
+# 署名のない実行ファイルを入れず、広く使われている bun が動かすので、セキュリティの製品に止められにくい。
+# このファイルは .github/scripts/update-formula.sh が作る。手で直さず、スクリプトのひな形を直して流し直す
 class Accompany < Formula
   desc "Share AI coding agent terminals in the browser for remote pair programming"
   homepage "https://github.com/itsuki-yamada/accompany"
-  version "0.24.0"
+  url "https://github.com/itsuki-yamada/accompany/releases/download/v0.25.0/accompany-0.25.0.tgz"
+  sha256 "865ff4c7fd99f4882389a53d5e28814694f619ae0ab69694c81f6bd7c6786316"
   license "MIT"
 
   livecheck do
@@ -11,30 +13,35 @@ class Accompany < Formula
     strategy :github_latest
   end
 
+  # homebrew-core の bun。版は Accompany と別に上がる（対応する版の下限と、最新の bun で動くことは e2e.yml で確かめる）。
+  # Intel の Mac には bun の bottle がなく、入れると bun をソースからビルドする（rust や llvm も要る）ので、
+  # Release の実行ファイルを入れる
   on_macos do
     on_arm do
-      url "https://github.com/itsuki-yamada/accompany/releases/download/v0.24.0/accompany-0.24.0-darwin-arm64"
-      sha256 "f938e32de6d625d99416a24fb61bbfdfb80c58e91d70e2a5f5873fec85399d02"
+      depends_on "bun"
     end
     on_intel do
-      url "https://github.com/itsuki-yamada/accompany/releases/download/v0.24.0/accompany-0.24.0-darwin-x64"
-      sha256 "df00bf94b4bf5de19c5c152cf4603c5df17928b5775781c883fb5c12c23e450e"
+      url "https://github.com/itsuki-yamada/accompany/releases/download/v0.25.0/accompany-0.25.0-darwin-x64"
+      sha256 "6a9eecb22a148a3b2c63d1404b88ca416635472ad17f97d17e16853d0da735b2"
     end
   end
 
   on_linux do
-    on_arm do
-      url "https://github.com/itsuki-yamada/accompany/releases/download/v0.24.0/accompany-0.24.0-linux-arm64"
-      sha256 "4cfa96bcefd87ad555d8789bd7cab0ba350fdc8192d424b71d17c9d4754809e8"
-    end
-    on_intel do
-      url "https://github.com/itsuki-yamada/accompany/releases/download/v0.24.0/accompany-0.24.0-linux-x64"
-      sha256 "3a789a5da60bc4db48e22e1c509e2fd9fad12d39aa55b19ea20a9e5b6b707f75"
-    end
+    depends_on "bun"
   end
 
   def install
-    bin.install Dir["accompany-*"].fetch(0) => "accompany"
+    if OS.mac? && Hardware::CPU.intel?
+      bin.install Dir["accompany-*"].fetch(0) => "accompany"
+      return
+    end
+
+    libexec.install Dir["*"]
+    # bun の場所は、PATH の bun（mise などで入れた古いものかもしれない）ではなく、依存の bun に決めておく
+    (bin/"accompany").write <<~SH
+      #!/bin/sh
+      exec "#{formula_opt_bin("bun")}/bun" "#{libexec}/dist/cli.js" "$@"
+    SH
   end
 
   test do
