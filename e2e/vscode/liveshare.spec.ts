@@ -1,5 +1,5 @@
 import { createConnection } from "node:net";
-import { expect, test, type FrameLocator, type Page } from "@playwright/test";
+import { expect, test, type FrameLocator } from "@playwright/test";
 import { startAccompany, testPort, type Accompany } from "../tests/accompany";
 import { accompanyFrame, launchVSCode, panelTab, runCommand, type VSCode } from "./vscode";
 
@@ -9,7 +9,10 @@ const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
 let vscode: VSCode | undefined;
 let accompany: Accompany | undefined;
 
-test.afterEach(async () => {
+test.afterEach(async ({}, testInfo) => {
+  // 証跡として、終わったときの VS Code のウィンドウを残す
+  const screenshot = await vscode?.page.screenshot().catch(() => undefined);
+  if (screenshot) await testInfo.attach("vscode", { body: screenshot, contentType: "image/png" });
   await vscode?.close();
   vscode = undefined;
   await accompany?.stop();
@@ -118,7 +121,8 @@ test("パネルの中で、Ctrl+T のプレフィックスと ⌘⇧ / Ctrl+Shif
   const { page, frame } = await joinAsGuest();
   await expect(terminal(frame)).toContainText("Fake Shell ready", { timeout: 30_000 });
   await frame.locator(".xterm-screen").click();
-  const tabs = frame.getByRole("complementary", { name: "サイドメニュー" }).getByRole("tab");
+  // パネルの幅ではサイドメニューを隠すので、タブはツールバーにある
+  const tabs = frame.getByRole("tab");
   await expect(tabs).toHaveCount(1);
 
   // Ctrl+T c: 新しいタブ
@@ -133,7 +137,9 @@ test("パネルの中で、Ctrl+T のプレフィックスと ⌘⇧ / Ctrl+Shif
   await expect(page.locator(".quick-input-widget")).toBeHidden();
 });
 
-test("パネルの中で、選択した文字をコピーでき、クリップボードの文字をペーストできる", async () => {
+// VS Code は localhost のページにクリップボードの許可を与えないので、コピーは webview を経由して書き込む。
+// 読み取りは許可がないので、メニューの「ペースト」は使えず、キーボードでペーストする
+test("パネルの中で、選択した文字をコピーでき、クリップボードの文字をキーボードでペーストできる", async () => {
   accompany = await startAccompany([], fakeShell);
   const { page, frame } = await joinAsGuest();
   await expect(terminal(frame)).toContainText("Fake Shell ready", { timeout: 30_000 });
@@ -147,21 +153,13 @@ test("パネルの中で、選択した文字をコピーでき、クリップ�
   await frame.locator(".xterm-screen").click({ button: "right" });
   await menu.getByRole("menuitem", { name: "コピー", exact: true }).click();
 
-  // VS Code のクリップボード（エディタに貼り付けて確かめる）
-  await expect.poll(() => readClipboard(page)).toContain("copy me please");
+  // VS Code の拡張から読む、システムのクリップボードに入る
+  await runCommand(page, "E2E: クリップボードを読む");
+  await expect.poll(() => vscode!.calls().findLast((c) => c.call === "readClipboard")?.text).toContain("copy me please");
 
-  // VS Code でコピーした文字を、パネルの中の Accompany の「ペースト」で貼り付ける
-  await writeClipboard(page, "pasted from vscode\n");
-  await frame.locator(".xterm-screen").click({ button: "right" });
-  await menu.getByRole("menuitem", { name: "ペースト", exact: true }).click();
+  // VS Code の拡張が書いたクリップボードの文字を、パネルの中の Accompany にキーボードで貼り付ける
+  await runCommand(page, "E2E: クリップボードに書く");
+  await frame.locator(".xterm-screen").click();
+  await page.keyboard.press("ControlOrMeta+KeyV");
   await expect(terminal(frame)).toContainText("pasted from vscode");
 });
-
-// VS Code（workbench）のページから、システムのクリップボードを読み書きする
-function readClipboard(page: Page) {
-  return page.evaluate(() => navigator.clipboard.readText());
-}
-
-function writeClipboard(page: Page, text: string) {
-  return page.evaluate((t) => navigator.clipboard.writeText(t), text);
-}

@@ -10,3 +10,4 @@ playwright-report-vscode/
 # VS Code の拡張の E2E が取得する VS Code と、拡張の配布物（vsix）
 .vscode-test/
 *.vsix
+/app/vscode/LICENSE

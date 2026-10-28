@@ -2,7 +2,8 @@
 // Accompany の拡張が vsls の getApi で受け取る API のうち、使う部分（セッション、shareServer、shareService、
 // getSharedService）だけを真似る。本物の Live Share はサインインが要り、自動では確かめられないため（docs/adr/183-liveshare-extension.md）。
 // 拡張が呼んだ API は FAKE_LIVESHARE_LOG のファイルに 1 行ずつ JSON で書き、テストが読む。
-// ゲストとして参加したときに、ホストの共有サービスが返すポートは FAKE_LIVESHARE_HOST_PORT で渡す
+// ゲストとして参加したときに、ホストの共有サービスが返すポートは FAKE_LIVESHARE_HOST_PORT で渡す。
+// あわせて、E2E で使う、クリップボードを読み書きするコマンドも置く
 const vscode = require("vscode");
 const { appendFileSync } = require("node:fs");
 
@@ -79,6 +80,11 @@ function activate(context) {
       const handler = handlers.get("accompany/info");
       log({ call: "requestInfo", result: handler ? await handler([], undefined) : null });
     }),
+    // パネルの中の Accompany とシステムのクリップボードをやり取りできるかを確かめるため、VS Code の拡張から読み書きする
+    vscode.commands.registerCommand("e2e.readClipboard", async () => {
+      log({ call: "readClipboard", text: await vscode.env.clipboard.readText() });
+    }),
+    vscode.commands.registerCommand("e2e.writeClipboard", () => vscode.env.clipboard.writeText("pasted from vscode\n")),
   );
   return { getApi: async () => api };
 }

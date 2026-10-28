@@ -4,6 +4,7 @@ import { CommandMarks, type CommandMarksState, type Unavailable } from "../comma
 import { scrollback } from "../scrollback";
 import { TrimmedLines } from "../trimmed-lines";
 import { themeColors, type Appearance } from "./appearance";
+import { writeClipboard } from "./clipboard";
 import { acceptFileDrop } from "./file-drop";
 import { isSearchKey, SearchBar } from "./search";
 import { showContextMenu, type MenuItem } from "./context-menu";
@@ -691,7 +692,7 @@ export class Pane {
 
   private async copy() {
     try {
-      await navigator.clipboard.writeText(this.terminal.getSelection());
+      await writeClipboard(this.terminal.getSelection());
     } catch {
       this.showNotice("クリップボードに書き込めませんでした");
     }
@@ -705,7 +706,7 @@ export class Pane {
     if ("unavailable" in output) return this.showNotice(unavailableReasons[output.unavailable].title);
     if (output.lines === 0) return this.showNotice("直前のコマンドは何も出力していません", "info");
     try {
-      await navigator.clipboard.writeText(output.text);
+      await writeClipboard(output.text);
     } catch {
       return this.showNotice("クリップボードに書き込めませんでした");
     }

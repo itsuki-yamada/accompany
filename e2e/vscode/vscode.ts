@@ -128,14 +128,24 @@ async function workbench(browser: Browser) {
     )
     .toBe(true);
   await page!.locator(".monaco-workbench").waitFor({ timeout: 60_000 });
+  // ほかのウィンドウが前にあっても、キー入力がこのウィンドウに届くよう、フォーカスがあるものとして扱わせる
+  const cdp = await page!.context().newCDPSession(page!);
+  await cdp.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+  await page!.bringToFront();
   return page!;
 }
 
 // コマンドパレットからコマンドを実行する
 export async function runCommand(page: Page, title: string) {
-  await page.keyboard.press("F1");
   const input = page.locator(".quick-input-widget input");
-  await input.waitFor();
+  // Accompany のパネルにフォーカスがあると、F1 も Accompany に届く（VS Code のキー割り当てが効かない）ので、
+  // サイドバーをクリックしてフォーカスを VS Code に戻す
+  await page.locator(".part.sidebar .composite.title").click();
+  // 起動した直後は、キー割り当てが効くようになるまで F1 を受け付けないことがあるので、開くまで押し直す
+  await expect(async () => {
+    if (!(await input.isVisible())) await page.keyboard.press("F1");
+    await expect(input).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 60_000 });
   await input.fill(`>${title}`);
   await page.locator(".quick-input-list .monaco-list-row", { hasText: title }).first().waitFor();
   await input.press("Enter");
