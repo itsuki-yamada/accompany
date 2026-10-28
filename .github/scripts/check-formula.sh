@@ -5,8 +5,10 @@
 #
 #   check-formula.sh            このリポジトリのチェックアウトを tap し、コミットした formula（Release の tarball）を確かめる。
 #                               tap は git clone なので、確かめるのはコミットした formula
-#   check-formula.sh <tarball>  update-formula.sh のひな形で、手元の tarball（bun pm pack で作ったもの）を入れる formula を
-#                               一時的な tap に作って確かめる。Release を出す前に、tarball と formula の形を確かめるため
+#   check-formula.sh <tarball> <darwin-x64 の実行ファイル>
+#                               update-formula.sh のひな形で、手元の tarball（bun pm pack で作ったもの）と実行ファイル
+#                               （Intel の Mac で入れるもの）を入れる formula を一時的な tap に作って確かめる。
+#                               Release を出す前に、tarball と formula の形を確かめるため
 #
 # 手元でも流せる。利用者として tap 済みのマシンでは、それを消さないよう、何もせずに終わる
 set -euo pipefail
@@ -15,6 +17,7 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 tap=itsuki-yamada/accompany
 formula=$tap/accompany
 tarball=${1:-}
+binary=${2:-}
 
 if brew tap | grep -qx "$tap"; then
   echo "::error::$tap は既に tap されている。消さないよう、確かめずに終わる（brew untap $tap のあとに流す）"
@@ -42,7 +45,7 @@ tap_source=$root
 if [ -n "$tarball" ]; then
   # brew tap はディレクトリを git clone するので、作った formula だけを入れた一時的なリポジトリにする
   tap_source="$work/tap"
-  FORMULA="$tap_source/Formula/accompany.rb" "$root/.github/scripts/update-formula.sh" --tarball "$tarball"
+  FORMULA="$tap_source/Formula/accompany.rb" "$root/.github/scripts/update-formula.sh" --tarball "$tarball" --binary "$binary"
   git -C "$tap_source" init --quiet
   git -C "$tap_source" add Formula
   git -C "$tap_source" -c user.name=check-formula -c user.email=check-formula@localhost commit --quiet -m "formula を確かめる"

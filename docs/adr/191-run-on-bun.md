@@ -50,9 +50,10 @@ Homebrew・npm・Release のどの入れ方でも、最後に動くのは `bun b
 ### Homebrew（131 を変える）
 
 - formula は、Release の tarball（`accompany-<版>.tgz`）を `libexec` に入れ、`depends_on "bun"`（homebrew-core）にする。`bin/accompany` は、`exec "<依存の bun の opt>/bin/bun" "<libexec>/dist/cli.js" "$@"` だけの sh のスクリプトにする。PATH の `bun`（mise などで入れた古いものかもしれない）ではなく、依存の `bun` に決めておく
+- ただし Intel の Mac（macOS の x86_64）では、これまでどおり Release の実行ファイル（`accompany-<版>-darwin-x64`）を入れる（`on_macos` の `on_intel` で url を差し替え、`depends_on "bun"` は付けない）。homebrew-core の `bun` には Intel の Mac の bottle がなく（arm64 の macOS と、Linux の x86_64・arm64 だけ）、依存にすると、`rust`・`llvm`・`cmake` も入れて `bun` をソースからビルドする。CI（`macos-15-intel`）では、`cmake` のビルドの途中で 20 分の制限を超えた。数十分から数時間待たせるより、実行ファイルを入れるほうがよい。Intel の Mac でも Bun で動かしたい人は、Bun を入れて npx で起動できる（起動役が Bun を選ぶ）
 - 時期は選択肢 2 にする。v0.24.0 までの tarball には `dist/` がなく、いま formula を新しい形にすると、`brew install` で入るものが動かない。このプルリクのあと、版を上げて正式な Release を出し、調整役が `update-formula.sh <版>` を流すと、新しい形の formula のプルリクになる
-- `update-formula.sh` は、formula を書き換えるのではなく、スクリプトの中のひな形から作り直す。formula を変えるときは、ひな形を直す。`<版>` を渡すと、Release の tarball の digest で、`--tarball <パス>` を渡すと、手元の tarball を `file://` で入れる formula を作る（`FORMULA` で書き出す先を変えられる）
-- `check-formula.sh <tarball>` は、`--tarball` で作った formula だけを入れた一時的なリポジトリを tap し、`brew style`・`brew install`・`brew test` を流す。`formula.yml` は、コミットした formula に加えて、このコミットの tarball をひな形の formula で入れて、4 つの OS と CPU で確かめる。Release を出す前に、tarball と formula の形が合うことが分かる。tarball の作り方（`app/server/package.json`）を変えたときも流す
+- `update-formula.sh` は、formula を書き換えるのではなく、スクリプトの中のひな形から作り直す。formula を変えるときは、ひな形を直す。`<版>` を渡すと、Release の tarball と darwin-x64 の実行ファイルの digest で、`--tarball <パス> --binary <パス>` を渡すと、手元の tarball と実行ファイルを `file://` で入れる formula を作る（`FORMULA` で書き出す先を変えられる）
+- `check-formula.sh <tarball> <darwin-x64 の実行ファイル>` は、`--tarball` で作った formula だけを入れた一時的なリポジトリを tap し、`brew style`・`brew install`・`brew test` を流す。`formula.yml` は、コミットした formula に加えて、このコミットの tarball をひな形の formula で入れて、4 つの OS と CPU で確かめる。Release を出す前に、tarball と formula の形が合うことが分かる。tarball の作り方（`app/server/package.json`）を変えたときも流す
 - 依存として入った `bun` は、元から入っていなければ、`check-formula.sh` の終わりに外す（手元で流しても残さない）
 
 ### npm（132 を変える）
@@ -74,7 +75,7 @@ Homebrew・npm・Release のどの入れ方でも、最後に動くのは `bun b
 
 ### oven-sh/bun の tap
 
-- Bun の tap の formula も名前が `bun`（`oven-sh/bun/bun`）。Homebrew は、同じ名前の formula を別の tap から同時には入れられない。tap の `bun` を入れている人が `brew install itsuki-yamada/accompany/accompany` すると、（確かめた結果を下に書く）
+- Bun の tap の formula も名前が `bun`（`oven-sh/bun/bun`）。Homebrew は、同じ名前の formula を別の tap から同時には入れられない。tap の `bun` を入れている人が `brew install itsuki-yamada/accompany/accompany` した。CI（`formula.yml` の `with-oven-sh-bun`。ubuntu で、tap の `bun` 1.4.4 を入れておく）では、Homebrew は依存の `bun` が入っているものとして homebrew-core の `bun` を入れず、`opt/bun` が指す tap の `bun` で動いて、`brew test` も通った。名前が同じなので、依存としては区別されない。tap の `bun` が homebrew-core のものより古いと、`brew upgrade` で依存を上げようとして止まる（別の tap の同じ名前は入れられない）かもしれないが、確かめていない。そのときは `brew uninstall oven-sh/bun/bun` で外してから入れ直す（homebrew-core の `bun` でも `bun` は使える）。README に書く
 - `depends_on "oven-sh/bun/bun"` にはしない。homebrew-core の `bun` は bottle で入り、Homebrew が版を上げる。tap の formula は、Bun が出すビルドをそのまま入れるだけで、homebrew-core に入っているほうが、利用者も多く、Homebrew の利用者にとって標準になる
 
 ### ps での見え方
@@ -105,7 +106,8 @@ Homebrew・npm・Release のどの入れ方でも、最後に動くのは `bun b
 
 ## 影響・今後の課題
 
-- `formula.yml` は、formula や tarball の作り方を変えたプルリクで、4 つの OS と CPU で 2 回ずつ（コミットした formula と、このコミットの tarball）入れて確かめる
+- `formula.yml` は、formula や tarball の作り方を変えたプルリクで、4 つの OS と CPU で 2 回ずつ（コミットした formula と、このコミットの tarball）入れて確かめ、oven-sh/bun の `bun` を入れたマシンでも 1 回確かめる
+- Intel の Mac の Homebrew では、実行ファイルのまま（セキュリティの製品に止められにくくはならない）。homebrew-core に Intel の Mac の `bun` の bottle ができたら、`on_intel` を外す
 - E2E の target が 4 つから 7 つ（プルリク）・6 つ（Release）になる（`npm`・`npm-binary`・`bun-min`・`bun-latest`）。リポジトリは PUBLIC なので、費用はかからない
 - formula を新しい形にするのは、次の正式な Release のあとの formula のプルリクになる。それまでは、Homebrew では今までどおり実行ファイルが入る
 - npm の主パッケージが、JS とソースマップの分（約 2.5MB、tarball で 0.6MB）大きくなる

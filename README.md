@@ -41,7 +41,7 @@ Live Share の共有ターミナルで Claude Code などの TUI のエージェ
 
 ### Homebrew で入れる（macOS・Linux）
 
-このリポジトリを tap して入れる。正式版の tarball と、依存の `bun`（homebrew-core）が入り、Accompany の JS をその `bun` で動かす。
+このリポジトリを tap して入れる。正式版の tarball と、依存の `bun`（homebrew-core）が入り、Accompany の JS をその `bun` で動かす。Intel の Mac では、homebrew-core に `bun` の bottle がないので、これまでどおり実行ファイルが入る。
 
 ```sh
 brew tap itsuki-yamada/accompany https://github.com/itsuki-yamada/accompany
@@ -52,7 +52,7 @@ accompany
 - 最初の `brew install` は、`itsuki-yamada/accompany/accompany` のように tap の名前を付けて入れる。Homebrew は、名前を付けて指定した formula だけを信頼して読み込む（`brew install accompany` だけでは、信頼していない tap として断られる）
 - 新しい版に上げるときは `brew upgrade accompany`。正式版を出してから formula が新しい版になるまで、少し遅れることがある
 - `ps` などでは、プロセスの名前は `accompany` ではなく `bun`（`bun …/libexec/dist/cli.js`）と出る
-- Bun の tap（`oven-sh/bun`）の `bun` を入れている人は、homebrew-core の `bun` と同じ名前なので、`brew install` が止まることがある。そのときは、`brew uninstall oven-sh/bun/bun` で外してから入れる（homebrew-core の `bun` で、`bun` も今までどおり使える）
+- Bun の tap（`oven-sh/bun`）の `bun` を入れている人は、それが依存の `bun` として使われる。homebrew-core の `bun` と同じ名前なので、`brew install` や `brew upgrade` が止まったときは、`brew uninstall oven-sh/bun/bun` で外してから入れ直す（homebrew-core の `bun` でも、`bun` は今までどおり使える）
 - やめるときは `brew uninstall accompany` と `brew untap itsuki-yamada/accompany`（`bun` が要らなければ `brew autoremove`）
 
 表示された URL（`http://127.0.0.1:3000`）をブラウザで開く。ポート（既定 3000、`--port` で指定したもの）がほかのプロセスに使われていたら、空いているポートまで 1 つずつ上げて（10 個まで）待ち受け、そのポートの URL を表示する。起動のしかたは次のとおり（npx、tarball、実行ファイルで起動するときも同じ）。
