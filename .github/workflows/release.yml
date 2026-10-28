@@ -32,6 +32,9 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write
+      # 実行ファイルと tarball の出どころの証明（attestation）に使う
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -46,6 +49,14 @@ jobs:
         with:
           name: accompany-binaries
           path: binaries
+
+      # 証明は中身（SHA-256）に付くので、Release に置くときの名前と違っていてもよい
+      - name: 実行ファイルと tarball に出どころの証明を付ける
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            binaries/accompany-*
+            tarball/accompany-*.tgz
 
       - name: edge を作り直し、まだなければ正式な Release を作る
         env:

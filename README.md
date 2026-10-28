@@ -99,6 +99,8 @@ chmod +x accompany-*-darwin-arm64
 ./accompany-0.6.0-darwin-arm64 --help          # 使い方を表示する（-h でもよい）
 ```
 
+ダウンロードしたファイルが、書き換えられていないことと、このリポジトリの CI で作られたことは、`SHA256SUMS` と `gh attestation verify` で確かめられる（[SECURITY.md](SECURITY.md#release-のファイルを確かめる)）。
+
 #### macOS で、ダウンロードしたファイルを実行できないとき
 
 実行ファイルは Apple の公証を受けていない。ブラウザでダウンロードすると、ファイルに quarantine の属性が付き、macOS（Gatekeeper）に起動を止められる。「開発元を検証できません」「Apple は … を検証できませんでした」と表示されたり、起動したまま何も表示されなかったりする。
