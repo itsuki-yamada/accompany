@@ -287,7 +287,8 @@ window.addEventListener("message", (event) => {
 </html>`;
 }
 
-// webview 経由でクリップボードに書き込む文字数（UTF-16 の単位）の上限。直前の出力のコピーなどの大きなものも収まる長さにする
+// webview 経由でクリップボードに書き込む文字数（UTF-16 の単位）の上限。直前の出力のコピーなどの大きなものも収まる長さにする。
+// Accompany のページ（app/server/src/public/clipboard.ts の maxWebviewClipboardLength）も同じ上限で、超えたら頼まずに知らせる
 const maxClipboardLength = 10_000_000;
 
 function escapeHtml(text: string) {

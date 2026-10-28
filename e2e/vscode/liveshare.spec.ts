@@ -14,6 +14,9 @@ test.afterEach(async ({}, testInfo) => {
   // 証跡として、終わったときの VS Code のウィンドウを残す
   const screenshot = await vscode?.page.screenshot().catch(() => undefined);
   if (screenshot) await testInfo.attach("vscode", { body: screenshot, contentType: "image/png" });
+  if (vscode && testInfo.status !== testInfo.expectedStatus) {
+    await testInfo.attach("vscode-output", { body: vscode.output(), contentType: "text/plain" });
+  }
   await vscode?.close();
   vscode = undefined;
   await accompany?.stop();
@@ -192,6 +195,42 @@ test("パネルの中のページが、利用者の操作なしにクリップ�
     }, 7000);
   });
   await new Promise((resolve) => setTimeout(resolve, 9000));
+
+  expect(await readClipboard(vscode!)).toBe("pasted from vscode\n");
+});
+
+// 利用者の操作の直後でも、長すぎる文字（1000 万文字を超えるもの）は書き込まない
+test("パネルの中のページが、長すぎる文字をクリップボードに書き込めない", async () => {
+  accompany = await startAccompany([], fakeShell);
+  const { page, frame } = await joinAsGuest();
+  await expect(terminal(frame)).toContainText("Fake Shell ready", { timeout: 30_000 });
+  await runCommand(page, "E2E: クリップボードに書く");
+
+  // クリックしたときに、webview に書き込みを頼むボタンを、Accompany のページに置く
+  const accompanyPage = page.frames().find((f) => f.url().startsWith(`http://localhost:${testPort()}/`))!;
+  await accompanyPage.evaluate(() => {
+    const button = document.createElement("button");
+    button.id = "e2e-write";
+    button.textContent = "write";
+    button.style.cssText = "position:fixed;left:200px;top:200px;z-index:100000";
+    button.addEventListener("click", () => {
+      const text = (window as unknown as { e2eText: string }).e2eText;
+      window.parent.postMessage({ type: "accompany.clipboard.write", text }, location.ancestorOrigins[0]);
+    });
+    document.body.append(button);
+  });
+  const write = async (text: string) => {
+    await accompanyPage.evaluate((t) => ((window as unknown as { e2eText: string }).e2eText = t), text);
+    await frame.locator("#e2e-write").click();
+  };
+
+  // 上限ちょうどまでは書き込める
+  await write("a".repeat(10_000_000));
+  await expect.poll(async () => (await readClipboard(vscode!))?.length, { timeout: 30_000 }).toBe(10_000_000);
+  await runCommand(page, "E2E: クリップボードに書く");
+
+  await write("a".repeat(10_000_001));
+  await new Promise((resolve) => setTimeout(resolve, 2000));
 
   expect(await readClipboard(vscode!)).toBe("pasted from vscode\n");
 });

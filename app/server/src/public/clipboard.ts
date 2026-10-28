@@ -8,9 +8,14 @@ export async function writeClipboard(text: string) {
   } catch (error) {
     const parent = vscodeWebviewOrigin();
     if (!parent) throw error;
+    // webview は長すぎる文字を黙って捨てるので、渡す前に断り、書き込めなかったことを知らせる
+    if (text.length > maxWebviewClipboardLength) throw error;
     window.parent.postMessage({ type: "accompany.clipboard.write", text }, parent);
   }
 }
+
+// webview に頼んで書き込める文字数（UTF-16 の単位）の上限。拡張（app/vscode/src/extension.ts の maxClipboardLength）と同じ
+const maxWebviewClipboardLength = 10_000_000;
 
 function vscodeWebviewOrigin() {
   if (window.parent === window) return undefined;

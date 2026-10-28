@@ -220,8 +220,10 @@ test("ほかのオリジンのページに埋め込まれたときは、コピ�
     await screen.click({ button: "right" });
     await frame.getByRole("menuitem", { name: "コピー", exact: true }).click();
 
+    const received = () => page.evaluate(() => (window as unknown as { received: unknown[] }).received);
+    expect(await received()).toEqual([]);
     await expect(frame.getByRole("alert")).toContainText("クリップボードに書き込めませんでした");
-    expect(await page.evaluate(() => (window as unknown as { received: unknown[] }).received)).toEqual([]);
+    expect(await received()).toEqual([]);
   } finally {
     await new Promise((resolve) => parent.close(resolve));
   }

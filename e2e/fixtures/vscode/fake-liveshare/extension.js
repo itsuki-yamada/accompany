@@ -15,6 +15,8 @@ function log(entry) {
 }
 
 function activate(context) {
+  // テストは、これを待ってから操作する（Accompany の拡張が getApi で Live Share の API を求めると動き出す）
+  log({ call: "activate" });
   const sessionChanged = new vscode.EventEmitter();
   const availability = new vscode.EventEmitter();
   let session = { id: null, role: Role.None, user, peerNumber: 0, access: 0, presentationMode: false };

@@ -19,6 +19,8 @@ export type VSCode = {
   dir: string;
   // 偽の Live Share が書いた、拡張の呼び出し
   calls: () => Record<string, unknown>[];
+  // VS Code の標準出力・標準エラー出力
+  output: () => string;
   close: () => Promise<void>;
 };
 
@@ -97,6 +99,10 @@ export async function launchVSCode({
     ],
     { env: { ...baseEnv, FAKE_LIVESHARE_LOG: log, ...env }, stdio: ["ignore", "pipe", "pipe"] },
   );
+  // VS Code の出力（拡張のホストのエラーなど）。テストが落ちたときに証跡として残す
+  const vscodeOutput: string[] = [];
+  child.stdout?.on("data", (chunk: Buffer) => vscodeOutput.push(chunk.toString()));
+  child.stderr?.on("data", (chunk: Buffer) => vscodeOutput.push(chunk.toString()));
   const endpoint = await new Promise<string>((resolve, reject) => {
     let output = "";
     const onData = (chunk: Buffer) => {
@@ -110,6 +116,11 @@ export async function launchVSCode({
   });
   const browser: Browser = await chromium.connectOverCDP(endpoint);
   const page = await workbench(browser);
+  const calls = () =>
+    readFileSync(log, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
 
   const close = async () => {
     await browser.close().catch(() => {});
@@ -121,12 +132,18 @@ export async function launchVSCode({
     }
     rmSync(dir, { recursive: true, force: true });
   };
-  const calls = () =>
-    readFileSync(log, "utf8")
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line));
-  return { page, dir, calls, close };
+  // 拡張のホストが動き出し、Accompany の拡張が Live Share の API を得るまで待つ。
+  // 待たずにコマンドパレットを開くと、拡張のコマンドがまだ登録されておらず、開いたままでは一覧が更新されない
+  const waitFrom = Date.now();
+  try {
+    await expect.poll(() => calls().some((c) => c.call === "activate"), { timeout: 60_000 }).toBe(true);
+    console.log(`拡張が動き出すまで、ウィンドウが開いてから ${Date.now() - waitFrom} ms 待った`);
+  } catch (error) {
+    const output = vscodeOutput.join("");
+    await close();
+    throw new Error(`拡張が動き出さなかった\n${output}`, { cause: error });
+  }
+  return { page, dir, calls, close, output: () => vscodeOutput.join("") };
 }
 
 // VS Code のウィンドウ（workbench）のページ。開いて、拡張が動き出すまで待つ
@@ -161,7 +178,15 @@ export async function runCommand(page: Page, title: string) {
     await expect(input).toBeVisible({ timeout: 1000 });
   }).toPass({ timeout: 60_000 });
   await input.fill(`>${title}`);
-  await page.locator(".quick-input-list .monaco-list-row", { hasText: title }).first().waitFor();
+  const row = page.locator(".quick-input-list .monaco-list-row", { hasText: title }).first();
+  // コマンドの一覧は開いたときのものなので、まだ出ていなければ、開き直して探し直す
+  await expect(async () => {
+    if (!(await row.isVisible())) {
+      await input.fill("");
+      await input.fill(`>${title}`);
+    }
+    await expect(row).toBeVisible({ timeout: 2000 });
+  }).toPass({ timeout: 30_000 });
   await input.press("Enter");
   // 閉じきる前に次のコマンドを開こうとすると、閉じかけの入力欄に書き込もうとして止まるので、閉じるまで待つ
   await expect(input).toBeHidden();
