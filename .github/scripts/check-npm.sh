@@ -27,9 +27,20 @@ path_without_bun=$(node -e '
   console.log(process.env.PATH.split(delimiter).filter((dir) => !fs.existsSync(join(dir, "bun"))).join(delimiter));
 ')
 
-# $1: 動くはずのもの（bun / binary）、$2: 起動するときの PATH
+# PATH の中の相対のディレクトリ（. など）にある bun は、起動役は使わない（起動したディレクトリによって変わり、
+# そこに置かれたものを動かしてしまうため）。確かめるため、入れたディレクトリに、版だけ新しい偽の bun を置いておく
+cat > "$install_dir/bun" <<'FAKE'
+#!/bin/sh
+if [ "$1" = --version ]; then echo 99.0.0; exit 0; fi
+echo "相対の PATH にある偽の bun が起動された" >&2
+exit 1
+FAKE
+chmod +x "$install_dir/bun"
+
+# $1: 動くはずのもの（bun / binary）、$2: 起動するときの PATH、$3 以降: 起動するときに足す環境変数（名前=値）
 check() {
   local expected=$1 path=$2
+  local extra_env=("${@:3}")
   local port state log pid
   port=$(node -e 'const s = require("node:net").createServer().listen(0, "127.0.0.1", () => { console.log(s.address().port); s.close(); })')
   state=$(mktemp -d)
@@ -37,7 +48,8 @@ check() {
   # 端末で起動したときと同じく、別のプロセスグループで起動し、Ctrl+C と同じくグループ全体に SIGINT を送る
   # （ジョブ制御がないと、バックグラウンドのコマンドは SIGINT を無視する）。入れたディレクトリで起動するので、入れたものを使う
   set -m
-  PATH="$path" ACCOMPANY_STATE_DIR="$state/state" npx accompany --port "$port" > "$log" 2>&1 &
+  env PATH="$path" ACCOMPANY_STATE_DIR="$state/state" ${extra_env[@]+"${extra_env[@]}"} \
+    npx accompany --port "$port" > "$log" 2>&1 &
   pid=$!
   set +m
   # 途中で失敗したときも、Accompany を止めて終わるのを待ち（止まらなければ SIGKILL）、一時ディレクトリを消す
@@ -85,12 +97,17 @@ check() {
   fi
   trap - EXIT
   rm -rf "$state"
-  echo "npx で起動して（${runs}）画面が返り、SIGINT で止まった（終了コード ${status}）: $install_dir"
+  echo "npx で起動して（${runs}${extra_env[*]+、${extra_env[*]}}）画面が返り、SIGINT で止まった（終了コード ${status}）: $install_dir"
 }
 
 check binary "$path_without_bun"
+# 相対の PATH（.）にある偽の bun は使わず、実行ファイルを起動する
+check binary ".:$path_without_bun"
 if [ "$path_without_bun" != "$PATH" ]; then
   check bun "$PATH"
+  check binary "$PATH" ACCOMPANY_USE_BINARY=1
+  # ACCOMPANY_USE_BINARY は 1 のときだけ効く
+  check bun "$PATH" ACCOMPANY_USE_BINARY=0
 else
   echo "このマシンには Bun がないので、Bun で動かすことは確かめない"
 fi
