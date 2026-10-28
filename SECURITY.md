@@ -20,14 +20,14 @@ Release の実行ファイルと tarball は、このリポジトリの GitHub A
 - チェックサム（SHA-256）: Release の `SHA256SUMS` と照らして、ダウンロードが壊れていないこと、書き換えられていないことを確かめます。`SHA256SUMS` と同じディレクトリに、確かめたいファイルを置いて実行します（置いていないファイルは `--ignore-missing` で飛ばせます）。
 
   ```sh
-  gh release download v0.24.0 --repo itsuki-yamada/accompany --pattern SHA256SUMS --pattern 'accompany-*-darwin-arm64'
+  gh release download v<版> --repo itsuki-yamada/accompany --pattern SHA256SUMS --pattern 'accompany-*-darwin-arm64'
   sha256sum --ignore-missing -c SHA256SUMS        # macOS は shasum -a 256 --ignore-missing -c SHA256SUMS
   ```
 
 - 出どころの証明（attestation）: [GitHub の Artifact Attestations](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds)（Sigstore）による、ビルドの出どころの証明です。このリポジトリのワークフローが作ったファイルであることを、GitHub CLI（`gh`）で確かめられます。
 
   ```sh
-  gh attestation verify accompany-0.24.0-darwin-arm64 --repo itsuki-yamada/accompany
+  gh attestation verify accompany-<版>-darwin-arm64 --repo itsuki-yamada/accompany
   ```
 
 `SHA256SUMS` と出どころの証明が付くのは、このしくみを入れたあとの Release（と先行版 `edge`）からです。それより前の Release には付いていません。
