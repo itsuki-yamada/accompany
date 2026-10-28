@@ -8,7 +8,8 @@ const bundle = await Bun.file(new URL("../dist/extension.js", import.meta.url)).
 // bun build は、同梱したモジュールごとに「// node_modules/<パス>」の注釈を付ける
 const bundled = [...new Set([...bundle.matchAll(/^\/\/ (node_modules\/\S+)$/gm)].map((m) => m[1]))].sort();
 const allowedModules = ["node_modules/vsls/package.json", "node_modules/vsls/vscode.js"];
-const unexpectedModules = bundled.filter((path) => !allowedModules.includes(path));
+// 一覧がちょうど許可した 2 つであることを確かめる。注釈の形が変わって何も見つからないときも、確かめられていないので失敗にする
+const sameModules = bundled.length === allowedModules.length && bundled.every((path, i) => path === allowedModules[i]);
 
 const required = [...new Set([...bundle.matchAll(/\brequire\(["']([^"']+)["']\)/g)].map((m) => m[1]))].sort();
 const builtins = new Set(builtinModules.flatMap((name) => [name, `node:${name}`]));
@@ -20,7 +21,11 @@ const forbidden = ["servicehub-framework", "nerdbank-streams", "vscode-jsonrpc",
 
 console.log(`同梱したモジュール: ${bundled.join(", ") || "なし"}`);
 console.log(`実行時に読み込むモジュール: ${required.join(", ")}`);
-if (unexpectedModules.length > 0 || unexpectedRequires.length > 0 || forbidden.length > 0) {
-  console.error(`想定していないモジュールがあります: ${[...unexpectedModules, ...unexpectedRequires, ...forbidden].join(", ")}`);
+if (!sameModules) {
+  console.error(`同梱したモジュールが、許可した ${allowedModules.join(", ")} と一致しません`);
+  process.exit(1);
+}
+if (!required.includes("vscode") || unexpectedRequires.length > 0 || forbidden.length > 0) {
+  console.error(`想定していないモジュールがあります: ${[...unexpectedRequires, ...forbidden].join(", ") || "（vscode を読み込んでいない）"}`);
   process.exit(1);
 }

@@ -71,17 +71,23 @@ class Sessions {
   }
 
   private async host(session: Session, current: () => boolean) {
-    const accompany = await startAccompany();
-    if (!current()) return void accompany.dispose();
-    this.resources.push(accompany);
-    const { port } = accompany;
-    this.resources.push(await this.liveShare.shareServer({ port, displayName: "Accompany" }));
+    // 起動・共有を待っている間にセッションが終わったら、次の stop() はもう済んでいるので、得たものをすぐに手放す
+    const keep = async <T extends { dispose(): unknown }>(resource: T) => {
+      if (current()) {
+        this.resources.push(resource);
+        return resource;
+      }
+      await resource.dispose();
+      throw new Error("セッションが終わったので、Accompany の共有をやめました");
+    };
+    const { port } = await keep(await startAccompany());
+    await keep(await this.liveShare.shareServer({ port, displayName: "Accompany" }));
     // ゲストの拡張が、共有サービスに info を要求してポートを知る。共有サービスを使えないときは、
     // ゲストは Live Share の共有サーバーの一覧から開く
     const service = await this.liveShare.shareService(serviceName);
     if (service) {
+      await keep({ dispose: () => this.liveShare.unshareService(serviceName) });
       service.onRequest("info", () => ({ port }));
-      this.resources.push({ dispose: () => this.liveShare.unshareService(serviceName) });
     } else {
       output.appendLine("Live Share の共有サービスを使えないため、ゲストの拡張には Accompany のポートを伝えられません");
     }
@@ -152,13 +158,16 @@ async function startAccompany(): Promise<{ port: number; dispose(): Promise<void
     clearTimeout(timer);
   };
   const port = await new Promise<number>((resolve, reject) => {
-    let text = "";
+    // URL を読むまでの出力だけを溜める
+    let text: string | undefined = "";
     const onData = (chunk: Buffer) => {
       output.append(chunk.toString());
+      if (text === undefined) return;
       text += chunk.toString();
       const url = text.match(/Accompany: (http:\/\/\S+)/)?.[1];
       if (!url) return;
       // Accompany はホストの外に開かない。loopback 以外で待ち受けていたら、共有せずに止める
+      text = undefined;
       const { hostname, port } = new URL(url);
       if (hostname !== "127.0.0.1" && hostname !== "[::1]") {
         void dispose();
@@ -190,6 +199,8 @@ class Panel implements vscode.Disposable {
     const url = new URL(base);
     if (name) url.searchParams.set("name", name);
     this.url = url.toString();
+    // 開いているパネルは、新しい URL で開き直す
+    if (this.panel) this.panel.webview.html = html(this.url);
     this.reveal();
   }
 
@@ -207,13 +218,16 @@ class Panel implements vscode.Disposable {
       "Accompany",
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
       // 隠したときに作り直すと、Accompany のページを開き直してしまう
-      { enableScripts: true, retainContextWhenHidden: true },
+      // 拡張のファイルは読ませない（localResourceRoots: []）
+      { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] },
     );
     panel.webview.html = html(this.url);
     // Accompany のページはクリップボードの許可がないので、コピーした文字を webview 経由で受け取って書き込む
     panel.webview.onDidReceiveMessage((message: unknown) => {
       const { type, text } = (message ?? {}) as { type?: unknown; text?: unknown };
-      if (type === "clipboard.write" && typeof text === "string") void vscode.env.clipboard.writeText(text);
+      if (type === "clipboard.write" && typeof text === "string" && text.length <= maxClipboardLength) {
+        void vscode.env.clipboard.writeText(text);
+      }
     });
     panel.onDidDispose(() => {
       if (this.panel === panel) this.panel = undefined;
@@ -234,7 +248,11 @@ class Panel implements vscode.Disposable {
 
 // webview の中身。CSP で、読み込めるのを Accompany の iframe と、この中のスクリプト・スタイルだけにする。
 // VS Code は localhost のページにクリップボードの許可を与えないので、Accompany はコピーした文字を postMessage で
-// この webview に渡す。webview は、開いた iframe の Accompany からのものだけを拡張に渡す（クリップボードを読む手段は渡さない）
+// この webview に渡す。webview は、開いた iframe の Accompany からのもので、利用者の操作の直後（一時的なユーザー
+// アクティベーション）の、長すぎないものだけを拡張に渡す。ゲストのパネルに出るのはホストが配るページなので、
+// 利用者の操作なしに、ゲストのクリップボードを書き換えさせないため。
+// iframe には allow でクリップボードの権限を渡さない。書き込みは webview を経由し、読み取りは渡さない
+// （VS Code の扱いが変わったときに、ホストのページからゲストのクリップボードを読めるようにしないため）
 function html(url: string) {
   const nonce = randomBytes(16).toString("base64");
   const origin = new URL(url).origin;
@@ -249,7 +267,7 @@ iframe { display: block; width: 100%; height: 100%; border: 0; }
 </style>
 </head>
 <body>
-<iframe src="${escapeHtml(url)}" title="Accompany" allow="clipboard-read; clipboard-write"></iframe>
+<iframe src="${escapeHtml(url)}" title="Accompany"></iframe>
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
 const origin = ${JSON.stringify(origin).replace(/</g, "\\u003c")};
@@ -260,12 +278,17 @@ frame.focus();
 window.addEventListener("message", (event) => {
   if (event.source !== frame.contentWindow || event.origin !== origin) return;
   const { type, text } = event.data ?? {};
-  if (type === "accompany.clipboard.write" && typeof text === "string") vscode.postMessage({ type: "clipboard.write", text });
+  if (type !== "accompany.clipboard.write" || typeof text !== "string" || text.length > ${maxClipboardLength}) return;
+  if (!navigator.userActivation?.isActive) return;
+  vscode.postMessage({ type: "clipboard.write", text });
 });
 </script>
 </body>
 </html>`;
 }
+
+// webview 経由でクリップボードに書き込む文字数（UTF-16 の単位）の上限。直前の出力のコピーなどの大きなものも収まる長さにする
+const maxClipboardLength = 10_000_000;
 
 function escapeHtml(text: string) {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);

@@ -127,9 +127,11 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # VS Code の拡張（app/vscode）を作り、本物の VS Code に入れて確かめる（docs/adr/183-liveshare-extension.md）。
-  # Live Share はサインインが要るので、同じ ID の偽物（e2e/fixtures/vscode/fake-liveshare）を入れる
+  # Live Share はサインインが要るので、同じ ID の偽物（e2e/fixtures/vscode/fake-liveshare）を入れる。
+  # 拡張は試作で配布物に入らないので、プルリクのときだけ流し、release.yml から呼んだときは流さない（Release と npm の公開を止めない）
   vscode:
     name: e2e (vscode)
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -147,6 +149,15 @@ jobs:
       - name: 拡張を作り、vsix にまとめる
         working-directory: app/vscode
         run: bun run package
+
+      # 利用者が手で試せるよう、作った vsix を上げる（Marketplace には公開しない）
+      - name: vsix をアップロードする
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: accompany-vscode-vsix
+          path: app/vscode/*.vsix
+          if-no-files-found: error
+          retention-days: 30
 
       # VS Code（Electron）が要るライブラリと、画面のない環境で動かすための Xvfb を入れる。
       # Chromium は、ほかの参加者としてブラウザで開くテストに使う
