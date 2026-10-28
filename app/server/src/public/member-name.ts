@@ -32,12 +32,18 @@ function saveName(name: string) {
   }
 }
 
+// URL の name に付けた名前。VS Code の拡張が、Live Share の表示名を付けて開く（docs/adr/183-liveshare-extension.md）。
+// 保存した名前がないときの既定にする。保存はせず、入力欄で確定したときに保存する
+function nameFromUrl() {
+  return trimName(new URLSearchParams(location.search).get("name") ?? "");
+}
+
 // 設定の画面（表示の設定）に置く、名前の入力欄。入力欄を離れたとき（change）か Enter で、保存してサーバーに送る。
 // 入力のたびに送ると、途中の名前がほかの参加者の画面で次々に変わってしまう
 export class NameSettings {
   readonly element = document.createElement("section");
   private input = document.createElement("input");
-  private saved = loadName();
+  private saved = loadName() || nameFromUrl();
 
   constructor(send: (name: string) => void) {
     const heading = document.createElement("h2");
