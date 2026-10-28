@@ -1,13 +1,16 @@
-import { request } from "node:http";
-import { expect, test } from "@playwright/test";
+import { createServer, request, type Server } from "node:http";
+import { expect, test, type Page } from "@playwright/test";
 import { startAccompany, type Accompany } from "./accompany";
 
 const fakeAgent = ["--", "bun", "e2e/fixtures/fake-agent.ts"];
 
 let accompany: Accompany | undefined;
+let embedder: Server | undefined;
 
 test.afterEach(async () => {
   await accompany?.stop();
+  await new Promise((resolve) => (embedder ? embedder.close(resolve) : resolve(undefined)));
+  embedder = undefined;
 });
 
 // ブラウザによっては外部サイトから localhost への接続を止めるが、それに頼らずサーバー側で拒否することを確かめるため、
@@ -138,4 +141,38 @@ test("localhost 以外のホスト名で届いたアップロードは受け付�
   const status = await upload(port, { Host: `evil.test:${port}`, Origin: `http://evil.test:${port}` });
 
   expect(status).toBe(403);
+});
+
+// 別のオリジン（localhost の別のポート）で、Accompany を iframe で埋め込むページを配り、そのページを開く。
+// iframe の読み込みが終わる（埋め込みを拒まれたときも load は起きる）まで待つ
+async function openEmbedder(page: Page, url: string) {
+  const html = `<!doctype html><iframe src="${url}" onload="document.body.dataset.loaded = 'true'"></iframe>`;
+  embedder = createServer((_req, res) => res.writeHead(200, { "Content-Type": "text/html" }).end(html));
+  await new Promise<void>((resolve) => embedder!.listen(0, "127.0.0.1", resolve));
+  const { port } = embedder.address() as { port: number };
+  await page.goto(`http://localhost:${port}/`);
+  await expect(page.locator("body[data-loaded]")).toHaveCount(1);
+}
+
+// 埋め込まれると、見えない形で重ねたボタン（run: true のクイックコマンドなど）を押させるクリックジャッキングができる（#185）
+test("別のオリジンのページに iframe で埋め込まれても、Accompany の画面は表示されない", async ({ page }) => {
+  accompany = await startAccompany(fakeAgent);
+
+  await openEmbedder(page, accompany.url);
+
+  await expect(page.frameLocator("iframe").locator("#workspace")).toHaveCount(0);
+});
+
+// VS Code の拡張は、webview（vscode-webview:）の中の iframe で Accompany を開く。frame-ancestors はすべての祖先を
+// 確かめるので、workbench（vscode-file:）も許す（docs/adr/185-frame-ancestors.md）
+test("--allow-vscode-webview を付けて起動すると、VS Code の webview の中には埋め込めるが、別のオリジンのページには埋め込めない", async ({
+  page,
+}) => {
+  accompany = await startAccompany(["--allow-vscode-webview", ...fakeAgent]);
+
+  const response = await fetch(accompany.url);
+  expect(response.headers.get("content-security-policy")).toBe("frame-ancestors 'self' vscode-webview: vscode-file:");
+
+  await openEmbedder(page, accompany.url);
+  await expect(page.frameLocator("iframe").locator("#workspace")).toHaveCount(0);
 });

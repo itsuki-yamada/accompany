@@ -66,7 +66,7 @@ for (const flag of ["--help", "-h"]) {
     const result = runWithArgs(flag);
 
     expect(result.stdout).toContain("使い方: accompany [オプション] [-- <コマンド...>]");
-    for (const option of ["--port", "--fresh", "--min-window", "--version", "--help"]) {
+    for (const option of ["--port", "--fresh", "--min-window", "--allow-vscode-webview", "--version", "--help"]) {
       expect(result.stdout).toContain(option);
     }
     // ポートが使われていたら上げることも、使い方で分かる（docs/adr/152-free-port.md）
