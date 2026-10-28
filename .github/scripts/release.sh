@@ -39,10 +39,26 @@ prepare_assets() {
   done
 }
 
+# assets の SHA-256 を SHA256SUMS に書き、書いたとおりに検算して、assets の最後に足す（利用者は sha256sum -c で確かめる）。
+# $1 は prepare_assets と同じ文字。SHA256SUMS は Release の中の名前にするので、edge と正式版で別のディレクトリに作る
+add_checksums() {
+  local dir="$RUNNER_TEMP/sums$1" asset
+  mkdir -p "$dir"
+  : > "$dir/SHA256SUMS"
+  for asset in "${assets[@]}"; do
+    (cd "$(dirname "$asset")" && sha256sum "$(basename "$asset")") >> "$dir/SHA256SUMS"
+  done
+  # ファイル名は $RUNNER_TEMP からの相対なので、そこで検算する
+  (cd "$RUNNER_TEMP" && sha256sum -c "$dir/SHA256SUMS") || { echo "::error::SHA256SUMS の検算に失敗した"; return 1; }
+  cat "$dir/SHA256SUMS"
+  assets+=("$dir/SHA256SUMS")
+}
+
 # --- 先行版 edge ---
 # bunx は tarball のパスごとにインストール先を使い回すので、edge の tarball はコミットごとに名前を変える。
 # 実行ファイルも、どのコミットのものか分かるよう、同じくコミットを名前に入れる
 prepare_assets "-$short_sha"
+add_checksums "-$short_sha"
 edge_assets=("${assets[@]}")
 edge_notes="main の最新のコミット（$GITHUB_SHA）から作った先行版（バージョン $version）。
 
@@ -85,6 +101,7 @@ if gh api "repos/$GH_REPO/git/ref/tags/$tag" > /dev/null 2>&1; then
   exit 1
 fi
 prepare_assets ""
+add_checksums ""
 release_assets=("${assets[@]}")
 # 変更点は、edge ではなく直前の正式な Release（Latest）からの差分にする
 previous=$(gh release view --json tagName -q .tagName)

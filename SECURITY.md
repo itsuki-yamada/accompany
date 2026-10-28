@@ -13,6 +13,25 @@ Accompany は、ブラウザからサーバー上のコマンドを操作する�
 
 最新の正式な Release だけを修正の対象にします。古い版で見つかったものは、最新の Release でも再現するかを確かめてから報告してください。先行版 `edge` は、main の最新のコミットから作り直されるので、修正は main と `edge` に入ったあと、次の正式な Release に入ります。
 
+## Release のファイルを確かめる
+
+Release の実行ファイルと tarball は、このリポジトリの GitHub Actions（`.github/workflows/release.yml`）で作ったものです。ダウンロードしたファイルが、書き換えられていないことと、このリポジトリの CI で作られたことを、次の 2 つで確かめられます。実行ファイルはコード署名も Apple の公証も受けていないため、確かめるときはこちらを使ってください。
+
+- チェックサム（SHA-256）: Release の `SHA256SUMS` と照らして、ダウンロードが壊れていないこと、書き換えられていないことを確かめます。`SHA256SUMS` と同じディレクトリに、確かめたいファイルを置いて実行します（置いていないファイルは `--ignore-missing` で飛ばせます）。
+
+  ```sh
+  gh release download v0.24.0 --repo itsuki-yamada/accompany --pattern SHA256SUMS --pattern 'accompany-*-darwin-arm64'
+  sha256sum --ignore-missing -c SHA256SUMS        # macOS は shasum -a 256 --ignore-missing -c SHA256SUMS
+  ```
+
+- 出どころの証明（attestation）: [GitHub の Artifact Attestations](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds)（Sigstore）による、ビルドの出どころの証明です。このリポジトリのワークフローが作ったファイルであることを、GitHub CLI（`gh`）で確かめられます。
+
+  ```sh
+  gh attestation verify accompany-0.24.0-darwin-arm64 --repo itsuki-yamada/accompany
+  ```
+
+`SHA256SUMS` と出どころの証明が付くのは、このしくみを入れたあとの Release（と先行版 `edge`）からです。それより前の Release には付いていません。
+
 ## 前提（このとおりに動くこと）
 
 README の「[接続の制限](README.md#接続の制限)」のとおり、次を前提にしています。
