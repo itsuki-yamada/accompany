@@ -37,23 +37,11 @@ Live Share の共有ターミナルで Claude Code などの TUI のエージェ
 
 [Release](https://github.com/itsuki-yamada/accompany/releases) に、正式版（Latest）と、main の最新のコミットから作った先行版（edge）を置いている。
 
-### npx で起動する（Node.js 18 以上。Bun は要らない）
-
-正式版を npm にも公開している。macOS（Apple Silicon・Intel）と Linux（x64・arm64、glibc）で動く。
-
-```sh
-npx accompany                 # 最初のターミナルで $SHELL を動かす
-npx accompany -- claude       # 最初のターミナルで動かすコマンドを指定する
-npx accompany --port 4000     # 待ち受けるポートを変える
-```
-
-- 毎回 npx で取らずに入れておくときは `npm i -g accompany` で入れ、`accompany` で起動する
-- 起動のしかた（`--fresh`、`--min-window` など）と、Ctrl+C で保存してから止まることは、下の実行ファイルと同じ
-- 入るのは、主パッケージ `accompany`（起動役）と、自分の OS と CPU の実行ファイルのパッケージ（`@itsuki-yamada/accompany-darwin-arm64` など）だけ。optionalDependencies を入れない設定（`--omit=optional` など）では起動できない
+入れ方は、Bun が Accompany の JS を動かすもの（Homebrew、npx、tarball）を勧める。署名のない実行ファイルは、EDR などのセキュリティの製品に疑われ、止められることがあるため（docs/adr/191-run-on-bun.md）。Bun を入れたくないときは、実行ファイルも使える。
 
 ### Homebrew で入れる（macOS・Linux）
 
-このリポジトリを tap して入れる。正式版の実行ファイルが入る（Bun は要らない）。
+このリポジトリを tap して入れる。正式版の tarball と、依存の `bun`（homebrew-core）が入り、Accompany の JS をその `bun` で動かす。
 
 ```sh
 brew tap itsuki-yamada/accompany https://github.com/itsuki-yamada/accompany
@@ -63,12 +51,51 @@ accompany
 
 - 最初の `brew install` は、`itsuki-yamada/accompany/accompany` のように tap の名前を付けて入れる。Homebrew は、名前を付けて指定した formula だけを信頼して読み込む（`brew install accompany` だけでは、信頼していない tap として断られる）
 - 新しい版に上げるときは `brew upgrade accompany`。正式版を出してから formula が新しい版になるまで、少し遅れることがある
-- 起動のしかた（`--port` など）は、下の実行ファイルと同じ
-- やめるときは `brew uninstall accompany` と `brew untap itsuki-yamada/accompany`
+- `ps` などでは、プロセスの名前は `accompany` ではなく `bun`（`bun …/libexec/dist/cli.js`）と出る
+- Bun の tap（`oven-sh/bun`）の `bun` を入れている人は、homebrew-core の `bun` と同じ名前なので、`brew install` が止まることがある。そのときは、`brew uninstall oven-sh/bun/bun` で外してから入れる（homebrew-core の `bun` で、`bun` も今までどおり使える）
+- やめるときは `brew uninstall accompany` と `brew untap itsuki-yamada/accompany`（`bun` が要らなければ `brew autoremove`）
+
+表示された URL（`http://127.0.0.1:3000`）をブラウザで開く。ポート（既定 3000、`--port` で指定したもの）がほかのプロセスに使われていたら、空いているポートまで 1 つずつ上げて（10 個まで）待ち受け、そのポートの URL を表示する。起動のしかたは次のとおり（npx、tarball、実行ファイルで起動するときも同じ）。
+
+```sh
+accompany                        # 最初のターミナルで $SHELL を動かす
+accompany -- claude              # 最初のターミナルで動かすコマンドを指定する
+accompany --port 4000            # 待ち受けるポートを変える
+accompany --fresh                # 前回の画面を戻さずに始める
+accompany --min-window 960x1080  # 端末の大きさの下限を、ウィンドウの大きさ（ピクセル）で指定する（保存はしない）
+accompany --version              # 版を表示する（-v でもよい）
+accompany --help                 # 使い方を表示する（-h でもよい）
+```
+
+### npx で起動する（Node.js 18 以上）
+
+正式版を npm にも公開している。macOS（Apple Silicon・Intel）と Linux（x64・arm64、glibc）で動く。
+
+```sh
+npx accompany                 # 最初のターミナルで $SHELL を動かす
+npx accompany -- claude       # 最初のターミナルで動かすコマンドを指定する
+npx accompany --port 4000     # 待ち受けるポートを変える
+```
+
+- PATH に Bun（1.4.0 以上）があれば、パッケージに入っている Accompany の JS を Bun で動かす。なければ、自分の OS と CPU の実行ファイルを起動する（Bun は入れなくてもよい）
+- Bun があっても実行ファイルで動かしたいときは、`ACCOMPANY_USE_BINARY=1 npx accompany` のように起動する
+- 毎回 npx で取らずに入れておくときは `npm i -g accompany` で入れ、`accompany` で起動する
+- 起動のしかた（`--fresh`、`--min-window` など）と、Ctrl+C で保存してから止まることは、上の Homebrew と同じ
+- 入るのは、主パッケージ `accompany`（起動役と JS）と、自分の OS と CPU の実行ファイルのパッケージ（`@itsuki-yamada/accompany-darwin-arm64` など）だけ。Bun がないときは、optionalDependencies を入れない設定（`--omit=optional` など）では起動できない
+
+### tarball から起動する（Bun 1.4.0 以上が要る）
+
+Bun が入っていれば、tarball（`accompany-<バージョン>.tgz`）からも起動できる。tarball は絶対パスで指定する（相対パスでは bunx が失敗する）。
+
+```sh
+bunx --package "$PWD/accompany-0.6.0.tgz" accompany
+```
+
+Bun 1.3 までは、画面の JS と CSS が読み込まれず、画面が空になる（docs/adr/78-binaries.md）。古い Bun で起動すると、必要な版を表示して終了するので、`bun upgrade` で上げるか、実行ファイルを使う。
 
 ### 実行ファイルで起動する（Bun は要らない）
 
-自分の OS と CPU のものを 1 つ選ぶ。`uname -sm` の結果で選べる。
+Bun を入れたくないときは、Bun を中に持った実行ファイルを使える。自分の OS と CPU のものを 1 つ選ぶ。`uname -sm` の結果で選べる。
 
 | マシン | `uname -sm` | ファイル |
 |---|---|---|
@@ -79,24 +106,14 @@ accompany
 
 - edge のファイル名には、バージョンのあとにコミット ID が入る（`accompany-0.6.0-fefd04d-darwin-arm64` など）
 - Linux 向けは glibc のディストリビューション（Ubuntu、Debian、Fedora など）で動く。Alpine などの musl では動かない
+- 署名のない実行ファイルなので、EDR などのセキュリティの製品に止められることがある（ブラウザでつないだ直後に `Killed` で終わる、など）。そのときは、上の Bun で動かす入れ方を使う
 
 ```sh
 # 正式版の、Apple Silicon の Mac 向けをダウンロードする（edge は `gh release download edge ...`）
 gh release download --repo itsuki-yamada/accompany --pattern 'accompany-*-darwin-arm64'
 chmod +x accompany-*-darwin-arm64
 ./accompany-0.6.0-darwin-arm64
-```
-
-表示された URL（`http://127.0.0.1:3000`）をブラウザで開く。ポート（既定 3000、`--port` で指定したもの）がほかのプロセスに使われていたら、空いているポートまで 1 つずつ上げて（10 個まで）待ち受け、そのポートの URL を表示する。起動のしかたは次のとおり（Homebrew で入れた `accompany` や、tarball から起動するときも同じ）。
-
-```sh
-./accompany-0.6.0-darwin-arm64                 # 最初のターミナルで $SHELL を動かす
-./accompany-0.6.0-darwin-arm64 -- claude       # 最初のターミナルで動かすコマンドを指定する
-./accompany-0.6.0-darwin-arm64 --port 4000     # 待ち受けるポートを変える
-./accompany-0.6.0-darwin-arm64 --fresh         # 前回の画面を戻さずに始める
-./accompany-0.6.0-darwin-arm64 --min-window 960x1080  # 端末の大きさの下限を、ウィンドウの大きさ（ピクセル）で指定する（保存はしない）
-./accompany-0.6.0-darwin-arm64 --version       # 版を表示する（-v でもよい）
-./accompany-0.6.0-darwin-arm64 --help          # 使い方を表示する（-h でもよい）
+./accompany-0.6.0-darwin-arm64 -- claude       # 起動のしかたは、上の Homebrew と同じ
 ```
 
 ダウンロードしたファイルが、書き換えられていないことと、このリポジトリの CI で作られたことは、`SHA256SUMS` と `gh attestation verify` で確かめられる（[SECURITY.md](SECURITY.md#release-のファイルを確かめる)）。
@@ -114,16 +131,6 @@ chmod +x accompany-*-darwin-arm64
 - 一度止められたあとは、属性を外しても起動できないことがある。ダウンロードし直し、実行する前に属性を外す。または、「システム設定」→「プライバシーとセキュリティ」に出る「このまま開く」を押す
 - `permission denied` と表示されるときは、`chmod +x` で実行できるようにする
 - `Killed: 9` と表示されるときは、ファイルが壊れている（既にある実行ファイルに上書きでコピーした、など）。消してからダウンロードし直す
-
-### tarball から起動する（Bun 1.4.0 以上が要る）
-
-Bun が入っていれば、tarball（`accompany-<バージョン>.tgz`）からも起動できる。tarball は絶対パスで指定する（相対パスでは bunx が失敗する）。
-
-```sh
-bunx --package "$PWD/accompany-0.6.0.tgz" accompany
-```
-
-Bun 1.3 までは、画面の JS と CSS が読み込まれず、画面が空になる（docs/adr/78-binaries.md）。古い Bun で起動すると、必要な版を表示して終了するので、`bun upgrade` で上げるか、実行ファイルを使う。
 
 ### 直前のコマンドの出力をコピーする（シェルの統合）
 

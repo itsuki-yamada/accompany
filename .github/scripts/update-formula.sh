@@ -1,57 +1,110 @@
 #!/usr/bin/env bash
-# Homebrew の formula（Formula/accompany.rb）の版、URL、sha256 を、正式な Release v<版>（$1）の実行ファイルに合わせる
-# （docs/adr/131-homebrew.md）。Release を出したあとに調整役が流し、書き換えた formula をプルリクにする。
-# sha256 は、Release の各ファイルに GitHub が付けた digest を使う（ダウンロードはしない）。
-# 使う環境変数: GH_REPO（省略すると、このリポジトリ）
+# Homebrew の formula（Formula/accompany.rb）を、下のひな形から作り直す（docs/adr/131-homebrew.md、191-run-on-bun.md）。
+# formula は Release の tarball を入れ、その JS（dist/cli.js）を Homebrew の bun で動かす。
+#
+#   update-formula.sh <版>              正式な Release v<版> の tarball にする。Release を出したあとに調整役が流し、
+#                                       書き換えた formula をプルリクにする。sha256 は、GitHub が Release のファイルに付けた
+#                                       digest を使う（ダウンロードはしない）
+#   update-formula.sh --tarball <パス>  手元の tarball（bun pm pack で作ったもの）を file:// で入れる formula にする。
+#                                       check-formula.sh が、コミットする前の tarball と formula を確かめるときに使う
+#
+# 使う環境変数: GH_REPO（省略すると、このリポジトリ）、FORMULA（書き出す先。省略すると、このリポジトリの Formula/accompany.rb）
 set -euo pipefail
 
-version=${1:?使い方: update-formula.sh <版（例: 0.16.0）>}
-version=${version#v}
-if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "版は 0.16.0 のような形で指定する: $1" >&2
-  exit 1
-fi
+usage="使い方: update-formula.sh <版（例: 0.16.0）> | update-formula.sh --tarball <tarball のパス>"
 root=$(cd "$(dirname "$0")/../.." && pwd)
-formula="$root/Formula/accompany.rb"
+formula=${FORMULA:-$root/Formula/accompany.rb}
 repo=${GH_REPO:-itsuki-yamada/accompany}
 
-# 実行ファイルの <OS>-<CPU>（.github/scripts/build-binaries.sh が作るもの）
-platforms=(darwin-arm64 darwin-x64 linux-x64 linux-arm64)
-
-# 各ファイルの名前と digest（sha256:<16 進>）。Release がなければ、gh が失敗して止まる
-assets=$(gh release view "v$version" --repo "$repo" --json assets -q '.assets[] | "\(.name) \(.digest)"')
-
-args=()
-for platform in "${platforms[@]}"; do
-  name="accompany-$version-$platform"
+if [ "${1:-}" = --tarball ]; then
+  tarball=${2:?$usage}
+  tarball="$(cd "$(dirname "$tarball")" && pwd)/$(basename "$tarball")"
+  # Homebrew は url のファイル名（accompany-<版>.tgz）から版を読む
+  if [[ ! $(basename "$tarball") =~ ^accompany-[0-9]+\.[0-9]+\.[0-9]+\.tgz$ ]]; then
+    echo "tarball の名前は accompany-<版>.tgz にする: $tarball" >&2
+    exit 1
+  fi
+  url="file://$tarball"
+  sha256=$(shasum -a 256 "$tarball" | cut -d " " -f 1)
+else
+  version=${1:?$usage}
+  version=${version#v}
+  if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "版は 0.16.0 のような形で指定する: $1" >&2
+    exit 1
+  fi
+  name="accompany-$version.tgz"
+  # 各ファイルの名前と digest（sha256:<16 進>）。Release がなければ、gh が失敗して止まる
+  assets=$(gh release view "v$version" --repo "$repo" --json assets -q '.assets[] | "\(.name) \(.digest)"')
   digest=$(awk -v name="$name" '$1 == name { print $2 }' <<< "$assets")
   if [[ ! $digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
     echo "v$version の Release に $name（と、その sha256）がない" >&2
     exit 1
   fi
-  args+=("$platform=${digest#sha256:}")
-done
+  url="https://github.com/$repo/releases/download/v$version/$name"
+  sha256=${digest#sha256:}
+fi
 
-# version の行と、各 url の行（ファイル名の末尾で OS と CPU を見分ける）と、その直後の sha256 の行を書き換える
-tmp=$(mktemp)
-trap 'rm -f "$tmp"' EXIT
-awk -v version="$version" -v repo="$repo" -v pairs="${args[*]}" '
-  BEGIN {
-    n = split(pairs, list, " ")
-    for (i = 1; i <= n; i++) { split(list[i], kv, "="); sha[kv[1]] = kv[2] }
-  }
-  /^  version "/ { sub(/"[^"]*"/, "\"" version "\"") }
-  /^ *url "https:\/\/github\.com\// {
-    platform = match($0, /(darwin|linux)-(arm64|x64)"/) ? substr($0, RSTART, RLENGTH - 1) : ""
-    if (!(platform in sha)) { print "知らない url: " $0 > "/dev/stderr"; exit 1 }
-    sub(/"[^"]*"/, "\"https://github.com/" repo "/releases/download/v" version "/accompany-" version "-" platform "\"")
-  }
-  /^ *sha256 "/ && platform != "" { sub(/"[^"]*"/, "\"" sha[platform] "\""); done[platform] = 1; platform = "" }
-  { print }
-  END { for (p in sha) if (!(p in done)) { print "formula に " p " の url と sha256 がない" > "/dev/stderr"; exit 1 } }
-' "$formula" > "$tmp"
-# mv では一時ファイルの権限（600）になるので、中身だけを書き戻す
-cat "$tmp" > "$formula"
+# ひな形。@URL@ と @SHA256@ を置き換える。formula を変えるときは、ここを直して流し直す
+template=$(cat <<'EOF'
+# Release の tarball を入れ、その JS（dist/cli.js）を Homebrew の bun で動かす（docs/adr/191-run-on-bun.md）。
+# 署名のない実行ファイルを入れず、広く使われている bun が動かすので、セキュリティの製品に止められにくい。
+# このファイルは .github/scripts/update-formula.sh が作る。手で直さず、スクリプトのひな形を直して流し直す
+class Accompany < Formula
+  desc "Share AI coding agent terminals in the browser for remote pair programming"
+  homepage "https://github.com/itsuki-yamada/accompany"
+  url "@URL@"
+  sha256 "@SHA256@"
+  license "MIT"
 
-git -C "$root" --no-pager diff --stat -- Formula/accompany.rb
-echo "Formula/accompany.rb を $version にした。コミットしてプルリクにする"
+  livecheck do
+    url :stable
+    strategy :github_latest
+  end
+
+  # homebrew-core の bun。版は Accompany と別に上がる（対応する版の下限と、最新の bun で動くことは e2e.yml で確かめる）
+  depends_on "bun"
+
+  def install
+    libexec.install Dir["*"]
+    # bun の場所は、PATH の bun（mise などで入れた古いものかもしれない）ではなく、依存の bun に決めておく
+    (bin/"accompany").write <<~SH
+      #!/bin/sh
+      exec "#{formula_opt_bin("bun")}/bun" "#{libexec}/dist/cli.js" "$@"
+    SH
+  end
+
+  test do
+    assert_match "accompany #{version}", shell_output("#{bin}/accompany --version")
+
+    port = free_port
+    # 画面の保存先を、ホームではなくテストの作業ディレクトリにする
+    ENV["ACCOMPANY_STATE_DIR"] = (testpath/"state").to_s
+    pid = spawn bin/"accompany", "--port", port.to_s
+    begin
+      # 起動して待ち受けるまで待ち、画面（HTML）が返ることを確かめる
+      page = testpath/"index.html"
+      30.times do
+        break if quiet_system "curl", "-fso", page, "http://127.0.0.1:#{port}/"
+
+        sleep 1
+      end
+      assert_match "<title>Accompany</title>", page.read
+    ensure
+      Process.kill "TERM", pid
+      Process.wait pid
+    end
+  end
+end
+EOF
+)
+template=${template//@URL@/$url}
+template=${template//@SHA256@/$sha256}
+mkdir -p "$(dirname "$formula")"
+# mv では一時ファイルの権限になるので、そのまま書く
+printf '%s\n' "$template" > "$formula"
+
+if [ "$formula" = "$root/Formula/accompany.rb" ]; then
+  git -C "$root" --no-pager diff --stat -- Formula/accompany.rb
+fi
+echo "$formula を $url にした"

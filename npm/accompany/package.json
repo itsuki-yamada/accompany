@@ -11,7 +11,8 @@
     "accompany": "bin/accompany.js"
   },
   "files": [
-    "bin"
+    "bin",
+    "dist"
   ],
   "engines": {
     "node": ">=18"

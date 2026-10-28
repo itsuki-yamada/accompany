@@ -54,3 +54,28 @@ jobs:
           bun install --frozen-lockfile --cwd app/server
           tarball=$(cd app/server && bun pm pack --destination "$RUNNER_TEMP/tarball" --quiet)
           .github/scripts/check-formula.sh "$tarball"
+
+  # Bun の tap（oven-sh/bun）の bun を入れている人が入れたとき（docs/adr/191-run-on-bun.md）
+  with-oven-sh-bun:
+    name: formula (oven-sh/bun の bun を入れたマシン)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # main
+
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+
+      - name: oven-sh/bun の bun を入れる
+        run: |
+          brew tap oven-sh/bun
+          brew install oven-sh/bun/bun
+
+      - name: このコミットの tarball を作り、formula で入れて、起動できることを確かめる
+        run: |
+          bun install --frozen-lockfile --cwd app/server
+          tarball=$(cd app/server && bun pm pack --destination "$RUNNER_TEMP/tarball" --quiet)
+          .github/scripts/check-formula.sh "$tarball"
