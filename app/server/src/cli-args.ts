@@ -15,6 +15,7 @@ export const usage = `使い方: accompany [オプション] [-- <コマンド..
   --port <ポート>          待ち受けるポート（既定: 3000。使われていたら、空いているポートまで上げる。10 個まで）
   --fresh                  前回の画面の配置とスクロールバックを戻さずに、新しく始める
   --min-window <幅>x<高さ>  端末の大きさの下限を、ウィンドウの大きさ（ピクセル）で指定する（例: 480x1080。保存はしない）
+  --allow-vscode-webview   VS Code の拡張のパネル（webview）の中に埋め込むことを許す（拡張が起動するときに付ける）
   -v, --version            版を表示する
   -h, --help               この使い方を表示する`;
 
@@ -31,6 +32,7 @@ export function parseCliArgs(args = process.argv.slice(2)) {
         port: { type: "string", default: "3000" },
         fresh: { type: "boolean", default: false },
         "min-window": { type: "string" },
+        "allow-vscode-webview": { type: "boolean", default: false },
         version: { type: "boolean", short: "v", default: false },
         help: { type: "boolean", short: "h", default: false },
       },
