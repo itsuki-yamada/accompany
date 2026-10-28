@@ -160,6 +160,7 @@ test("パネルの中で、選択した文字をコピーでき、クリップ�
   // VS Code の拡張が書いたクリップボードの文字を、パネルの中の Accompany にキーボードで貼り付ける
   await runCommand(page, "E2E: クリップボードに書く");
   await frame.locator(".xterm-screen").click();
-  await page.keyboard.press("ControlOrMeta+KeyV");
+  // Windows・Linux の Ctrl+V は、ターミナル（xterm.js）が ^V としてコマンドに送るので、Ctrl+Shift+V でペーストする
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+KeyV" : "Control+Shift+KeyV");
   await expect(terminal(frame)).toContainText("pasted from vscode");
 });
