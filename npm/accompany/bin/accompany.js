@@ -2,7 +2,7 @@
 // npm で入れた Accompany の起動役（docs/adr/132-npm.md、191-run-on-bun.md）。
 // Bun（1.4.0 以上）があれば、同梱した JS（dist/cli.js。Release の tarball と同じもの）を Bun で動かす。
 // 署名のない実行ファイルより、広く使われている Bun が動かすほうが、セキュリティの製品に止められにくいため。
-// Bun がなければ（または ACCOMPANY_USE_BINARY を付けると）、このマシンの OS と CPU のパッケージ
+// Bun がなければ（または ACCOMPANY_USE_BINARY=1 を付けると）、このマシンの OS と CPU のパッケージ
 // （@itsuki-yamada/accompany-<OS>-<CPU>）に入っている実行ファイルを起動する。
 // 引数と標準入出力はそのまま渡す。止める合図は起動したものに伝え、その終了コード（または合図）で終わる。
 // Node の古い版でも動くよう、CommonJS と古くからある API だけを使う
@@ -24,11 +24,12 @@ function fail(message) {
   process.exit(1);
 }
 
-// PATH の bun（起動役そのものを Bun が動かしているときは、その Bun）。見つからなければ undefined
+// PATH の bun（起動役そのものを Bun が動かしているときは、その Bun）。見つからなければ undefined。
+// 相対のディレクトリ（. や空の要素など）は飛ばす。起動したディレクトリによって変わり、そこに置かれた bun を動かしてしまうため
 function findBun() {
   if (process.versions.bun) return process.execPath;
   for (const dir of (process.env.PATH || "").split(path.delimiter)) {
-    if (!dir) continue;
+    if (!path.isAbsolute(dir)) continue;
     const file = path.join(dir, "bun");
     try {
       fs.accessSync(file, fs.constants.X_OK);
@@ -54,7 +55,7 @@ function isNewEnough(bun) {
 
 // 起動するもの（コマンドと、その前に付ける引数）
 function choose() {
-  if (!process.env.ACCOMPANY_USE_BINARY && fs.existsSync(script)) {
+  if (process.env.ACCOMPANY_USE_BINARY !== "1" && fs.existsSync(script)) {
     const bun = findBun();
     if (bun && isNewEnough(bun)) return { command: bun, args: [script] };
   }

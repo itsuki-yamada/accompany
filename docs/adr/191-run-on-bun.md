@@ -52,7 +52,7 @@ Homebrew・npm・Release のどの入れ方でも、最後に動くのは `bun b
 - formula は、Release の tarball（`accompany-<版>.tgz`）を `libexec` に入れ、`depends_on "bun"`（homebrew-core）にする。`bin/accompany` は、`exec "<依存の bun の opt>/bin/bun" "<libexec>/dist/cli.js" "$@"` だけの sh のスクリプトにする。PATH の `bun`（mise などで入れた古いものかもしれない）ではなく、依存の `bun` に決めておく
 - ただし Intel の Mac（macOS の x86_64）では、これまでどおり Release の実行ファイル（`accompany-<版>-darwin-x64`）を入れる（`on_macos` の `on_intel` で url を差し替え、`depends_on "bun"` は付けない）。homebrew-core の `bun` には Intel の Mac の bottle がなく（arm64 の macOS と、Linux の x86_64・arm64 だけ）、依存にすると、`rust`・`llvm`・`cmake` も入れて `bun` をソースからビルドする。CI（`macos-15-intel`）では、`cmake` のビルドの途中で 20 分の制限を超えた。数十分から数時間待たせるより、実行ファイルを入れるほうがよい。Intel の Mac でも Bun で動かしたい人は、Bun を入れて npx で起動できる（起動役が Bun を選ぶ）
 - 時期は選択肢 2 にする。v0.24.0 までの tarball には `dist/` がなく、いま formula を新しい形にすると、`brew install` で入るものが動かない。このプルリクのあと、版を上げて正式な Release を出し、調整役が `update-formula.sh <版>` を流すと、新しい形の formula のプルリクになる
-- `update-formula.sh` は、formula を書き換えるのではなく、スクリプトの中のひな形から作り直す。formula を変えるときは、ひな形を直す。`<版>` を渡すと、Release の tarball と darwin-x64 の実行ファイルの digest で、`--tarball <パス> --binary <パス>` を渡すと、手元の tarball と実行ファイルを `file://` で入れる formula を作る（`FORMULA` で書き出す先を変えられる）
+- `update-formula.sh` は、formula を書き換えるのではなく、スクリプトの中のひな形から作り直す。formula を変えるときは、ひな形を直す。`<版>` を渡すと、Release の tarball と darwin-x64 の実行ファイルの digest で、`--tarball <パス> --binary <パス>` を渡すと、手元の tarball と実行ファイルを `file://` で入れる formula を作る（`FORMULA` で書き出す先を変えられる）。`version` は書かず、url から読ませる（Release の url なら、Intel の Mac の実行ファイルの url からも読める。書くと `brew audit --strict` が重複と指摘する）。手元のファイル（`file://`）の実行ファイルの名前からは読めないので、`--tarball` のときだけ書く
 - `check-formula.sh <tarball> <darwin-x64 の実行ファイル>` は、`--tarball` で作った formula だけを入れた一時的なリポジトリを tap し、`brew style`・`brew install`・`brew test` を流す。`formula.yml` は、コミットした formula に加えて、このコミットの tarball をひな形の formula で入れて、4 つの OS と CPU で確かめる。Release を出す前に、tarball と formula の形が合うことが分かる。tarball の作り方（`app/server/package.json`）を変えたときも流す
 - 依存として入った `bun` は、元から入っていなければ、`check-formula.sh` の終わりに外す（手元で流しても残さない）
 
@@ -61,7 +61,8 @@ Homebrew・npm・Release のどの入れ方でも、最後に動くのは `bun b
 - 主パッケージ `accompany` に、tarball の `dist/` をそのまま入れる。`build-npm-packages.sh` は、実行ファイルのディレクトリに加えて tarball を受け取る。`release.yml` の `npm` ジョブは、E2E を通した tarball（成果物 `accompany-tarball`）も取得する
 - 起動役の条件は、選択肢 2 と 3 にする
   - PATH の `bun`（起動役そのものを Bun が動かしているときは、その Bun）の版が 1.4.0 以上なら、`bun <パッケージ>/dist/cli.js <引数>` を起動する。1.4.0 は `require-bun.ts` の `required` と同じ（起動役は CommonJS の 1 ファイルなので、値を写して持つ）
-  - Bun がない、古い、または `ACCOMPANY_USE_BINARY` が付いていれば、これまでどおり OS と CPU のパッケージの実行ファイルを起動する。Node だけの人も、そのまま使える。古い Bun で `require-bun.ts` に止められるより、動くほうを選ぶ
+  - PATH の中の相対のディレクトリ（`.` や空の要素）は飛ばす。起動したディレクトリによって変わり、作業中のリポジトリなどに置かれた `bun` を動かしてしまうため
+  - Bun がない、古い、または `ACCOMPANY_USE_BINARY=1` が付いていれば（`1` のときだけ。`0` などでは Bun を使う）、これまでどおり OS と CPU のパッケージの実行ファイルを起動する。Node だけの人も、そのまま使える。古い Bun で `require-bun.ts` に止められるより、動くほうを選ぶ
   - Bun で動かすときは、実行ファイルのパッケージがなくても（`--omit=optional`、musl の Linux、対応していない OS と CPU）起動できる
   - 合図・終了コード・引数・標準入出力の渡し方は、起動するものが Bun になるだけで変わらない
 - optionalDependencies の実行ファイルのパッケージは、Bun がある人にも入る（npm は、入れる前に Bun があるかを見られない）。Bun がない人のための保険として残す

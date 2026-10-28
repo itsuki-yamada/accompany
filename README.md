@@ -78,7 +78,8 @@ npx accompany --port 4000     # 待ち受けるポートを変える
 ```
 
 - PATH に Bun（1.4.0 以上）があれば、パッケージに入っている Accompany の JS を Bun で動かす。なければ、自分の OS と CPU の実行ファイルを起動する（Bun は入れなくてもよい）
-- Bun があっても実行ファイルで動かしたいときは、`ACCOMPANY_USE_BINARY=1 npx accompany` のように起動する
+- Bun があっても実行ファイルで動かしたいときは、`ACCOMPANY_USE_BINARY=1 npx accompany` のように起動する（`1` のときだけ効く）
+- PATH の中の相対のディレクトリ（`.` など）にある `bun` は使わない
 - 毎回 npx で取らずに入れておくときは `npm i -g accompany` で入れ、`accompany` で起動する
 - 起動のしかた（`--fresh`、`--min-window` など）と、Ctrl+C で保存してから止まることは、上の Homebrew と同じ
 - 入るのは、主パッケージ `accompany`（起動役と JS）と、自分の OS と CPU の実行ファイルのパッケージ（`@itsuki-yamada/accompany-darwin-arm64` など）だけ。Bun がないときは、optionalDependencies を入れない設定（`--omit=optional` など）では起動できない

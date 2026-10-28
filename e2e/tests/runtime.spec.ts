@@ -4,7 +4,7 @@ import { closeContexts, newContext, startAccompany, type Accompany } from "./acc
 import { expectPaneToShow } from "./panes";
 
 // Homebrew と npm で入れた Accompany は、署名のない実行ファイルではなく、Bun が tarball の JS（dist/cli.js）を動かす。
-// npm の起動役は、Bun がなければ（または ACCOMPANY_USE_BINARY を付けると）OS と CPU のパッケージの実行ファイルを起動する
+// npm の起動役は、Bun がなければ（または ACCOMPANY_USE_BINARY=1 を付けると）OS と CPU のパッケージの実行ファイルを起動する
 // （docs/adr/191-run-on-bun.md）。どちらで動くはずかは、起動のしかたを用意する CI（e2e.yml）が ACCOMPANY_EXPECT_RUNTIME
 // （bun / binary）で渡す。渡されないとき（リポジトリから起動するときなど）は流さない
 
