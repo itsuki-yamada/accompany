@@ -1,0 +1,19 @@
+{
+  "name": "vsliveshare",
+  "publisher": "ms-vsliveshare",
+  "displayName": "Fake Live Share (E2E)",
+  "description": "E2E で Live Share の代わりに入れる拡張。vsls の API の、Accompany の拡張が使う部分だけを真似る",
+  "version": "0.0.0",
+  "private": true,
+  "engines": { "vscode": "^1.100.0" },
+  "main": "extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      { "command": "fakeLiveShare.startHost", "title": "Fake Live Share: ホストとして始める" },
+      { "command": "fakeLiveShare.joinAsGuest", "title": "Fake Live Share: ゲストとして参加する" },
+      { "command": "fakeLiveShare.end", "title": "Fake Live Share: 終える" },
+      { "command": "fakeLiveShare.requestInfo", "title": "Fake Live Share: ホストの共有サービスに info を要求する" }
+    ]
+  }
+}

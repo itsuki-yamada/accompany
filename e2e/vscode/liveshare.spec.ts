@@ -1,0 +1,167 @@
+import { createConnection } from "node:net";
+import { expect, test, type FrameLocator, type Page } from "@playwright/test";
+import { startAccompany, testPort, type Accompany } from "../tests/accompany";
+import { accompanyFrame, launchVSCode, panelTab, runCommand, type VSCode } from "./vscode";
+
+// 参加者は Live Share を始めるだけで、VS Code の中（パネル）で Accompany を使える（docs/adr/183-liveshare-extension.md）
+const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
+
+let vscode: VSCode | undefined;
+let accompany: Accompany | undefined;
+
+test.afterEach(async () => {
+  await vscode?.close();
+  vscode = undefined;
+  await accompany?.stop();
+  accompany = undefined;
+});
+
+function terminal(frame: FrameLocator) {
+  return frame.locator(".xterm-rows");
+}
+
+async function nameInput(frame: FrameLocator) {
+  await frame.getByRole("button", { name: "表示の設定" }).click();
+  return frame.getByRole("dialog", { name: "表示の設定" }).getByRole("textbox", { name: "あなたの名前" });
+}
+
+function call(vscode: VSCode, name: string) {
+  return vscode.calls().find((c) => c.call === name);
+}
+
+function isListening(port: number) {
+  return new Promise<boolean>((resolve) => {
+    const socket = createConnection({ host: "127.0.0.1", port });
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once("error", () => resolve(false));
+  });
+}
+
+// ゲストとして参加し、ホストの Accompany（テストで起動したもの）をパネルで開く
+async function joinAsGuest(env: Record<string, string> = {}) {
+  vscode = await launchVSCode({ env: { FAKE_LIVESHARE_HOST_PORT: testPort(), ...env } });
+  await runCommand(vscode.page, "Fake Live Share: ゲストとして参加する");
+  return { page: vscode.page, frame: accompanyFrame(vscode.page) };
+}
+
+test("ホストが Live Share を始めると、Accompany を起動して共有し、パネルで開く。終えると共有をやめ、Accompany を止める", async () => {
+  vscode = await launchVSCode({ env: { FAKE_LIVESHARE_NAME: "やまだ" } });
+  const { page } = vscode;
+
+  await runCommand(page, "Fake Live Share: ホストとして始める");
+
+  const frame = accompanyFrame(page);
+  await expect(terminal(frame)).toContainText("Fake Shell ready", { timeout: 30_000 });
+  await expect.poll(() => call(vscode!, "shareServer")).toMatchObject({ server: { displayName: "Accompany" } });
+  const { port } = (call(vscode, "shareServer") as { server: { port: number } }).server;
+  expect(await isListening(port)).toBe(true);
+  // 参加者の名前の既定は、Live Share の表示名
+  await expect(await nameInput(frame)).toHaveValue("やまだ");
+  // ゲストの拡張は、共有サービスに info を要求してポートを知る
+  await runCommand(page, "Fake Live Share: ホストの共有サービスに info を要求する");
+  await expect.poll(() => call(vscode!, "requestInfo")).toEqual({ call: "requestInfo", result: { port } });
+
+  await runCommand(page, "Fake Live Share: 終える");
+
+  await expect.poll(() => call(vscode!, "unshareServer")).toBeTruthy();
+  await expect(panelTab(page)).toHaveCount(0);
+  await expect.poll(() => isListening(port), { timeout: 10_000 }).toBe(false);
+});
+
+test("ゲストが Live Share に参加すると、ホストの共有サービスから受け取ったポートの Accompany を、Live Share の表示名でパネルで開く", async ({
+  browser,
+}) => {
+  accompany = await startAccompany([], fakeShell);
+  const { page, frame } = await joinAsGuest({ FAKE_LIVESHARE_NAME: "すずき" });
+
+  await expect(terminal(frame)).toContainText("Fake Shell ready", { timeout: 30_000 });
+  // ブラウザで開いたほかの参加者の画面に、Live Share の表示名で出る
+  const other = await browser.newPage();
+  await other.goto(accompany.url);
+  await expect(
+    other.getByRole("navigation", { name: "ツールバー" }).getByRole("button", { name: "すずき とペアプロ", exact: true }),
+  ).toBeVisible();
+  await other.close();
+
+  await runCommand(page, "Fake Live Share: 終える");
+  await expect(panelTab(page)).toHaveCount(0);
+});
+
+// VS Code のキー割り当て（Ctrl+P はクイックオープン、Ctrl+T はシンボルへ移動、Ctrl+Shift+O はシンボルへ移動など）に
+// 先に取られずに、パネルの中の Accompany に届く
+test("パネルの中で、Ctrl キーが VS Code に取られずにコマンドに届く", async () => {
+  accompany = await startAccompany(["--", "bun", "e2e/fixtures/key-reporter.ts"]);
+  const { page, frame } = await joinAsGuest();
+  await expect(terminal(frame)).toContainText("Key reporter ready", { timeout: 30_000 });
+  await frame.locator(".xterm-screen").click();
+
+  for (const { key, byte } of [
+    { key: "Control+P", byte: "10" },
+    { key: "Control+W", byte: "17" },
+    { key: "Control+F", byte: "06" },
+    { key: "Control+B", byte: "02" },
+    { key: "Control+J", byte: "0a" },
+    { key: "Control+R", byte: "12" },
+  ]) {
+    await page.keyboard.press(key);
+    await expect(terminal(frame)).toContainText(`keys: ${byte}`);
+  }
+  // VS Code のクイックオープンなどが開いていない
+  await expect(page.locator(".quick-input-widget")).toBeHidden();
+});
+
+test("パネルの中で、Ctrl+T のプレフィックスと ⌘⇧ / Ctrl+Shift のショートカットが VS Code に取られずに届く", async () => {
+  accompany = await startAccompany([], fakeShell);
+  const { page, frame } = await joinAsGuest();
+  await expect(terminal(frame)).toContainText("Fake Shell ready", { timeout: 30_000 });
+  await frame.locator(".xterm-screen").click();
+  const tabs = frame.getByRole("complementary", { name: "サイドメニュー" }).getByRole("tab");
+  await expect(tabs).toHaveCount(1);
+
+  // Ctrl+T c: 新しいタブ
+  await page.keyboard.press("Control+KeyT");
+  await expect(frame.getByRole("status", { name: "プレフィックスキー" })).toBeVisible();
+  await page.keyboard.press("c");
+  await expect(tabs).toHaveCount(2);
+
+  // ⌘⇧O / Ctrl+Shift+O: 新しいタブ
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+Shift+KeyO" : "Control+Shift+KeyO");
+  await expect(tabs).toHaveCount(3);
+  await expect(page.locator(".quick-input-widget")).toBeHidden();
+});
+
+test("パネルの中で、選択した文字をコピーでき、クリップボードの文字をペーストできる", async () => {
+  accompany = await startAccompany([], fakeShell);
+  const { page, frame } = await joinAsGuest();
+  await expect(terminal(frame)).toContainText("Fake Shell ready", { timeout: 30_000 });
+  await frame.locator(".xterm-screen").click();
+  await page.keyboard.type("copy me please\n");
+  await expect(terminal(frame)).toContainText("copy me please");
+
+  const menu = frame.getByRole("menu");
+  await frame.locator(".xterm-screen").click({ button: "right" });
+  await menu.getByRole("menuitem", { name: "すべて選択", exact: true }).click();
+  await frame.locator(".xterm-screen").click({ button: "right" });
+  await menu.getByRole("menuitem", { name: "コピー", exact: true }).click();
+
+  // VS Code のクリップボード（エディタに貼り付けて確かめる）
+  await expect.poll(() => readClipboard(page)).toContain("copy me please");
+
+  // VS Code でコピーした文字を、パネルの中の Accompany の「ペースト」で貼り付ける
+  await writeClipboard(page, "pasted from vscode\n");
+  await frame.locator(".xterm-screen").click({ button: "right" });
+  await menu.getByRole("menuitem", { name: "ペースト", exact: true }).click();
+  await expect(terminal(frame)).toContainText("pasted from vscode");
+});
+
+// VS Code（workbench）のページから、システムのクリップボードを読み書きする
+function readClipboard(page: Page) {
+  return page.evaluate(() => navigator.clipboard.readText());
+}
+
+function writeClipboard(page: Page, text: string) {
+  return page.evaluate((t) => navigator.clipboard.writeText(t), text);
+}
