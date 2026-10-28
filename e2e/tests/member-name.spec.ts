@@ -238,3 +238,26 @@ test("自分で付けた名前が、ほかの参加者の既定の名前（参�
   await expect(toolbarMember(guest, "参加者 2（参加者 1）")).toBeVisible();
   await expect(toolbarMember(host, "参加者 2（参加者 2）")).toBeVisible();
 });
+
+// VS Code の拡張は、Live Share の表示名を URL の name に付けて開く（docs/adr/183-liveshare-extension.md）
+test("URL の name に付けた名前を、名前を設定していないときの既定として使う", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const host = await openAsParticipant(browser, `${accompany.url}/?name=${encodeURIComponent("やまだ")}`);
+  const guest = await openAsParticipant(browser, accompany.url);
+
+  await expect(toolbarMember(guest, "やまだ")).toBeVisible();
+  await expect(await nameInput(host)).toHaveValue("やまだ");
+
+  // 設定の画面で変えると、そちらを使う
+  await setName(host, "たなか");
+  await expect(toolbarMember(guest, "たなか")).toBeVisible();
+});
+
+test("名前を設定してあれば、URL の name より設定した名前を使う", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  await openAsParticipant(browser, `${accompany.url}/?name=${encodeURIComponent("やまだ")}`, "すずき");
+  const guest = await openAsParticipant(browser, accompany.url);
+
+  await expect(toolbarMember(guest, "すずき")).toBeVisible();
+  await expect(toolbarMember(guest, "やまだ")).toHaveCount(0);
+});
