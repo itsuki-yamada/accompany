@@ -72,7 +72,6 @@ class Accompany < Formula
   desc "Share AI coding agent terminals in the browser for remote pair programming"
   homepage "https://github.com/itsuki-yamada/accompany"
   url "@TARBALL_URL@"
-  version "@VERSION@"
   sha256 "@TARBALL_SHA256@"
   license "MIT"
 
@@ -136,11 +135,15 @@ class Accompany < Formula
 end
 EOF
 )
-template=${template//@VERSION@/$version}
 template=${template//@TARBALL_URL@/$tarball_url}
 template=${template//@TARBALL_SHA256@/$tarball_sha256}
 template=${template//@BINARY_URL@/$binary_url}
 template=${template//@BINARY_SHA256@/$binary_sha256}
+# 版は url から読ませる（Release の url では、Intel の Mac の実行ファイルの url からも読める。書くと brew audit --strict が
+# 重複と指摘する）。手元のファイル（file://）の実行ファイルの名前からは読めないので、--tarball のときだけ書く
+if [[ $tarball_url == file://* ]]; then
+  template=${template/$'\n'"  sha256 \"$tarball_sha256\""/$'\n'"  version \"$version\""$'\n'"  sha256 \"$tarball_sha256\""}
+fi
 mkdir -p "$(dirname "$formula")"
 # mv では一時ファイルの権限になるので、そのまま書く
 printf '%s\n' "$template" > "$formula"
