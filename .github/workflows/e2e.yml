@@ -20,8 +20,11 @@ jobs:
       matrix:
         # source: リポジトリから直接起動する / tarball: リリースする tarball から bunx で起動する /
         # binary: リリースする実行ファイル（linux-x64）を起動する /
-        # npm: 公開する npm のパッケージを別のディレクトリに入れ、npx と起動役で起動する（docs/adr/132-npm.md）
-        target: [source, tarball, binary, npm]
+        # npm: 公開する npm のパッケージを別のディレクトリに入れ、npx と起動役で起動する（docs/adr/132-npm.md）。
+        # 起動役は Bun（mise.toml の版）で tarball の JS を動かす / npm-binary: 同じく入れ、Bun を使わずに実行ファイルを起動させる /
+        # bun-min・bun-latest: Homebrew と同じく、tarball の JS を、対応する最も古い Bun と最新の Bun で動かす
+        # （docs/adr/191-run-on-bun.md）。最新の Bun はいつ壊れるか分からず、Release を止めないよう、プルリクのときだけ流す
+        target: ${{ fromJSON(github.event_name == 'pull_request' && '["source","tarball","binary","npm","npm-binary","bun-min","bun-latest"]' || '["source","tarball","binary","npm","npm-binary","bun-min"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -33,15 +36,34 @@ jobs:
           bun install --frozen-lockfile --cwd app/server
           bun install --frozen-lockfile --cwd e2e
 
+      # tarball は、npm のパッケージ（同梱する JS）と Homebrew と同じ起動のしかたでも使うので、どの target でも作る。
       # bunx は tarball のパスごとにインストール先を使い回し、相対パスでは失敗するため、新しい絶対パスに置く
-      - name: tarball を作り、E2E の起動コマンドを tarball にする
-        if: matrix.target == 'tarball'
+      - name: tarball を作る
         working-directory: app/server
         run: |
           tarball=$(bun pm pack --destination "$RUNNER_TEMP/tarball-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --quiet)
           echo "tarball: $tarball"
-          echo "ACCOMPANY_CMD=bunx --package $tarball accompany" >> "$GITHUB_ENV"
           echo "TARBALL=$tarball" >> "$GITHUB_ENV"
+
+      - name: E2E の起動コマンドを tarball にする
+        if: matrix.target == 'tarball'
+        run: echo "ACCOMPANY_CMD=bunx --package $TARBALL accompany" >> "$GITHUB_ENV"
+
+      # Homebrew の formula と同じく、tarball を展開し、その JS（dist/cli.js）を指定した版の Bun で動かす
+      - name: E2E の起動コマンドを、tarball の JS を指定した版の Bun で動かすものにする
+        if: matrix.target == 'bun-min' || matrix.target == 'bun-latest'
+        env:
+          # bun-min は、app/server/src/require-bun.ts の required と同じ版
+          BUN_VERSION: ${{ matrix.target == 'bun-min' && '1.4.0' || 'latest' }}
+        run: |
+          dir="$RUNNER_TEMP/unpacked-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$dir"
+          tar -xzf "$TARBALL" -C "$dir"
+          mise install "bun@$BUN_VERSION"
+          bun_path="$(mise where "bun@$BUN_VERSION")/bin/bun"
+          echo "bun: $bun_path（$("$bun_path" --version)）"
+          echo "ACCOMPANY_CMD=$bun_path $dir/package/dist/cli.js" >> "$GITHUB_ENV"
+          echo "ACCOMPANY_EXPECT_RUNTIME=bun" >> "$GITHUB_ENV"
 
       # 4 つの OS と CPU 向けをすべてここでクロスコンパイルし、このランナーで動く linux-x64 で E2E を流す。
       # macOS 向けは、macOS のランナーの費用のため CI では流さない（docs/adr/78-binaries.md）
@@ -53,20 +75,29 @@ jobs:
           binary=$(ls "$dir"/accompany-*-linux-x64)
           echo "binary: $binary"
           echo "ACCOMPANY_CMD=$binary" >> "$GITHUB_ENV"
+          echo "ACCOMPANY_EXPECT_RUNTIME=binary" >> "$GITHUB_ENV"
           echo "BINARIES=$dir" >> "$GITHUB_ENV"
 
       # 公開する前のパッケージなので、レジストリの代わりに npm pack した tarball から入れる。
       # 実行ファイルは、ほかの OS と CPU のパッケージも作れることを確かめるため、4 つとも作る。
       # npx での起動と Ctrl+C は check-npm.sh で確かめ、E2E は入れた起動役（npm i -g で入るものと同じ）で流す。
-      # npx を挟むと、Linux では npm が起動役を sh -c で起動し、npm だけに送った合図が起動役に届かない（docs/adr/132-npm.md）
+      # npx を挟むと、Linux では npm が起動役を sh -c で起動し、npm だけに送った合図が起動役に届かない（docs/adr/132-npm.md）。
+      # 起動役は、Bun があれば tarball の JS を Bun で動かす。E2E の中のコマンド（fixtures）も Bun で動かすので、Bun は
+      # PATH から外せない。npm-binary では、ACCOMPANY_USE_BINARY=1 で実行ファイルを起動させる（docs/adr/191-run-on-bun.md）
       - name: npm のパッケージを作って別のディレクトリに入れ、E2E の起動コマンドを入れた起動役にする
-        if: matrix.target == 'npm'
+        if: matrix.target == 'npm' || matrix.target == 'npm-binary'
         run: |
           dir="$RUNNER_TEMP/npm-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           .github/scripts/build-binaries.sh "$dir/binaries"
-          .github/scripts/build-npm-packages.sh "$dir/binaries" "$dir/packages"
+          .github/scripts/build-npm-packages.sh "$dir/binaries" "$TARBALL" "$dir/packages"
           .github/scripts/check-npm.sh "$dir/packages" "$dir/install"
           echo "ACCOMPANY_CMD=$dir/install/node_modules/.bin/accompany" >> "$GITHUB_ENV"
+          if [ "${{ matrix.target }}" = npm-binary ]; then
+            echo "ACCOMPANY_USE_BINARY=1" >> "$GITHUB_ENV"
+            echo "ACCOMPANY_EXPECT_RUNTIME=binary" >> "$GITHUB_ENV"
+          else
+            echo "ACCOMPANY_EXPECT_RUNTIME=bun" >> "$GITHUB_ENV"
+          fi
 
       # シェルの統合（accompany activate zsh）を本物の zsh で確かめるため（docs/adr/112-copy-last-output.md）
       - name: zsh を入れる

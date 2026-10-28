@@ -5,12 +5,16 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "accompany": "src/cli.ts"
+    "accompany": "dist/cli.js"
   },
   "files": [
-    "src"
+    "dist"
   ],
-  "dependencies": {
+  "scripts": {
+    "build": "rm -rf dist && bun build --target=bun --minify --sourcemap=linked --public-path=/ src/cli.ts --outdir dist",
+    "prepack": "bun run build 1>&2"
+  },
+  "devDependencies": {
     "@xterm/addon-search": "0.16.0",
     "@xterm/addon-serialize": "0.14.0",
     "@xterm/addon-web-links": "0.12.0",

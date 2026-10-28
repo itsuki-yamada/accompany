@@ -1,8 +1,9 @@
 name: Homebrew formula
 
-# Homebrew の formula を変えたプルリクで、4 つの OS と CPU それぞれで、formula から Release の実行ファイルを入れて
-# 起動できることを確かめる（docs/adr/131-homebrew.md）。formula は Release の実行ファイルを入れるだけで、
-# アプリのコードは e2e.yml が確かめるので、formula と確かめる手順を変えたときだけ流す
+# Homebrew の formula を変えたプルリクで、4 つの OS と CPU それぞれで、formula から Release の tarball と bun（Intel の Mac は実行ファイル）を入れて
+# 起動できることを確かめる（docs/adr/131-homebrew.md、191-run-on-bun.md）。あわせて、このコミットの tarball を
+# update-formula.sh のひな形で入れて確かめ、次の Release でも formula の形と tarball が合うことを確かめる。
+# アプリのコードは e2e.yml が確かめるので、formula と確かめる手順と、tarball の作り方を変えたときだけ流す
 on:
   pull_request:
     paths:
@@ -10,6 +11,7 @@ on:
       - .github/scripts/check-formula.sh
       - .github/scripts/update-formula.sh
       - .github/workflows/formula.yml
+      - app/server/package.json
   workflow_dispatch:
 
 permissions:
@@ -41,5 +43,41 @@ jobs:
       # Homebrew にはリリースのタグがないので、main のコミットで固定する
       - uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # main
 
-      - name: formula で入れて、起動できることを確かめる
+      - name: コミットした formula で入れて、起動できることを確かめる
         run: .github/scripts/check-formula.sh
+
+      # tarball を作るのに、mise.toml の bun を使う（formula が動かすのは、依存として入る Homebrew の bun）
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+
+      - name: このコミットの tarball と実行ファイルを作り、update-formula.sh のひな形の formula で入れて、起動できることを確かめる
+        run: |
+          bun install --frozen-lockfile --cwd app/server
+          tarball=$(cd app/server && bun pm pack --destination "$RUNNER_TEMP/tarball" --quiet)
+          .github/scripts/build-binaries.sh "$RUNNER_TEMP/binaries"
+          .github/scripts/check-formula.sh "$tarball" "$(ls "$RUNNER_TEMP"/binaries/accompany-*-darwin-x64)"
+
+  # Bun の tap（oven-sh/bun）の bun を入れている人が入れたとき（docs/adr/191-run-on-bun.md）
+  with-oven-sh-bun:
+    name: formula (oven-sh/bun の bun を入れたマシン)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # main
+
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+
+      - name: oven-sh/bun の bun を入れる
+        run: |
+          brew tap oven-sh/bun
+          brew install oven-sh/bun/bun
+
+      - name: このコミットの tarball を作り、formula で入れて、起動できることを確かめる
+        run: |
+          bun install --frozen-lockfile --cwd app/server
+          tarball=$(cd app/server && bun pm pack --destination "$RUNNER_TEMP/tarball" --quiet)
+          .github/scripts/build-binaries.sh "$RUNNER_TEMP/binaries"
+          .github/scripts/check-formula.sh "$tarball" "$(ls "$RUNNER_TEMP"/binaries/accompany-*-darwin-x64)"

@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# OS と CPU ごとの実行ファイル（$1 のディレクトリの accompany-<版>-<OS>-<CPU>）から、npm のパッケージを作り、
-# npm pack した tarball を $2 のディレクトリに置く（docs/adr/132-npm.md）。版は app/server/package.json と同じ。
+# OS と CPU ごとの実行ファイル（$1 のディレクトリの accompany-<版>-<OS>-<CPU>）と、Release の tarball（$2）から、
+# npm のパッケージを作り、npm pack した tarball を $3 のディレクトリに置く（docs/adr/132-npm.md、191-run-on-bun.md）。
+# 版は app/server/package.json と同じ。
 # - @itsuki-yamada/accompany-<OS>-<CPU>: 実行ファイルを bin/accompany に入れ、os と cpu でそのマシンにだけ入るようにする
-# - accompany: npm/accompany の起動役。4 つを同じ版の optionalDependencies にする
-# e2e.yml と release.yml から呼ぶ。手元でも `.github/scripts/build-npm-packages.sh <実行ファイルのディレクトリ> <出力先>` で作れる
+# - accompany: npm/accompany の起動役と、tarball の JS（dist/）。4 つを同じ版の optionalDependencies にする。
+#   起動役は、Bun があれば dist/cli.js を Bun で動かし、なければ実行ファイルを起動する
+# e2e.yml と release.yml から呼ぶ。手元でも
+# `.github/scripts/build-npm-packages.sh <実行ファイルのディレクトリ> <tarball> <出力先>` で作れる
 set -euo pipefail
 
 binaries=$(cd "$1" && pwd)
-mkdir -p "$2"
-out=$(cd "$2" && pwd)
+tarball=$2
+mkdir -p "$3"
+out=$(cd "$3" && pwd)
 root=$(cd "$(dirname "$0")/../.." && pwd)
 version=$(node -p 'require(process.argv[1]).version' "$root/app/server/package.json")
 work=$(mktemp -d)
@@ -46,6 +50,9 @@ done
 main="$work/accompany"
 cp -R "$root/npm/accompany" "$main"
 cp "$root/LICENSE" "$main/"
+# E2E を通した tarball と同じ JS を入れる（tarball の中身は package/ の下にある）
+tar -xzf "$tarball" -C "$work" package/dist
+mv "$work/package/dist" "$main/dist"
 node - "$main/package.json" "$version" "${platforms[@]}" <<'EOF'
 const [file, version, ...platforms] = process.argv.slice(2);
 const fs = require("fs");
