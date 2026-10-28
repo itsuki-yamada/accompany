@@ -146,8 +146,11 @@ async function startAccompany(): Promise<{ port: number; dispose(): Promise<void
   const command = vscode.workspace.getConfiguration("accompany").get<string>("path") || "accompany";
   const folder = vscode.workspace.workspaceFolders?.find((f) => f.uri.scheme === "file");
   const cwd = folder?.uri.fsPath ?? homedir();
-  output.appendLine(`起動します: ${command} --port 0（${cwd}）`);
-  const child = spawn(command, ["--port", "0"], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+  // --allow-vscode-webview: Accompany は既定でほかのページへの埋め込みを拒むので、webview の中に埋め込むことを許す
+  // （0.23.1 から。docs/adr/185-frame-ancestors.md）
+  const args = ["--port", "0", "--allow-vscode-webview"];
+  output.appendLine(`起動します: ${command} ${args.join(" ")}（${cwd}）`);
+  const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
   const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
   const dispose = async () => {
     if (child.exitCode !== null || child.signalCode !== null) return;
@@ -177,7 +180,12 @@ async function startAccompany(): Promise<{ port: number; dispose(): Promise<void
       resolve(Number(port));
     };
     child.stdout.on("data", onData);
-    child.stderr.on("data", (chunk: Buffer) => output.append(chunk.toString()));
+    // 待ち受ける前に終了したときに、理由を知らせるため、URL を読むまでのエラー出力を溜める
+    let errors = "";
+    child.stderr.on("data", (chunk: Buffer) => {
+      output.append(chunk.toString());
+      if (text !== undefined) errors += chunk.toString();
+    });
     child.once("error", (error) =>
       reject(
         new Error(
@@ -185,7 +193,14 @@ async function startAccompany(): Promise<{ port: number; dispose(): Promise<void
         ),
       ),
     );
-    child.once("exit", (code) => reject(new Error(`Accompany が待ち受ける前に終了しました（終了コード ${code}）`)));
+    child.once("exit", (code) => {
+      // 0.23.0 までの Accompany は --allow-vscode-webview を知らず、知らないオプションとして終了する
+      if (/--allow-vscode-webview/.test(errors) && /知らないオプション|Unknown option/.test(errors)) {
+        reject(new Error(`Accompany が古いため起動できませんでした。Accompany を 0.23.1 以上に上げてください（${command}）`));
+        return;
+      }
+      reject(new Error(`Accompany が待ち受ける前に終了しました（終了コード ${code}）。出力パネルの「Accompany」に理由が出ています`));
+    });
   });
   return { port, dispose };
 }

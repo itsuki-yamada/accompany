@@ -46,6 +46,7 @@ Accompany の本体（`app/server`）と並べて `app/vscode` に置く。`npm/
 
 - 理由: 実行ファイルは OS と CPU ごとに約 60〜100MB あり、拡張を OS ごとに分けて出す必要がある。本体の版と拡張の版を別々に上げられる
 - 設定 `accompany.path` は `scope: machine` にし、ワークスペースの設定では変えられないようにする。開いたフォルダー（Live Share のホストが開いたリポジトリなど）の `.vscode/settings.json` で、任意のコマンドを起動させないため
+- **使える Accompany は 0.23.1 以上**。Accompany は既定でほかのページへの埋め込みを拒む（`frame-ancestors 'self'`。docs/adr/185-frame-ancestors.md）ので、拡張は `--allow-vscode-webview` を付けて起動し、webview（`vscode-webview:`）と workbench（`vscode-file:`）からの埋め込みを許す。0.23.0 までの Accompany は、この引数を知らないオプションとして起動に失敗する。拡張は、エラー出力に知らないオプションと出たら「Accompany を 0.23.1 以上に上げてください」と知らせる
 
 ### 5. 参加者の名前の既定: URL の `name`
 
@@ -73,7 +74,8 @@ VS Code 1.143.1（macOS arm64 と CI の Linux）で、E2E で確かめた。
   - ゲスト: 共有サービスから受け取ったポートの Accompany を、Live Share の表示名でパネルで開く
   - キー・クリップボード（6 のとおり）。利用者の操作なしの書き込みを受け付けないこと
   - ワークスペースの設定（`.vscode/settings.json`）で `accompany.path` を変えても使わないこと
-  - ブラウザの E2E（`e2e/tests/context-menu.spec.ts`）: ほかのオリジンのページに埋め込まれたときは、コピーした文字を親に渡さないこと
+  - ブラウザの E2E（`e2e/tests/context-menu.spec.ts`）: ほかのオリジンのページに埋め込まれたときは、コピーした文字を親に渡さないこと。埋め込みはふだん `frame-ancestors` で拒むので、それが効かなかったときの守りとして、テストでは Accompany のページの CSP を取り除いて埋め込む
+  - 古い Accompany（`--allow-vscode-webview` を知らないもの）で起動に失敗したときに、上げる版を案内すること
   - ビルドの中で、同梱したモジュールを確かめ、vsix を作る。CI は vsix を成果物（`accompany-vscode-vsix`）として上げる
 - CI の `e2e (vscode)` はプルリクのときだけ流す。`e2e.yml` は release.yml からも呼ばれ、Release と npm の公開はその E2E を待つ。配布物に入らない試作の拡張のために、Release を止めないため
 - `@vscode/test-electron` のテストランナー（拡張のホストの中で動くテスト）は、webview の中にキーを送れないので使わず、VS Code の取得にだけ使う
@@ -118,5 +120,5 @@ VS Code 1.143.1（macOS arm64 と CI の Linux）で、E2E で確かめた。
   - Live Share の表示名が名前の既定になるか
 - 配布（Marketplace・Open VSX）は、持ち主が発行者のアカウントを用意してから決める。`package.json` の `publisher`（いまは `itsuki-yamada`）は仮の値
 - `@types/vscode` は `engines.vscode`（^1.100.0）と同じ版に固定している。Renovate が `@types/vscode` だけを上げると `vsce package` が失敗するので、続けるなら Renovate で `engines` と揃えるか、上げないようにする
-- Accompany は、ほかのページから iframe で埋め込まれることを拒んでいない（`frame-ancestors` がない）。拒むときは、webview（`vscode-webview:`）だけでなく、その親の workbench（`vscode-file:`）も許す必要がある（`frame-ancestors` は祖先すべてを確かめる）。また、VS Code for the Web では webview のオリジンが違うので開けなくなる。`frame-ancestors` は別の Issue で扱い、この試作では入れない
+- `--allow-vscode-webview` を付けて起動した Accompany は、ホストの VS Code の、ほかの拡張の webview（セキュリティを無効にした Markdown のプレビューなど）にも埋め込める。`frame-ancestors` では、どの拡張の webview かを区別できないため。VS Code for the Web では webview のオリジンが違うので、パネルで開けない（docs/adr/185-frame-ancestors.md）
 - ホストのワークスペースがリモート（SSH・コンテナ）のときは試していない。拡張はワークスペースの側の拡張ホストで動くので、Accompany もそちらで起動する
