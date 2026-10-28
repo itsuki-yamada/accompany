@@ -62,7 +62,7 @@ VS Code 1.143.1（macOS arm64 と CI の Linux）で、E2E で確かめた。
   - E2E は Chrome DevTools Protocol でキーを送るので、macOS のメニューのショートカット（⌘Q・⌘W・⌘N など、ネイティブのメニューが先に受け取るもの）は確かめられていない。手で確かめる
 - **クリップボード**: VS Code（Electron）は、`localhost` のページにクリップボードの許可を与えない（`navigator.clipboard.writeText` / `readText` が `NotAllowedError`。webview の iframe の `allow` に `clipboard-read; clipboard-write` を付けても同じ）。webview（`vscode-webview:`）自身は書き込める
   - コピー（選択のコピー・直前の出力のコピー #112）: Accompany は、書き込めなかったときに、親が VS Code の webview（`location.ancestorOrigins` が `vscode-webview://` で始まる）なら、その親だけに `postMessage` で文字を渡す。webview は、開いた iframe（オリジンも一致するもの）からのものだけを拡張に渡し、拡張が `vscode.env.clipboard.writeText` で書き込む。ほかのページに iframe で埋め込まれたときには、コピーした文字を渡さない
-  - ペースト: キーボードのペースト（⌘V / Ctrl+V）は許可が要らないので届く。メニューの「ペースト」は読み取りの許可がないので使えず、これまでどおりキーボードでペーストするよう案内が出る。webview 経由でクリップボードを読む手段は作らない。ゲストのパネルに出るのはホストの Accompany が配るページなので、読む手段を渡すと、ホストの側から、ゲストのクリップボードを黙って読めてしまうため
+  - ペースト: キーボードのペースト（macOS は ⌘V、Linux は Ctrl+Shift+V）は許可が要らないので届く。Linux の Ctrl+V は、ブラウザで開いたときと同じく、ターミナル（xterm.js）が ^V としてコマンドに送る。メニューの「ペースト」は読み取りの許可がないので使えず、これまでどおりキーボードでペーストするよう案内が出る。webview 経由でクリップボードを読む手段は作らない。ゲストのパネルに出るのはホストの Accompany が配るページなので、読む手段を渡すと、ホストの側から、ゲストのクリップボードを黙って読めてしまうため
 
 ### 7. 確かめ方
 
