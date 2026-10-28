@@ -40,10 +40,12 @@ function accompanyLauncher(dir: string, env: Record<string, string>) {
 export const vscodeVersion = process.env.VSCODE_VERSION ?? "1.143.1";
 
 // workspaceSettings を渡すと、開いたフォルダーの .vscode/settings.json に書く
+// accompanyPath を渡すと、ユーザーの設定の accompany.path をそれにする（既定はリポジトリの Accompany を起動する起動役）
 export async function launchVSCode({
   env = {},
   workspaceSettings,
-}: { env?: Record<string, string>; workspaceSettings?: Record<string, unknown> } = {}): Promise<VSCode> {
+  accompanyPath,
+}: { env?: Record<string, string>; workspaceSettings?: Record<string, unknown>; accompanyPath?: string } = {}): Promise<VSCode> {
   const executable = await downloadAndUnzipVSCode({
     version: vscodeVersion,
     cachePath: join(repoRoot, "e2e/.vscode-test"),
@@ -66,7 +68,7 @@ export async function launchVSCode({
   writeFileSync(
     join(userData, "User/settings.json"),
     JSON.stringify({
-      "accompany.path": launcher,
+      "accompany.path": accompanyPath ?? launcher,
       "workbench.startupEditor": "none",
       "workbench.tips.enabled": false,
       "security.workspace.trust.enabled": false,

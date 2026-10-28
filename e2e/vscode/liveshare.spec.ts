@@ -6,6 +6,9 @@ import { accompanyFrame, launchVSCode, panelTab, runCommand, type VSCode } from 
 
 // 参加者は Live Share を始めるだけで、VS Code の中（パネル）で Accompany を使える（docs/adr/183-liveshare-extension.md）
 const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
+// テストが自分で起動する Accompany（ゲストが開くホストの Accompany の代わり）も、拡張と同じく webview への埋め込みを許す
+// （docs/adr/185-frame-ancestors.md）
+const allowVscodeWebview = ["--allow-vscode-webview"];
 
 let vscode: VSCode | undefined;
 let accompany: Accompany | undefined;
@@ -81,7 +84,7 @@ test("ホストが Live Share を始めると、Accompany を起動して共有�
 test("ゲストが Live Share に参加すると、ホストの共有サービスから受け取ったポートの Accompany を、Live Share の表示名でパネルで開く", async ({
   browser,
 }) => {
-  accompany = await startAccompany([], fakeShell);
+  accompany = await startAccompany(allowVscodeWebview, fakeShell);
   const { page, frame } = await joinAsGuest({ FAKE_LIVESHARE_NAME: "すずき" });
 
   await expect(terminal(frame)).toContainText("Fake Shell ready", { timeout: 30_000 });
@@ -100,7 +103,7 @@ test("ゲストが Live Share に参加すると、ホストの共有サービ�
 // VS Code のキー割り当て（Ctrl+P はクイックオープン、Ctrl+T はシンボルへ移動、Ctrl+Shift+O はシンボルへ移動など）に
 // 先に取られずに、パネルの中の Accompany に届く
 test("パネルの中で、Ctrl キーが VS Code に取られずにコマンドに届く", async () => {
-  accompany = await startAccompany(["--", "bun", "e2e/fixtures/key-reporter.ts"]);
+  accompany = await startAccompany([...allowVscodeWebview, "--", "bun", "e2e/fixtures/key-reporter.ts"]);
   const { page, frame } = await joinAsGuest();
   await expect(terminal(frame)).toContainText("Key reporter ready", { timeout: 30_000 });
   await frame.locator(".xterm-screen").click();
@@ -121,7 +124,7 @@ test("パネルの中で、Ctrl キーが VS Code に取られずにコマンド
 });
 
 test("パネルの中で、Ctrl+T のプレフィックスと ⌘⇧ / Ctrl+Shift のショートカットが VS Code に取られずに届く", async () => {
-  accompany = await startAccompany([], fakeShell);
+  accompany = await startAccompany(allowVscodeWebview, fakeShell);
   const { page, frame } = await joinAsGuest();
   await expect(terminal(frame)).toContainText("Fake Shell ready", { timeout: 30_000 });
   await frame.locator(".xterm-screen").click();
@@ -144,7 +147,7 @@ test("パネルの中で、Ctrl+T のプレフィックスと ⌘⇧ / Ctrl+Shif
 // VS Code は localhost のページにクリップボードの許可を与えないので、コピーは webview を経由して書き込む。
 // 読み取りは許可がないので、メニューの「ペースト」は使えず、キーボードでペーストする
 test("パネルの中で、選択した文字をコピーでき、クリップボードの文字をキーボードでペーストできる", async () => {
-  accompany = await startAccompany([], fakeShell);
+  accompany = await startAccompany(allowVscodeWebview, fakeShell);
   const { page, frame } = await joinAsGuest();
   await expect(terminal(frame)).toContainText("Fake Shell ready", { timeout: 30_000 });
   await frame.locator(".xterm-screen").click();
@@ -179,7 +182,7 @@ async function readClipboard(vscode: VSCode) {
 // Accompany のページ（ゲストではホストが配るもの）が、利用者の操作なしに、ゲストのクリップボードを書き換えられない。
 // webview は、利用者の操作の直後（一時的なユーザーアクティベーション）の、長すぎない書き込みだけを受け付ける
 test("パネルの中のページが、利用者の操作なしにクリップボードを書き換えられない", async () => {
-  accompany = await startAccompany([], fakeShell);
+  accompany = await startAccompany(allowVscodeWebview, fakeShell);
   const { page, frame } = await joinAsGuest();
   await expect(terminal(frame)).toContainText("Fake Shell ready", { timeout: 30_000 });
   await runCommand(page, "E2E: クリップボードに書く");
@@ -201,7 +204,7 @@ test("パネルの中のページが、利用者の操作なしにクリップ�
 
 // 利用者の操作の直後でも、長すぎる文字（1000 万文字を超えるもの）は書き込まない
 test("パネルの中のページが、長すぎる文字をクリップボードに書き込めない", async () => {
-  accompany = await startAccompany([], fakeShell);
+  accompany = await startAccompany(allowVscodeWebview, fakeShell);
   const { page, frame } = await joinAsGuest();
   await expect(terminal(frame)).toContainText("Fake Shell ready", { timeout: 30_000 });
   await runCommand(page, "E2E: クリップボードに書く");
@@ -250,4 +253,20 @@ test("ワークスペースの設定で accompany.path を変えても使わず�
 
   await expect(terminal(accompanyFrame(page))).toContainText("Fake Shell ready", { timeout: 30_000 });
   expect(existsSync(marker)).toBe(false);
+});
+
+// --allow-vscode-webview を知らない古い Accompany（0.23.0 まで）は、知らないオプションとして起動に失敗する。
+// そのときは、上げる版を案内する
+test("Accompany が古くて起動に失敗したときは、0.23.1 以上に上げるよう案内する", async () => {
+  mkdirSync(test.info().outputDir, { recursive: true });
+  const old = test.info().outputPath("old-accompany.sh");
+  writeFileSync(old, `#!/bin/sh\necho "Accompany: 知らないオプションです: --allow-vscode-webview" >&2\nexit 1\n`);
+  chmodSync(old, 0o755);
+  vscode = await launchVSCode({ accompanyPath: old });
+  const { page } = vscode;
+
+  await runCommand(page, "Fake Live Share: ホストとして始める");
+
+  await expect(page.locator(".notifications-toasts")).toContainText("0.23.1 以上に上げてください", { timeout: 30_000 });
+  expect(vscode.calls().some((c) => c.call === "shareServer")).toBe(false);
 });

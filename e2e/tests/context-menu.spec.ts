@@ -198,10 +198,23 @@ test("クリップボードの読み取りが許可されていないときは�
 });
 
 // VS Code の拡張のパネルでは、クリップボードに書き込めないとき、親の VS Code の webview に頼んで書き込む
-// （docs/adr/183-liveshare-extension.md）。ほかのページに iframe で埋め込まれたときは、親にコピーした文字を渡さない
+// （docs/adr/183-liveshare-extension.md）。ほかのページに iframe で埋め込まれたときは、親にコピーした文字を渡さない。
+// ほかのページへの埋め込みは CSP の frame-ancestors で拒む（docs/adr/185-frame-ancestors.md）が、それが効かなかったときの
+// 守りとして確かめるため、Accompany のページの CSP を取り除いて埋め込む
 test("ほかのオリジンのページに埋め込まれたときは、コピーした文字を親のページに渡さない", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
-  const context = await newContext(browser, { viewport: { width: 1280, height: 720 } });
+  // 取り除いて返したページは、ブラウザが loopback のものとみなさないので、loopback の Accompany への接続を許す
+  const context = await newContext(browser, {
+    viewport: { width: 1280, height: 720 },
+    permissions: ["local-network-access"],
+  });
+  await context.route(`${accompany.url}/`, async (route) => {
+    const response = await route.fetch();
+    const headers = { ...response.headers() };
+    // route.fetch の本文は展開済みなので、圧縮の見出しも取り除く
+    for (const name of ["content-security-policy", "content-encoding", "content-length"]) delete headers[name];
+    await route.fulfill({ response, headers });
+  });
   const page = await context.newPage();
   // 親は、Accompany（127.0.0.1）とはオリジンの違う localhost のページにする
   const body = `<!DOCTYPE html><body style="margin:0">
