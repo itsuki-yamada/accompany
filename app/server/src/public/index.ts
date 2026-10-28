@@ -6,7 +6,7 @@ import { MinWindowSettings } from "./min-window";
 import { notifyDone, requestPermissionOnFirstInteraction } from "./notify";
 import { Pane, type AgentStatus, type SelectionRange, type Viewer } from "./pane";
 import { QuickCommands } from "./quick-commands";
-import { shortcutList, type Direction, type Shortcut } from "./shortcuts";
+import { prefixIndicator, shortcutList, withKeys, type Direction, type Shortcut } from "./shortcuts";
 import { Sidebar, type Tab } from "./sidebar";
 import { isEditingTabName } from "./tab-name";
 
@@ -33,6 +33,16 @@ let focusedTerminal: string | undefined;
 // ショートカットの一覧。ツールバーのボタンで開く
 const shortcuts = shortcutList();
 document.body.append(shortcuts);
+// キーで一覧を開いたときのターミナル。閉じたら、そこにキー入力の先を戻す
+let shortcutsOpenedFrom: string | undefined;
+shortcuts.addEventListener("toggle", (event) => {
+  if ((event as ToggleEvent).newState !== "closed") return;
+  const from = shortcutsOpenedFrom;
+  shortcutsOpenedFrom = undefined;
+  if (from && (document.activeElement === document.body || shortcuts.contains(document.activeElement))) focusPane(from);
+});
+// プレフィックス（Ctrl+T）を押して、次のキーを待ち受けていることの表示（docs/adr/177-prefix-keys.md）
+document.body.append(prefixIndicator());
 
 // 配色とフォントの大きさは参加者ごと（docs/adr/36-appearance.md）。変えたら表示中の全ターミナルに反映する
 let appearance: Appearance = loadAppearance();
@@ -377,8 +387,12 @@ function divider(split: HTMLElement, node: Split, first: HTMLElement, second: HT
   return element;
 }
 
-// キーボードショートカット（docs/adr/31-shortcuts.md）。terminal はキー入力の先のターミナル
+// キーボードショートカット（docs/adr/31-shortcuts.md、docs/adr/177-prefix-keys.md）。terminal はキー入力の先のターミナル。
+// このターミナルで済む操作（Ctrl+T を送る、直前の出力のコピー、名前の変更）は Pane が行う
 function runShortcut(terminal: string, shortcut: Shortcut) {
+  const shown = view ? terminalIds(view) : [];
+  // 並べている順で、step だけ先のターミナル（端では反対側に回る）
+  const along = (step: number) => shown[(shown.indexOf(terminal) + step + shown.length) % shown.length];
   switch (shortcut.type) {
     case "split":
       return splitPane(terminal, shortcut.direction);
@@ -404,6 +418,31 @@ function runShortcut(terminal: string, shortcut: Shortcut) {
       const index = (tabs.findIndex((t) => t.id === terminal) + step + tabs.length) % tabs.length;
       return selectTab(tabs[index]!.id);
     }
+    case "select-tab": {
+      const tab = tabs[shortcut.index];
+      return tab && selectTab(tab.id);
+    }
+    case "next-pane": {
+      const next = along(1);
+      if (next && next !== terminal) {
+        stopFollowing();
+        focusPane(next);
+      }
+      return;
+    }
+    case "swap-pane": {
+      const other = along(shortcut.step);
+      return other && swapPanes(terminal, other);
+    }
+    case "rotate-split": {
+      const parent = view && parentSplit(view, terminal);
+      return parent && rotateSplit(parent.id);
+    }
+    case "show-shortcuts":
+      // ターミナルは Escape を受け取ると既定の動作を止めるので、一覧にキー入力の先を移して Escape で閉じられるようにする
+      shortcutsOpenedFrom = terminal;
+      shortcuts.showPopover();
+      return shortcuts.focus();
     case "toggle-sidebar":
       return sidebar.toggle();
     case "focus-sidebar":
@@ -449,7 +488,11 @@ function arrangeItems(terminal: string): MenuItem[] {
   return [
     { label: "左右を入れ替える", disabled: !row, action: () => row && flipSplit(row.id) },
     { label: "上下を入れ替える", disabled: !column, action: () => column && flipSplit(column.id) },
-    { label: parent.direction === "column" ? "左右に並べる" : "上下に並べる", action: () => rotateSplit(parent.id) },
+    {
+      label: parent.direction === "column" ? "左右に並べる" : "上下に並べる",
+      title: withKeys("分割の向きを変える", parent.direction === "column" ? "左右に並べる" : "上下に並べる"),
+      action: () => rotateSplit(parent.id),
+    },
     "separator",
   ];
 }

@@ -257,19 +257,10 @@ test("ショートカットと同じ文字・矢印でも、Shift なしの Ctrl
   await expect(page.getByRole("tab")).toHaveCount(1);
 });
 
-test("ショートカットの一覧を、ツールバーのボタンとツールチップで確かめられる", async ({ browser }) => {
+// ボタンのツールチップは、プレフィックスのキー（Ctrl+T のあと）を出す（e2e/tests/prefix-keys.spec.ts、docs/adr/177-prefix-keys.md）
+test("ショートカットの一覧を、ツールバーのボタンで確かめられる", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
-
-  // ボタンのツールチップに、macOS と Windows / Linux のキーを併記する
-  await expect(pane(page, 1).getByRole("button", { name: "右に分割" })).toHaveAttribute(
-    "title",
-    "右に分割（⌘⇧R / Ctrl+Shift+R）",
-  );
-  await expect(page.getByRole("button", { name: "新しいタブ" })).toHaveAttribute(
-    "title",
-    "新しいタブ（⌘⇧O / Ctrl+Shift+O）",
-  );
 
   const list = page.getByRole("dialog", { name: "キーボードショートカット" });
   await expect(list).toBeHidden();

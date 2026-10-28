@@ -1263,3 +1263,31 @@ body[data-pair-mode="following"] .pane-bar {
   align-self: center;
   width: 10em;
 }
+
+/* プレフィックス（Ctrl+T）を押して、次のキーを待ち受けている間に出す（docs/adr/177-prefix-keys.md）。
+   配置の大きさを変えないよう、画面の下の中央に重ねる */
+.prefix-indicator {
+  position: fixed;
+  left: 50%;
+  bottom: 32px;
+  z-index: 20;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border-radius: 4px;
+  background: #ffd54f;
+  color: #000;
+  font-size: 13px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 50%);
+  pointer-events: none;
+}
+
+.prefix-indicator kbd {
+  margin-right: 6px;
+  font-family: inherit;
+  font-weight: bold;
+}
+
+.prefix-indicator[hidden] {
+  display: none;
+}
