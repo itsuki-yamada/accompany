@@ -22,6 +22,8 @@ export function testPort(offset = 0) {
 // onlyCommand を付けると、起動したコマンドのプロセス（npm の起動役など）だけに送る
 export type Accompany = {
   url: string;
+  // 起動したコマンドのプロセス（npm の起動役など）の pid。プロセスグループの ID でもある
+  pid: number;
   stop: (signal?: NodeJS.Signals, options?: { onlyCommand?: boolean }) => Promise<void>;
 };
 
@@ -75,7 +77,7 @@ export function startAccompany(
       const url = output.match(/https?:\/\/\S+/)?.[0];
       if (!url) return;
       listening = new URL(url);
-      resolve({ url, stop });
+      resolve({ url, pid: child.pid!, stop });
     };
     child.stdout?.on("data", onData);
     child.stderr?.on("data", onData);
