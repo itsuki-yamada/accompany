@@ -211,7 +211,91 @@ test("Ctrl+T を 2 回押すと、ターミナルに Ctrl+T（0x14）が届く",
   await page.keyboard.press("Control+KeyT");
 
   await expect(indicator(page)).toBeHidden();
-  await expect(terminalScreen(page)).toContainText("keys: 14");
+  // 次のキーが届くのを待ってから、それまでに届いたものを確かめる。1 回目の Ctrl+T はもれず、0x14 は 1 回だけ届く
+  await page.keyboard.press("a");
+  await expect(terminalScreen(page)).toContainText("keys: 61");
+  expect(await reportedKeys(page)).toEqual(["14", "61"]);
+});
+
+// キーを報告するプログラムに届いたキー（16 進）を、届いた順に
+async function reportedKeys(page: Page) {
+  const text = await terminalScreen(page).innerText();
+  return [...text.matchAll(/keys: ([0-9a-f ]+)/g)].map((m) => m[1]!.trim());
+}
+
+async function openKeyReporter(page: Page) {
+  accompany = await startAccompany(["--", "bun", "e2e/fixtures/key-reporter.ts"]);
+  await page.goto(accompany.url);
+  await expect(terminalScreen(page)).toContainText("Key reporter ready");
+  await page.locator(".xterm-helper-textarea").focus();
+}
+
+test("待ち受けている間にクリックすると、待ち受けをやめる", async ({ page }) => {
+  await openKeyReporter(page);
+  await page.keyboard.press("Control+KeyT");
+  await expect(indicator(page)).toBeVisible();
+
+  const box = (await page.locator(".xterm-screen").boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+
+  await expect(indicator(page)).toBeHidden();
+  // やめたあとのキーは、操作ではなく、ふだんどおりターミナルに届く
+  await page.keyboard.press("c");
+  await expect(terminalScreen(page)).toContainText("keys: 63");
+  await expect(page.getByRole("tab")).toHaveCount(1);
+});
+
+test("待ち受けている間にページの外へフォーカスが移ると（blur）、待ち受けをやめる", async ({ page }) => {
+  await openKeyReporter(page);
+  await page.keyboard.press("Control+KeyT");
+  await expect(indicator(page)).toBeVisible();
+
+  // ほかのウィンドウやアプリへ移ったとき
+  await page.evaluate(() => window.dispatchEvent(new FocusEvent("blur")));
+
+  await expect(indicator(page)).toBeHidden();
+  await page.keyboard.press("c");
+  await expect(terminalScreen(page)).toContainText("keys: 63");
+  await expect(page.getByRole("tab")).toHaveCount(1);
+});
+
+test("Shift を押してから % を押しても、Shift で待ち受けをやめずに右に分割する", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+  await focusPane(page, 1);
+
+  await page.keyboard.press("Control+KeyT");
+  await expect(indicator(page)).toBeVisible();
+  // press("%") は Shift の keydown を出さないので、実際の押し方と同じく Shift を先に押す
+  await page.keyboard.down("Shift");
+  await expect(indicator(page)).toBeVisible();
+  await page.keyboard.press("%");
+  await page.keyboard.up("Shift");
+
+  await expect(indicator(page)).toBeHidden();
+  await expectPaneToShow(page, 2, "Fake Shell ready");
+  const [left, right] = [await boxOf(page, 1), await boxOf(page, 2)];
+  expect(right.x).toBeGreaterThanOrEqual(left.x + left.width - 1);
+});
+
+test("押し続けて繰り返し届いたキーは、ターミナルに送らない", async ({ page }) => {
+  await openKeyReporter(page);
+
+  // Ctrl+T を押し続けても、待ち受けたままで、Ctrl+T（0x14）を送らない
+  await page.keyboard.down("Control");
+  for (let i = 0; i < 3; i++) await page.keyboard.down("KeyT");
+  await page.keyboard.up("KeyT");
+  await page.keyboard.up("Control");
+  await expect(indicator(page)).toBeVisible();
+
+  // 待ち受けをやめたキー（q）を押し続けても、繰り返しはターミナルに送らない
+  for (let i = 0; i < 3; i++) await page.keyboard.down("q");
+  await page.keyboard.up("q");
+  await expect(indicator(page)).toBeHidden();
+
+  await page.keyboard.press("a");
+  await expect(terminalScreen(page)).toContainText("keys: 61");
+  expect(await reportedKeys(page)).toEqual(["61"]);
 });
 
 test("プレフィックスを押すと待ち受けていることを出し、Escape や関係ないキーでやめる。やめたキーはターミナルに届かない", async ({
