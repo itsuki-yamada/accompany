@@ -1,5 +1,9 @@
 # Accompany（同行）
 
+[![npm](https://img.shields.io/npm/v/accompany)](https://www.npmjs.com/package/accompany)
+[![CI](https://img.shields.io/github/actions/workflow/status/itsuki-yamada/accompany/release.yml?branch=main&label=CI)](https://github.com/itsuki-yamada/accompany/actions/workflows/release.yml?query=branch%3Amain)
+[![License](https://img.shields.io/github/license/itsuki-yamada/accompany)](LICENSE)
+
 AI コーディングエージェントのターミナルをブラウザで共有する Web UI サーバー。VS Code Live Share の「サーバーの共有（Share server）」と組み合わせて、エージェントを交えたリモート・ペアプログラミングを楽にするエスケープハッチ（逃げ道）。
 
 Live Share の共有ターミナルで Claude Code などの TUI のエージェントを動かすと、描画が崩れたり、ホストとゲストの画面がずれたりする。そんなときは、ホストのマシンで Accompany を起動し、そのポートを Live Share の「サーバーの共有」でゲストに渡す。ゲストは自分のブラウザで `http://localhost:<ポート>` を開くだけで、ホストと同じエージェントのターミナルを見て、同じように操作できる。
