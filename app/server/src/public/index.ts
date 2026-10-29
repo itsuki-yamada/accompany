@@ -7,7 +7,7 @@ import { notifyDone, requestPermissionOnFirstInteraction } from "./notify";
 import { Pane, type AgentStatus, type SelectionRange, type Viewer } from "./pane";
 import { QuickCommands } from "./quick-commands";
 import { prefixIndicator, shortcutList, withKeys, type Direction, type Shortcut } from "./shortcuts";
-import { Sidebar, type Tab } from "./sidebar";
+import { Sidebar, type Group, type Tab } from "./sidebar";
 import { isEditingTabName } from "./tab-name";
 
 // 自分の表示。並べているタブ（ターミナル 1 つが 1 つのタブ）を葉に持つ分割の木。どのタブをどう並べるかは参加者ごとで、
@@ -25,6 +25,8 @@ const tabBar = document.getElementById("tabs")!;
 const panes = new Map<string, Pane>();
 // 最後に届いたタブの並び。次／前のタブへの切り替えに使う
 let tabs: Tab[] = [];
+// 最後に届いたタブのグループ（docs/adr/209-tab-groups.md）
+let groups: Group[] = [];
 // 最後に届いた自分の表示
 let view: Layout | undefined;
 // 自分がフォーカスしているターミナル
@@ -149,7 +151,16 @@ const sidebar = new Sidebar(document.getElementById("sidebar")!, {
   },
   closeTab: (id) => send({ type: "close", terminal: id }),
   // 並び順は全員で共有し、参加者ごとの表示は変えないので、ペアプロモードはやめない（docs/adr/139-tab-order.md）
-  moveTab: (id, index) => send({ type: "move-tab", tab: id, index }),
+  moveTab: (id, index, group) => send({ type: "move-tab", tab: id, index, ...(group !== undefined && { group }) }),
+  // タブのグループも全員で共有し、参加者ごとの表示は変えないので、ペアプロモードはやめない（docs/adr/209-tab-groups.md）
+  newGroup: (tab) => send({ type: "new-group", tab }),
+  addToGroup: (tab, group) => send({ type: "add-to-group", tab, group }),
+  removeFromGroup: (tab) => send({ type: "remove-from-group", tab }),
+  moveGroup: (group, index) => send({ type: "move-group", group, index }),
+  renameGroup: (group, name) => send({ type: "rename-group", group, name }),
+  recolorGroup: (group, color) => send({ type: "recolor-group", group, color }),
+  ungroup: (group) => send({ type: "ungroup", group }),
+  closeGroup: (group) => send({ type: "close-group", group }),
   // 名前は全員で共有する。整えるのはサーバー（docs/adr/110-tab-name.md）
   renameTab: (id, name) => send({ type: "rename-tab", tab: id, name }),
   returnFocus: () => {
@@ -212,13 +223,14 @@ socket.onmessage = (event) => {
     panes.forEach((pane) => pane.refit());
   } else if (message.type === "tabs") {
     tabs = message.tabs;
+    groups = message.groups ?? [];
     panes.forEach((pane) => pane.setClosable(tabs.length > 1));
     showTabNames();
   } else if (message.type === "view") {
     if (dragging) deferredView = message.layout;
     else renderView(message.layout);
   }
-  if (view) sidebar.update({ tabs, shown: terminalIds(view), maxShown: maxPanes, titles, statuses, members, you });
+  if (view) sidebar.update({ tabs, groups, shown: terminalIds(view), maxShown: maxPanes, titles, statuses, members, you });
 };
 
 // 自分の表示に並べているタブだけを組み立てる。ほかのタブのターミナルは接続を切り、戻ったときにサーバーから画面を復元する

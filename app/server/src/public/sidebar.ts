@@ -1,18 +1,44 @@
 // サイドメニュー。タブ（ターミナル 1 つが 1 つのタブ）の一覧を、状態・タイトル・フォーカスしている参加者とともに出す。
 // 出す・隠すは参加者ごとで、ブラウザに覚えておく（docs/adr/72-sidebar.md）。隠している間は、ツールバーにタブを並べる
 // （docs/adr/100-terminal-tabs.md）。タブはドラッグ、Alt+矢印、右クリックのメニューで並べ替えられ、並びは全員で共有する
-// （docs/adr/139-tab-order.md）。タブの名前のダブルクリックか右クリックのメニューで、タブに名前を付けられる（docs/adr/110-tab-name.md）
-import { showContextMenu } from "./context-menu";
+// （docs/adr/139-tab-order.md）。タブの名前のダブルクリックか右クリックのメニューで、タブに名前を付けられる（docs/adr/110-tab-name.md）。
+// タブは名前と色の付いたグループにまとめられ、ラベルの下（ツールバーでは右）にグループのタブを並べる（docs/adr/209-tab-groups.md）
+import { showContextMenu, type MenuItem } from "./context-menu";
 import { statusDescriptions, statusLabels, type AgentStatus } from "./pane";
 import { shortcutFor, withKeys } from "./shortcuts";
-import { editTabName } from "./tab-name";
+import { editTabName, type TabNameEditor } from "./tab-name";
 
-// サーバーから届く、タブの並び。name は画面に出す名前、custom は参加者が付けた名前（付けていなければない）
-export type Tab = { id: string; name: string; custom?: string };
+// サーバーから届く、タブの並び。name は画面に出す名前、custom は参加者が付けた名前（付けていなければない）、
+// group は入っているグループの ID
+export type Tab = { id: string; name: string; custom?: string; group?: string };
+// タブのグループ。グループのタブは並びの中で続けて並ぶ。name・custom はタブと同じ
+export type Group = { id: string; name: string; custom?: string; color: string };
+
+// グループの色。サーバーとは名前（blue など）でやりとりする。タブの一覧の背景（暗い色）の上で見分けやすく、
+// ラベルの文字（暗い色）が読める明るさにする（docs/adr/209-tab-groups.md）
+export const groupColors: Record<string, { label: string; value: string }> = {
+  blue: { label: "青", value: "#8ab4f8" },
+  red: { label: "赤", value: "#f28b82" },
+  yellow: { label: "黄", value: "#fdd663" },
+  green: { label: "緑", value: "#81c995" },
+  pink: { label: "ピンク", value: "#ff8bcb" },
+  purple: { label: "紫", value: "#c58af9" },
+  cyan: { label: "水色", value: "#78d9ec" },
+  grey: { label: "灰色", value: "#bdc1c6" },
+};
+
+function colorOf(group: Group) {
+  return groupColors[group.color]?.value ?? groupColors.grey!.value;
+}
+
+// ドラッグしているもの。タブか、グループ（ラベル）
+type DragSource = { kind: "tab" | "group"; id: string };
+type Place = "before" | "after";
 type Member = { id: number; name: string; color: string; terminal?: string };
 
 export type SidebarState = {
   tabs: Tab[];
+  groups: Group[];
   // 自分が表示している（並べている）タブ
   shown: string[];
   // 並べられるタブの数
@@ -30,8 +56,18 @@ export type SidebarActions = {
   toggleTab: (id: string) => void;
   newTab: () => void;
   closeTab: (id: string) => void;
-  // タブを並びの index 番目（並べ替えたあとの位置）へ移す
-  moveTab: (id: string, index: number) => void;
+  // タブを並びの index 番目（並べ替えたあとの位置）へ移す。group を渡したときは、そのグループに入れる（null なら外す）
+  moveTab: (id: string, index: number, group?: string | null) => void;
+  // タブのグループ（docs/adr/209-tab-groups.md）
+  newGroup: (tab: string) => void;
+  addToGroup: (tab: string, group: string) => void;
+  removeFromGroup: (tab: string) => void;
+  // グループのタブをまとめて、グループのタブを除いた並びの index 番目へ移す
+  moveGroup: (group: string, index: number) => void;
+  renameGroup: (group: string, name: string) => void;
+  recolorGroup: (group: string, color: string) => void;
+  ungroup: (group: string) => void;
+  closeGroup: (group: string) => void;
   // タブに名前を付ける。空なら名前をやめる
   renameTab: (id: string, name: string) => void;
   // サイドメニューから、表示中のターミナルにキー入力の先を戻す
@@ -51,8 +87,10 @@ export class Sidebar {
   private list = document.createElement("div");
   private summary = document.createElement("span");
   private state: SidebarState | undefined;
-  // ドラッグしているタブ。ドラッグしている間は、組み直すとドラッグしている要素がなくなるので、届いた状態は手を離してから出す
-  private dragged: string | undefined;
+  // ドラッグしているタブ・グループ。ドラッグしている間は、組み直すとドラッグしている要素がなくなるので、届いた状態は手を離してから出す
+  private dragged: DragSource | undefined;
+  // 新しいグループに入れたタブ。そのグループが届いたら、ラベルに名前の入力欄を出す
+  private pendingGroup: string | undefined;
   // 名前を付けている途中か。組み直すと入力欄がなくなるので、ドラッグと同じく、届いた状態は閉じてから出す
   private editing = false;
   private deferred: SidebarState | undefined;
@@ -120,6 +158,7 @@ export class Sidebar {
       this.deferred = state;
       return;
     }
+    const known = new Set(this.state?.groups.map((g) => g.id));
     this.state = state;
     // 組み直すとキー入力の先の行がなくなるので、どの行だったかを覚えておき、あとで戻す
     const active = document.activeElement;
@@ -133,6 +172,15 @@ export class Sidebar {
       const scope = this.visible ? this.element : this.strip;
       scope.querySelector<HTMLElement>(`[data-key="${focused}"]`)?.focus();
     }
+    // 自分が作ったグループが届いたら、すぐに名前を付けられるようにする（Chrome のタブグループと同じ）
+    if (this.pendingGroup !== undefined) {
+      const tab = state.tabs.find((t) => t.id === this.pendingGroup);
+      if (!tab) this.pendingGroup = undefined;
+      else if (tab.group !== undefined && !known.has(tab.group)) {
+        this.pendingGroup = undefined;
+        this.renameGroup(tab.group);
+      }
+    }
   }
 
   private setVisible(visible: boolean) {
@@ -145,10 +193,11 @@ export class Sidebar {
     const { tabs, titles, statuses, members, you } = state;
     this.summary.replaceChildren(counts(tabs.flatMap((tab) => (statuses[tab.id] ? [statuses[tab.id]!] : []))));
     this.list.replaceChildren(
-      ...tabs.map((tab) => {
+      ...this.withLabels(state, true, (tab) => {
         const { id } = tab;
         const row = document.createElement("div");
         row.className = "tab-row";
+        this.markGroup(row, tab, state);
         const select = this.tabButton(tab, state);
         select.dataset.nav = "";
         const status = statuses[id];
@@ -195,26 +244,76 @@ export class Sidebar {
         }
 
         row.append(select, ...this.tabActions(tab, state));
-        this.enableDrag(row, id, true);
+        this.enableDrag(row, { kind: "tab", id }, true);
         return row;
       }),
     );
   }
 
+  // タブの要素を並べ、グループの最初のタブの前に、グループのラベルを入れる
+  private withLabels(state: SidebarState, vertical: boolean, render: (tab: Tab) => HTMLElement) {
+    const elements: HTMLElement[] = [];
+    let previous: string | undefined;
+    for (const tab of state.tabs) {
+      const group = state.groups.find((g) => g.id === tab.group);
+      if (group && group.id !== previous) elements.push(this.groupLabel(group, vertical));
+      previous = group?.id;
+      elements.push(render(tab));
+    }
+    return elements;
+  }
+
+  // グループのタブに、グループの色を付ける
+  private markGroup(element: HTMLElement, tab: Tab, state: SidebarState) {
+    const group = state.groups.find((g) => g.id === tab.group);
+    if (!group) return;
+    element.dataset.group = group.id;
+    element.style.setProperty("--group-color", colorOf(group));
+  }
+
+  // グループのラベル。右クリックでメニュー、ダブルクリックで名前を付け、ドラッグでグループごと移す
+  private groupLabel(group: Group, vertical: boolean) {
+    const wrapper = document.createElement(vertical ? "div" : "span");
+    wrapper.className = vertical ? "group-row" : "toolbar-group";
+    const label = document.createElement("button");
+    label.type = "button";
+    label.className = "group-label";
+    label.dataset.key = `group-${group.id}`;
+    label.dataset.group = group.id;
+    label.dataset.color = group.color;
+    label.style.setProperty("--group-color", colorOf(group));
+    label.textContent = group.name;
+    label.title = `${group.name}（ドラッグでグループごと移す。右クリックで名前・色の変更、解除、まとめて閉じる）`;
+    label.setAttribute("aria-label", `${group.name} のグループ`);
+    label.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      const at = event.clientX || event.clientY ? event : label.getBoundingClientRect();
+      this.openGroupMenu(group, at.x, at.y);
+    });
+    label.addEventListener("dblclick", () => this.renameGroup(group.id));
+    wrapper.append(label);
+    this.enableDrag(wrapper, { kind: "group", id: group.id }, vertical);
+    return wrapper;
+  }
+
   // ツールバーのタブ。名前と状態、並べて表示・閉じるのボタンを出す
   private renderStrip(state: SidebarState) {
     this.stripTabs.replaceChildren(
-      ...state.tabs.map((tab) => {
+      ...this.withLabels(state, false, (tab) => {
         const item = document.createElement("span");
         item.className = "toolbar-tab-item";
+        this.markGroup(item, tab, state);
         const select = this.tabButton(tab, state);
         select.className = "toolbar-tab";
         const status = state.statuses[tab.id];
         if (status) item.dataset.status = status;
         select.textContent = tab.name;
-        select.title = [tab.name, state.titles[tab.id], status && statusLabels[status]].filter(Boolean).join(" ・ ");
+        const group = state.groups.find((g) => g.id === tab.group)?.name;
+        select.title = [tab.name, state.titles[tab.id], status && statusLabels[status], group && `グループ: ${group}`]
+          .filter(Boolean)
+          .join(" ・ ");
         item.append(select, ...this.tabActions(tab, state));
-        this.enableDrag(item, tab.id, false);
+        this.enableDrag(item, { kind: "tab", id: tab.id }, false);
         return item;
       }),
     );
@@ -246,6 +345,7 @@ export class Sidebar {
     select.className = "session";
     select.dataset.key = `tab-${tab.id}`;
     select.dataset.terminal = tab.id;
+    if (tab.group !== undefined) select.dataset.group = tab.group;
     select.setAttribute("role", "tab");
     select.setAttribute("aria-label", tab.name);
     select.setAttribute("aria-selected", String(shown.includes(tab.id)));
@@ -262,66 +362,173 @@ export class Sidebar {
     return select;
   }
 
-  // タブの右クリックのメニュー。サイドメニューでは上・下、ツールバーでは左・右へ移す。端のタブは、その向きへは移せない
+  // タブの右クリックのメニュー。サイドメニューでは上・下、ツールバーでは左・右へ移す。端のタブは、その向きへは移せない。
+  // グループに入れる・外す項目も出す。既存のグループには、グループごとの項目で入れる（メニューに入れ子はないので）
   private openMenu(tab: Tab, x: number, y: number, vertical: boolean) {
-    const tabs = this.state?.tabs ?? [];
-    const index = tabs.findIndex((t) => t.id === tab.id);
     const [before, after] = vertical ? ["上へ移す", "下へ移す"] : ["左へ移す", "右へ移す"];
+    const step = (n: number): MenuItem => {
+      const target = this.stepTarget(tab.id, n);
+      return {
+        label: n < 0 ? before : after,
+        disabled: !target,
+        action: () => target && this.move(tab.id, target.index, target.group),
+      };
+    };
+    const groups: MenuItem[] = [
+      {
+        label: "新しいグループに追加",
+        action: () => {
+          this.pendingGroup = tab.id;
+          this.actions.newGroup(tab.id);
+        },
+      },
+      ...(this.state?.groups ?? [])
+        .filter((g) => g.id !== tab.group)
+        .map((g) => ({
+          label: `グループ「${g.name}」に追加`,
+          swatch: colorOf(g),
+          action: () => this.actions.addToGroup(tab.id, g.id),
+        })),
+      ...(tab.group === undefined
+        ? []
+        : [{ label: "グループから外す", action: () => this.actions.removeFromGroup(tab.id) }]),
+    ];
     showContextMenu(
       x,
       y,
       `${tab.name} のタブのメニュー`,
-      [
-        { label: before, disabled: index <= 0, action: () => this.move(tab.id, index - 1) },
-        { label: after, disabled: index < 0 || index >= tabs.length - 1, action: () => this.move(tab.id, index + 1) },
-        "separator",
-        { label: "名前を変更…", action: () => this.rename(tab.id) },
-      ],
+      [step(-1), step(1), "separator", ...groups, "separator", { label: "名前を変更…", action: () => this.rename(tab.id) }],
       () => this.focusTab(tab.id),
     );
   }
 
-  // タブを並びの index 番目へ移す。続けて移したとき（Alt+↑ を 2 回など）に前の並びから位置を数えないよう、
-  // サーバーから並びが届く前に手元の並びも変えておく。届いた並びで置き換わる
-  private move(id: string, index: number) {
+  // グループのラベルの右クリックのメニュー。名前・色の変更、解除、グループのタブをまとめて閉じる。
+  // すべてのタブがそのグループにあるときは、まとめて閉じられない（最後のタブは閉じないので）
+  private openGroupMenu(group: Group, x: number, y: number) {
+    const all = (this.state?.tabs ?? []).every((t) => t.group === group.id);
+    showContextMenu(
+      x,
+      y,
+      `${group.name} のグループのメニュー`,
+      [
+        { label: "名前を変更…", action: () => this.renameGroup(group.id) },
+        "separator",
+        ...Object.entries(groupColors).map(([color, { label, value }]) => ({
+          label,
+          ariaLabel: label,
+          swatch: value,
+          checked: group.color === color,
+          ...(group.color === color && { mark: "✓" }),
+          action: () => this.actions.recolorGroup(group.id, color),
+        })),
+        "separator",
+        { label: "グループを解除", action: () => this.actions.ungroup(group.id) },
+        {
+          label: "グループのタブを閉じる",
+          disabled: all,
+          ...(all && { title: "すべてのタブがこのグループにあるので、まとめては閉じられない" }),
+          action: () => this.actions.closeGroup(group.id),
+        },
+      ],
+      () => this.focusKey(`group-${group.id}`),
+    );
+  }
+
+  // タブを 1 つ前（step = -1）・後ろ（1）へ移すときの、移す位置とグループ。移せなければ undefined。
+  // - グループの中では、隣のタブと入れ替える。グループの端から外へ移すと、その場でグループから外れる
+  // - グループの外のタブは、隣のグループを飛び越える（グループに入れるのはメニューかドラッグ）
+  private stepTarget(id: string, step: number): { index: number; group?: string | null } | undefined {
+    const tabs = this.state?.tabs ?? [];
+    const index = tabs.findIndex((t) => t.id === id);
+    const tab = tabs[index];
+    if (!tab) return;
+    const next = tabs[index + step];
+    if (tab.group !== undefined) return next?.group === tab.group ? { index: index + step } : { index, group: null };
+    if (!next) return;
+    if (next.group === undefined) return { index: index + step };
+    const span = tabs.flatMap((t, i) => (t.group === next.group ? [i] : []));
+    // 後ろへ飛び越えるときは、移すタブを除いた並びで、グループの最後のタブの後ろ
+    return { index: step > 0 ? span.at(-1)! : span[0]! };
+  }
+
+  // タブを並びの index 番目へ移す（group を渡したときは、そのグループに入れる・外す）。続けて移したとき（Alt+↑ を 2 回など）に
+  // 前の並びから位置を数えないよう、サーバーから並びが届く前に手元の並びも変えておく。届いた並びで置き換わる
+  private move(id: string, index: number, group?: string | null) {
     if (!this.state) return;
     const tabs = this.state.tabs.filter((t) => t.id !== id);
-    const moved = this.state.tabs.find((t) => t.id === id);
-    if (!moved || index < 0 || index > tabs.length) return;
+    const found = this.state.tabs.find((t) => t.id === id);
+    if (!found || index < 0 || index > tabs.length) return;
+    const moved = { ...found };
+    if (group === null) delete moved.group;
+    else if (group !== undefined) moved.group = group;
     tabs.splice(index, 0, moved);
-    this.update({ ...this.state, tabs });
-    this.actions.moveTab(id, index);
+    const groups = this.state.groups.filter((g) => tabs.some((t) => t.group === g.id));
+    this.update({ ...this.state, tabs, groups });
+    this.actions.moveTab(id, index, group);
+  }
+
+  // グループのタブをまとめて、グループのタブを除いた並びの index 番目へ移す。手元の並びも先に変えておく
+  private moveGroup(id: string, index: number) {
+    if (!this.state) return;
+    const members = this.state.tabs.filter((t) => t.group === id);
+    const rest = this.state.tabs.filter((t) => t.group !== id);
+    if (members.length === 0 || index < 0 || index > rest.length) return;
+    this.update({ ...this.state, tabs: [...rest.slice(0, index), ...members, ...rest.slice(index)] });
+    this.actions.moveGroup(id, index);
   }
 
   // 出ている方（サイドメニューかツールバー）のタブの場所に、名前の入力欄を出す。Enter・Esc で閉じたら、タブにキー入力の先を戻す
   private rename(id: string) {
     const tab = this.state?.tabs.find((t) => t.id === id);
-    const scope = this.visible ? this.element : this.strip;
-    const select = scope.querySelector<HTMLElement>(`[data-key="tab-${id}"]`);
-    if (!tab || !select || this.editing) return;
-    this.editing = true;
-    // 入力欄の中で文字を選ぶときに、タブのドラッグを始めない
-    const draggable = select.parentElement;
-    if (draggable) draggable.draggable = false;
-    editTabName(select, {
+    if (!tab) return;
+    this.editName(`tab-${id}`, {
       value: tab.custom ?? "",
       placeholder: `ターミナル ${id}`,
       commit: (name) => this.actions.renameTab(id, name),
+    });
+  }
+
+  // グループのラベルの場所に、名前の入力欄を出す
+  private renameGroup(id: string) {
+    const group = this.state?.groups.find((g) => g.id === id);
+    if (!group) return;
+    this.editName(`group-${id}`, {
+      value: group.custom ?? "",
+      placeholder: `グループ ${id}`,
+      label: "グループの名前",
+      commit: (name) => this.actions.renameGroup(id, name),
+    });
+  }
+
+  private editName(key: string, editor: Omit<TabNameEditor, "finish">) {
+    const scope = this.visible ? this.element : this.strip;
+    const anchor = scope.querySelector<HTMLElement>(`[data-key="${key}"]`);
+    if (!anchor || this.editing) return;
+    this.editing = true;
+    // 入力欄の中で文字を選ぶときに、タブ・グループのドラッグを始めない
+    const draggable = anchor.parentElement;
+    if (draggable) draggable.draggable = false;
+    editTabName(anchor, {
+      ...editor,
       finish: (keyboard) => {
         if (draggable) draggable.draggable = true;
         this.editing = false;
         const deferred = this.deferred;
         this.deferred = undefined;
         if (deferred) this.update(deferred);
-        if (keyboard) this.focusTab(id);
+        if (keyboard) this.focusKey(key);
       },
     });
   }
 
   // 出ている方（サイドメニューかツールバー）のタブにキー入力の先を移す
   private focusTab(id: string) {
+    this.focusKey(`tab-${id}`);
+  }
+
+  private focusKey(key: string) {
     const scope = this.visible ? this.element : this.strip;
-    scope.querySelector<HTMLElement>(`[data-key="tab-${id}"]`)?.focus();
+    scope.querySelector<HTMLElement>(`[data-key="${key}"]`)?.focus();
   }
 
   // Alt（Option）+矢印で、キー入力の先のタブを前・後ろへ移す。サイドメニューは ↑↓、ツールバーは ←→。端ではそれ以上動かない。
@@ -333,22 +540,24 @@ export class Sidebar {
     const id = event.target instanceof HTMLElement ? event.target.dataset.terminal : undefined;
     if (!step || !id || !this.state) return false;
     event.preventDefault();
-    const index = this.state.tabs.findIndex((t) => t.id === id) + step;
-    if (index >= 0 && index < this.state.tabs.length) this.move(id, index);
+    const target = this.stepTarget(id, step);
+    if (target) this.move(id, target.index, target.group);
     return true;
   }
 
-  // タブの行（項目）をドラッグして並べ替えられるようにする。ほかのタブの前半に重ねるとその前、後半に重ねるとその後ろへ移し、
-  // 移す位置に線を出す（data-drop）。ファイルやほかのページからのドラッグは受け付けない
-  private enableDrag(element: HTMLElement, id: string, vertical: boolean) {
+  // タブの行（項目）とグループのラベルをドラッグして並べ替えられるようにする。ほかのタブ・ラベルの前半に重ねるとその前、
+  // 後半に重ねるとその後ろへ移し、移す位置に線を出す（data-drop）。タブはグループに出し入れでき、ラベルはグループごと移す。
+  // ファイルやほかのページからのドラッグは受け付けない
+  private enableDrag(element: HTMLElement, source: DragSource, vertical: boolean) {
     element.draggable = true;
-    const placeOf = (event: DragEvent) => {
+    element.dataset.dragKey = `${source.kind}-${source.id}`;
+    const placeOf = (event: DragEvent): Place => {
       const rect = element.getBoundingClientRect();
       const first = vertical ? event.clientY - rect.top < rect.height / 2 : event.clientX - rect.left < rect.width / 2;
       return first ? "before" : "after";
     };
     element.addEventListener("dragstart", (event) => {
-      this.dragged = id;
+      this.dragged = source;
       event.dataTransfer!.effectAllowed = "move";
       // 中身は使わないが、Firefox では何か入れないとドラッグが始まらない
       event.dataTransfer!.setData("text/plain", "");
@@ -362,11 +571,13 @@ export class Sidebar {
       if (this.dragged === undefined) return;
       event.preventDefault();
       event.dataTransfer!.dropEffect = "move";
-      this.clearDrop(element);
-      if (this.dragged !== id) element.dataset.drop = placeOf(event);
+      const drop = this.dropPlan(this.dragged, source, placeOf(event));
+      const marked = drop && element.parentElement?.querySelector<HTMLElement>(`:scope > [data-drag-key="${drop.mark}"]`);
+      this.clearDrop(marked ?? undefined);
+      if (drop && marked) marked.dataset.drop = drop.markPlace;
     });
     element.addEventListener("dragleave", (event) => {
-      if (!element.contains(event.relatedTarget as Node | null)) delete element.dataset.drop;
+      if (!element.contains(event.relatedTarget as Node | null)) this.clearDrop();
     });
     element.addEventListener("drop", (event) => {
       const dragged = this.dragged;
@@ -375,10 +586,48 @@ export class Sidebar {
       const place = placeOf(event);
       // ドラッグしている間に届いた並び（ほかの参加者の並べ替えなど）を先に出してから、その並びで位置を数える
       this.endDrag();
-      const rest = (this.state?.tabs ?? []).map((t) => t.id).filter((t) => t !== dragged);
-      const index = rest.indexOf(id) + (place === "after" ? 1 : 0);
-      if (dragged !== id && rest.includes(id)) this.move(dragged, index);
+      this.dropPlan(dragged, source, place)?.apply();
     });
+  }
+
+  // dragged を target（タブかラベル）の前・後ろに落としたときの操作と、位置の線を出す要素（mark）と向き。落とせなければ undefined。
+  // - タブ: タブに重ねると、そのタブと同じグループに入る（グループに入っていないタブなら、グループから外れる）。
+  //   ラベルの前半ならグループの前（グループの外）、後半ならグループの先頭に入る
+  // - グループ: グループは入れ子にできないので、ほかのグループのタブ・ラベルに重ねたときは、そのグループの前・後ろに移す
+  private dropPlan(dragged: DragSource, target: DragSource, place: Place) {
+    const tabs = this.state?.tabs ?? [];
+    if (dragged.kind === target.kind && dragged.id === target.id) return;
+    const span = (list: Tab[], group: string | undefined) => list.flatMap((t, i) => (t.group === group ? [i] : []));
+    const targetTab = target.kind === "tab" ? tabs.find((t) => t.id === target.id) : undefined;
+    if (target.kind === "tab" && !targetTab) return;
+    const mark = `${target.kind}-${target.id}`;
+
+    if (dragged.kind === "tab") {
+      const rest = tabs.filter((t) => t.id !== dragged.id);
+      if (targetTab) {
+        const index = rest.indexOf(targetTab) + (place === "after" ? 1 : 0);
+        return { mark, markPlace: place, apply: () => this.move(dragged.id, index, targetTab.group ?? null) };
+      }
+      const first = span(rest, target.id)[0];
+      if (first === undefined) return;
+      return { mark, markPlace: place, apply: () => this.move(dragged.id, first, place === "before" ? null : target.id) };
+    }
+
+    if (targetTab?.group === dragged.id) return;
+    const rest = tabs.filter((t) => t.group !== dragged.id);
+    const other = targetTab ? targetTab.group : target.id;
+    if (other === undefined) {
+      const index = rest.indexOf(targetTab!) + (place === "after" ? 1 : 0);
+      return { mark, markPlace: place, apply: () => this.moveGroup(dragged.id, index) };
+    }
+    const indices = span(rest, other);
+    if (indices.length === 0) return;
+    // ほかのグループのラベルに重ねたとき、またはタブの前半に重ねたときは、そのグループの前
+    if (target.kind === "group" || place === "before") {
+      return { mark: `group-${other}`, markPlace: "before" as Place, apply: () => this.moveGroup(dragged.id, indices[0]!) };
+    }
+    const last = indices.at(-1)!;
+    return { mark: `tab-${rest[last]!.id}`, markPlace: "after" as Place, apply: () => this.moveGroup(dragged.id, last + 1) };
   }
 
   // ドラッグを終え、移す位置の線を消して、ドラッグしている間に届いた状態を出す

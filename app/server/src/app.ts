@@ -87,7 +87,8 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
 
   // タブの並び、参加者ごとの名前・フォーカス先と選択範囲・ペアプロモードで追従している相手・スクロール位置、
   // よく使うコマンドの一覧を全員に、その参加者の表示（どのタブをどう並べているか）を本人に配る。
-  // 自分の表示の変更（新しいタブ・分割・タブを選ぶ・並べる・外す・割合の変更・位置の入れ替え・向きの変更）、タブの並べ替え・名前・閉じる、フォーカスの移動・選択範囲・
+  // 自分の表示の変更（新しいタブ・分割・タブを選ぶ・並べる・外す・割合の変更・位置の入れ替え・向きの変更）、タブの並べ替え・名前・閉じる、
+  // タブのグループ（作る・加える・外す・移す・名前・色・解除・まとめて閉じる）、フォーカスの移動・選択範囲・
   // ページが見えているか、名前の変更、ペアプロモードの開始・終了とスクロール位置、よく使うコマンドの登録・編集・削除、
   // 端末の大きさの下限の変更を受け付ける（docs/adr/100-terminal-tabs.md）
   app.get(
@@ -103,9 +104,32 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
           const terminal = typeof message?.terminal === "string" ? message.terminal : undefined;
           if (message?.type === "split" && (message.direction === "row" || message.direction === "column")) {
             void member?.split(String(message.terminal), message.direction);
-          } else if (message?.type === "move-tab" && typeof message.tab === "string" && Number.isSafeInteger(message.index)) {
-            // ないタブや範囲外の位置は、workspace が無視する
-            workspace.moveTab(message.tab, message.index);
+          } else if (
+            message?.type === "move-tab" &&
+            typeof message.tab === "string" &&
+            Number.isSafeInteger(message.index) &&
+            (message.group === undefined || message.group === null || typeof message.group === "string")
+          ) {
+            // ないタブ・グループや範囲外の位置は、workspace が無視する。group を付けたときは、そのグループに入れる（null なら外す）
+            workspace.moveTab(message.tab, message.index, message.group);
+          } else if (message?.type === "new-group" && typeof message.tab === "string") {
+            // タブのグループは全員で共有する（docs/adr/209-tab-groups.md）
+            workspace.newGroup(message.tab);
+          } else if (message?.type === "add-to-group" && typeof message.tab === "string" && typeof message.group === "string") {
+            workspace.addToGroup(message.tab, message.group);
+          } else if (message?.type === "remove-from-group" && typeof message.tab === "string") {
+            workspace.removeFromGroup(message.tab);
+          } else if (message?.type === "move-group" && typeof message.group === "string" && Number.isSafeInteger(message.index)) {
+            workspace.moveGroup(message.group, message.index);
+          } else if (message?.type === "rename-group" && typeof message.group === "string" && typeof message.name === "string") {
+            // 全員の画面に出るので、タブの名前と同じく整える。空なら「グループ N」に戻す
+            workspace.renameGroup(message.group, sanitizeName(message.name));
+          } else if (message?.type === "recolor-group" && typeof message.group === "string" && typeof message.color === "string") {
+            workspace.recolorGroup(message.group, message.color);
+          } else if (message?.type === "ungroup" && typeof message.group === "string") {
+            workspace.ungroup(message.group);
+          } else if (message?.type === "close-group" && typeof message.group === "string") {
+            workspace.closeGroup(message.group);
           } else if (message?.type === "rename-tab" && typeof message.tab === "string" && typeof message.name === "string") {
             // 全員に配るので、参加者の名前と同じくサーバーで整える。空なら「ターミナル N」に戻す（docs/adr/110-tab-name.md）
             workspace.renameTab(message.tab, sanitizeName(message.name));

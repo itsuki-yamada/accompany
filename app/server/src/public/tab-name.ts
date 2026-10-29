@@ -7,6 +7,8 @@ export type TabNameEditor = {
   value: string;
   // 名前を付けていないときの名前（「ターミナル N」）。入力欄の例として出す
   placeholder: string;
+  // 入力欄の読み上げ名。既定は「ターミナルの名前」（グループの名前にも使う。docs/adr/209-tab-groups.md）
+  label?: string;
   // 決めた名前（前後の空白を除き、上限の文字数までに切り詰めたもの）。空なら名前をやめる
   commit: (name: string) => void;
   // 入力欄を閉じたあと。keyboard は Enter・Esc で閉じたか（キー入力の先を戻すため。ほかの場所を押して閉じたときは戻さない）
@@ -14,14 +16,14 @@ export type TabNameEditor = {
 };
 
 // anchor（名前の表示）を隠して、その場所に入力欄を出す。Enter か、入力欄を離れたときに決め、Esc でやめる
-export function editTabName(anchor: HTMLElement, { value, placeholder, commit, finish }: TabNameEditor) {
+export function editTabName(anchor: HTMLElement, { value, placeholder, label = "ターミナルの名前", commit, finish }: TabNameEditor) {
   const input = document.createElement("input");
   input.type = "text";
   input.className = "tab-name-editor";
   input.value = value;
   input.placeholder = placeholder;
   input.title = `名前（${maxNameLength} 文字まで）。空にすると「${placeholder}」に戻ります`;
-  input.setAttribute("aria-label", "ターミナルの名前");
+  input.setAttribute("aria-label", label);
   let done = false;
   const close = (save: boolean, keyboard: boolean) => {
     if (done) return;
