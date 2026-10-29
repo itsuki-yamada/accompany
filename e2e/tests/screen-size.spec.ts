@@ -8,6 +8,8 @@ import { terminalScreen } from "./terminal";
 // 端末のサイズを左上に、目印の言葉と URL を右下の隅に表示し続ける偽のエージェント
 const cornerReporter = ["--", "bun", "e2e/fixtures/corner-reporter.ts"];
 const corner = "corner-word https://example.com/corner";
+// 起動した時点の端末のサイズを一度だけ表示する偽のエージェント
+const startSizeReporter = ["--", "bun", "e2e/fixtures/start-size-reporter.ts"];
 const large = { width: 1280, height: 720 };
 const small = { width: 640, height: 400 };
 // フル HD より大きい画面
@@ -200,6 +202,56 @@ test("1 人で開くと、端末がブラウザの画面いっぱいの大きさ
   expect(box.width).toBeGreaterThan(area.width * 0.9);
   expect(box.height).toBeGreaterThan(area.height * 0.9);
   expect(await scrollable(host)).toBe(false);
+});
+
+test("最初に参加した人の画面の大きさで、コマンドを起動する", async ({ browser }) => {
+  accompany = await startAccompany(startSizeReporter);
+  const context = await newContext(browser, { viewport: large });
+  // ブラウザがターミナルの WebSocket で最初に伝えた大きさを覚えておく。ネットワークやブラウザが遅いときのように、
+  // 大きさは少し遅らせて（順番は変えずに）届ける。コマンドの起動が速くても、起動した時点の大きさを確かめられるようにする
+  await context.addInitScript(() => {
+    const send = WebSocket.prototype.send;
+    WebSocket.prototype.send = function (this: WebSocket, data: Parameters<WebSocket["send"]>[0]) {
+      const message = typeof data === "string" ? JSON.parse(data) : undefined;
+      if (!this.url.includes("/ws/terminals/") || message?.type !== "resize") return send.call(this, data);
+      const w = window as any;
+      w.firstSize ??= `${message.cols}x${message.rows}`;
+      setTimeout(() => send.call(this, data), 500);
+    };
+  });
+  const host = await context.newPage();
+  await host.goto(accompany.url);
+
+  await expect(terminalScreen(host)).toContainText("start size:");
+  const started = /start size: (\d+x\d+)/.exec((await terminalScreen(host).textContent()) ?? "")?.[1];
+  const firstSize = await host.evaluate(() => (window as any).firstSize);
+  expect(firstSize).not.toBe("80x24");
+  // 起動したあとの大きさの変更（SIGWINCH）に頼らず、起動した時点で参加者の画面の大きさになっている
+  expect(started).toBe(firstSize);
+});
+
+test("大きさを伝えない参加者しかいなくても、コマンドを起動する", async ({ browser }) => {
+  accompany = await startAccompany(startSizeReporter);
+  // ターミナルを開かない、同じオリジンのページから接続し、大きさを伝えずに出力を待つ
+  const page = await (await newContext(browser)).newPage();
+  await page.goto(`${accompany.url}/not-found`);
+
+  const output = await page.evaluate(
+    () =>
+      new Promise<string>((resolve) => {
+        let text = "";
+        const decoder = new TextDecoder();
+        const socket = new WebSocket(`ws://${location.host}/ws/terminals/1`);
+        socket.binaryType = "arraybuffer";
+        socket.onmessage = (event) => {
+          if (typeof event.data === "string") return;
+          text += decoder.decode(event.data, { stream: true });
+          if (text.includes("start size:")) resolve(text);
+        };
+      }),
+  );
+  // 大きさが分からないので、これまでどおりの大きさで起動する
+  expect(output).toContain("start size: 80x24");
 });
 
 test("画面の小さい人が参加すると、全員の端末がその人の画面に合わせて小さくなり、画面の大きい人は端末の周りが余白になる", async ({
