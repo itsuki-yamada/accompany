@@ -74,14 +74,25 @@ async function startShell(browser: Browser, shell: Shell, env: Record<string, st
   return page;
 }
 
+// プロセスが動かしているコマンドの名前。macOS の ps はパスで出すことがあるので、最後の部分だけにする
+function commandOf(pid: number) {
+  const comm = spawnSync("ps", ["-o", "comm=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim();
+  return comm.split("/").pop();
+}
+
 // シェルのプロセス ID を書き、nohup で SIGHUP を無視するものを裏で動かしてから、前面で SIGHUP を待つコマンドを動かす
 async function runInShell(page: Page, n: number) {
   await typeInPane(page, n, `echo $$ > "$E2E_DIR/shell.pid"; nohup sleep 300 > /dev/null 2>&1 & echo $! > "$E2E_DIR/nohup.pid"\n`);
   await expect.poll(() => read("nohup.pid")?.endsWith("\n")).toBe(true);
-  leftovers.push(readPid("nohup.pid"));
+  const nohup = readPid("nohup.pid");
+  leftovers.push(nohup);
+  // $! はシェルが fork した直後に分かり、nohup が SIGHUP を無視するようにするのはそのあとになる。
+  // 負荷で nohup の起動が遅れると、その前に届いた SIGHUP で終わってしまうので、nohup が SIGHUP を無視してから
+  // sleep に置き換わる（コマンドの名前が sleep になる）のを待つ
+  await expect.poll(() => commandOf(nohup)).toBe("sleep");
   await typeInPane(page, n, "bun e2e/fixtures/hup-reporter.ts\n");
   await expectPaneToShow(page, n, "Waiting for SIGHUP");
-  const pids = { shell: readPid("shell.pid"), nohup: readPid("nohup.pid"), reporter: readPid("reporter.pid") };
+  const pids = { shell: readPid("shell.pid"), nohup, reporter: readPid("reporter.pid") };
   leftovers.push(pids.shell);
   return pids;
 }
