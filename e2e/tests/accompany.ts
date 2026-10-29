@@ -11,10 +11,17 @@ const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const defaultCommand = "bun app/server/src/cli.ts";
 
 // 複数の作業ディレクトリで同時に E2E を流してもポートがぶつからないよう、E2E_PORT_BASE で使うポートをずらせる
-const portBase = Number(process.env.E2E_PORT_BASE) || 3000;
+const basePort = Number(process.env.E2E_PORT_BASE) || 3000;
+
+// 並行に流すワーカーどうしでポートがぶつからないよう、ワーカーごとに portsPerWorker ずつずらす。
+// TEST_PARALLEL_INDEX は 0 から（ワーカー数 - 1）までで、落ちて起動し直したワーカーも同じ番号を引き継ぐ。
+// テストが使う offset は今は 50 まで。幅はそれより十分広くとる（docs/adr/205-parallel-e2e.md）
+export const portsPerWorker = 100;
+const portBase = basePort + Number(process.env.TEST_PARALLEL_INDEX ?? 0) * portsPerWorker;
 
 // テストで使うポート。offset 0 は、--port を指定しないテストが使う
 export function testPort(offset = 0) {
+  if (offset >= portsPerWorker) throw new Error(`testPort の offset は ${portsPerWorker} 未満にする（ほかのワーカーのポートとぶつかる）: ${offset}`);
   return String(portBase + offset);
 }
 
