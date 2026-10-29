@@ -2,6 +2,8 @@
 # npm pack した tarball（$1 のディレクトリ）を npm に公開する（docs/adr/132-npm.md）。既に公開してある版は飛ばす。
 # OS と CPU ごとのパッケージを先に、主パッケージ accompany を最後に公開する（主パッケージが参照する版が先にあるように）。
 # release.yml から呼ぶ。認証は npm の Trusted Publishing（GitHub Actions の OIDC）で、トークンは使わない。
+# 来歴（provenance）は、Trusted Publishing で公開すると npm が自動で付ける（--provenance は要らない。
+# 要るのは npm 9.5.0 以上、id-token: write、GitHub の cloud ランナー、package.json の repository がこのリポジトリと一致すること）
 # DRY_RUN=true のときは、公開せずに何を公開するかだけを表示する（npm publish --dry-run）
 set -euo pipefail
 

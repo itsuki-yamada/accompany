@@ -36,15 +36,35 @@ const pkg = {
   version,
   description: `The ${platform} binary for accompany (npx accompany)`,
   license: "MIT",
+  keywords: ["accompany", "terminal", "pair-programming", "live-share", "ai-agent", "binary", os, cpu],
+  author: "itsuki-yamada",
   homepage: "https://github.com/itsuki-yamada/accompany",
   repository: { type: "git", url: "git+https://github.com/itsuki-yamada/accompany.git" },
+  bugs: { url: "https://github.com/itsuki-yamada/accompany/issues" },
   os: [os],
   cpu: [cpu],
   ...(os === "linux" && { libc: ["glibc"] }),
-  files: ["bin"],
+  files: ["bin", "README.md"],
 };
 require("fs").writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
 EOF
+  # npm のページで読まれる README。入れ物であること、直接入れないこと、確かめ方を書く
+  sed "s/@@PLATFORM@@/$platform/g" > "$dir/README.md" <<'README'
+# @itsuki-yamada/accompany-@@PLATFORM@@
+
+The @@PLATFORM@@ binary for [accompany](https://www.npmjs.com/package/accompany), which shares AI coding agent terminals in the browser for remote pair programming.
+
+This package is only a container for the executable. The `accompany` package pulls it in through `optionalDependencies`, and npm installs only the one that matches your OS and CPU.
+
+Do not install it directly. Run Accompany with:
+
+```sh
+npx accompany
+```
+
+- Source and documentation: https://github.com/itsuki-yamada/accompany
+- How to verify this package and report a vulnerability: https://github.com/itsuki-yamada/accompany/blob/main/SECURITY.md
+README
 done
 
 main="$work/accompany"
