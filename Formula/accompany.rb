@@ -4,8 +4,8 @@
 class Accompany < Formula
   desc "Share AI coding agent terminals in the browser for remote pair programming"
   homepage "https://github.com/itsuki-yamada/accompany"
-  url "https://github.com/itsuki-yamada/accompany/releases/download/v0.25.0/accompany-0.25.0.tgz"
-  sha256 "865ff4c7fd99f4882389a53d5e28814694f619ae0ab69694c81f6bd7c6786316"
+  url "https://github.com/itsuki-yamada/accompany/releases/download/v0.25.1/accompany-0.25.1.tgz"
+  sha256 "eb5ee59a121744bf54645ba5fe5460865581d7ddbf7c861d71882b0ff4efb877"
   license "MIT"
 
   livecheck do
@@ -21,8 +21,8 @@ class Accompany < Formula
       depends_on "bun"
     end
     on_intel do
-      url "https://github.com/itsuki-yamada/accompany/releases/download/v0.25.0/accompany-0.25.0-darwin-x64"
-      sha256 "6a9eecb22a148a3b2c63d1404b88ca416635472ad17f97d17e16853d0da735b2"
+      url "https://github.com/itsuki-yamada/accompany/releases/download/v0.25.1/accompany-0.25.1-darwin-x64"
+      sha256 "40b6224fb841b5f1aee47abd42e1eefbe2b73d19a8651c2f468a99b1460d8148"
     end
   end
 
