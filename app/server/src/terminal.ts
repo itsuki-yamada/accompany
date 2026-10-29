@@ -330,11 +330,13 @@ export class TerminalSession {
     const deadline = Bun.sleep(hangUpWaitMs);
     this.hangingUp = (async () => {
       // 前面のプロセスグループは、送る前に調べる。シェルが先に終わると、端末の前面のプロセスグループが分からなくなるため。
-      // 調べられなければ、最後に調べたものを使う
+      // 調べられなければ、前面には送らない。最後に見分けたものは、番号が使い回されて関係のないグループになっているかもしれない。
+      // シェルが終われば、カーネルが前面のプロセスグループに SIGHUP を送る
       const found = await Promise.race([foregroundOf(proc.pid, this.tty), Bun.sleep(foregroundLookupTimeoutMs)]);
-      const foreground = found ? found.foreground.pgid : this.foreground?.pgid;
+      // 調べている間にコマンドが終わっていたら、その番号は使い回されているかもしれないので送らない
+      if (proc.exitCode !== null || proc.signalCode !== null) return;
       // コマンドは PTY の別セッションのリーダーなので、プロセスグループの番号は pid と同じ
-      const groups = [...new Set([proc.pid, foreground])].filter((g): g is number => g !== undefined && g > 1);
+      const groups = [...new Set([proc.pid, found?.foreground.pgid])].filter((g): g is number => g !== undefined && g > 1);
       for (const group of groups) {
         try {
           process.kill(-group, "SIGHUP");
