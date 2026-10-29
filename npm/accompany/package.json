@@ -1,18 +1,34 @@
 {
   "name": "accompany",
   "description": "Share AI coding agent terminals in the browser for remote pair programming",
+  "keywords": [
+    "accompany",
+    "terminal",
+    "pair-programming",
+    "remote-pair-programming",
+    "live-share",
+    "ai-agent",
+    "coding-agent",
+    "claude-code",
+    "web-terminal"
+  ],
+  "author": "itsuki-yamada",
   "license": "MIT",
   "homepage": "https://github.com/itsuki-yamada/accompany",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/itsuki-yamada/accompany.git"
   },
+  "bugs": {
+    "url": "https://github.com/itsuki-yamada/accompany/issues"
+  },
   "bin": {
     "accompany": "bin/accompany.js"
   },
   "files": [
     "bin",
-    "dist"
+    "dist",
+    "README.md"
   ],
   "engines": {
     "node": ">=18"

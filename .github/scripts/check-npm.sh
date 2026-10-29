@@ -14,6 +14,36 @@ platform=$(node -p 'process.platform + "-" + process.arch')
 main=$(ls "$packages"/accompany-[0-9]*.tgz)
 native=$(ls "$packages"/itsuki-yamada-accompany-"$platform"-[0-9]*.tgz)
 
+# 5 つの tarball（主パッケージと OS・CPU ごとの 4 つ）に、README・keywords・author・bugs・files が入っていることを確かめる
+# （npm で出どころと中身を確かめられるように）
+for tgz in "$packages"/accompany-[0-9]*.tgz "$packages"/itsuki-yamada-accompany-*-[0-9]*.tgz; do
+  README=$(tar -xOzf "$tgz" package/README.md 2> /dev/null || true) \
+    PACKAGE_JSON=$(tar -xOzf "$tgz" package/package.json) \
+    node - "$tgz" <<'EOF'
+const tgz = process.argv[2];
+const pkg = JSON.parse(process.env.PACKAGE_JSON);
+const readme = process.env.README;
+const errors = [];
+if (!readme) errors.push("README.md がない");
+if (pkg.author !== "itsuki-yamada") errors.push(`author が itsuki-yamada ではない: ${JSON.stringify(pkg.author)}`);
+if (!Array.isArray(pkg.keywords) || pkg.keywords.length === 0) errors.push("keywords がない");
+if (!pkg.bugs?.url) errors.push("bugs.url がない");
+if (!Array.isArray(pkg.files) || pkg.files.length === 0) errors.push("files がない");
+if (pkg.name !== "accompany") {
+  const [, os, cpu] = pkg.name.match(/accompany-([^-]+)-(.+)$/);
+  for (const k of [os, cpu]) if (!pkg.keywords?.includes(k)) errors.push(`keywords に ${k} がない`);
+  for (const text of ["npx accompany", "optionalDependencies", "https://github.com/itsuki-yamada/accompany", "SECURITY.md"]) {
+    if (!readme?.includes(text)) errors.push(`README に ${text} がない`);
+  }
+}
+if (errors.length > 0) {
+  for (const e of errors) console.log(`::error::${pkg.name}（${tgz}）: ${e}`);
+  process.exit(1);
+}
+console.log(`${pkg.name}: README・keywords・author・bugs・files がある`);
+EOF
+done
+
 mkdir -p "$install_dir"
 cd "$install_dir"
 install_dir=$(pwd)
