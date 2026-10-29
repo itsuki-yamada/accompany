@@ -47,6 +47,10 @@ const encoder = new TextEncoder();
 // 戻したスクロールバックと、新しく起動したコマンドの出力の境目に出す区切り（docs/adr/34-session-restore.md）
 export const restartedMark = "── Accompany を再起動しました ──";
 
+// 最初の参加者から端末の大きさが届くのを待つ上限。届かなければ、それまでの大きさ（80x24、または再起動の前の大きさ）で起動する
+// （docs/adr/208-start-at-first-size.md）
+const sizeWaitMs = 2000;
+
 // 入出力があってから、この時間を置いて前面のプロセスを調べる。出力のたびには調べない（docs/adr/70-agent-detection.md）
 const detectDelayMs = 500;
 
@@ -109,6 +113,8 @@ export class TerminalSession {
   // 調べている最中に入出力があった。調べ終えたら調べ直す（最中に前面が替わったかもしれないので）
   private detectAgain = false;
   private killed = false;
+  // 最初の参加者から端末の大きさが届くのを待っている間の、待つ上限のタイマー
+  private startTimer: ReturnType<typeof setTimeout> | undefined;
   private hangingUp: Promise<void> | undefined;
   // 作業が終わってから、まだ誰も見ていない（docs/adr/74-unseen-done.md）。保存はしない
   private unseen = false;
@@ -204,30 +210,16 @@ export class TerminalSession {
       restored = true;
     });
 
-    // 起動直後の出力を取りこぼさないよう、最初にブラウザがつながったときに起動する
-    if (!this.proc) {
-      this.proc = this.spawn((cwd) =>
-        Bun.spawn(this.command, {
-          cwd,
-          terminal: {
-            ...this.size,
-            data: (_terminal, data) => {
-              this.screen.write(data);
-              this.activity.output();
-              this.scheduleDetect();
-              this.broadcast({ type: "output", data });
-              this.onOutput();
-            },
-          },
-        }),
-      );
-      this.proc.exited.then(() => this.onExit());
-    }
+    // 起動直後の出力を取りこぼさないよう、ブラウザがつながってから起動する。起動したあとに大きさを変えると、コマンドが
+    // SIGWINCH を受けられるようになる前に届いて取りこぼされ、起動時の大きさのまま表示し続けることがあるので、
+    // 最初の参加者から大きさが届いてから、その大きさで起動する（docs/adr/208-start-at-first-size.md）
+    if (!this.proc && !this.startTimer) this.startTimer = setTimeout(() => this.start(), sizeWaitMs);
 
     return {
       resize: (requested) => {
         this.requestedSizes.set(receive, requested);
         this.fitToSmallest();
+        this.start();
       },
       detach: () => {
         this.listeners.delete(receive);
@@ -235,6 +227,28 @@ export class TerminalSession {
         this.fitToSmallest();
       },
     };
+  }
+
+  // いまの大きさでコマンドを起動する。起動していれば、または閉じていれば何もしない
+  private start() {
+    clearTimeout(this.startTimer);
+    if (this.proc || this.killed) return;
+    this.proc = this.spawn((cwd) =>
+      Bun.spawn(this.command, {
+        cwd,
+        terminal: {
+          ...this.size,
+          data: (_terminal, data) => {
+            this.screen.write(data);
+            this.activity.output();
+            this.scheduleDetect();
+            this.broadcast({ type: "output", data });
+            this.onOutput();
+          },
+        },
+      }),
+    );
+    this.proc.exited.then(() => this.onExit());
   }
 
   // 調べてから起動するまでの間に、起動するディレクトリが消えていることがある。そのときは Bun.spawn が例外を投げるので、
@@ -323,6 +337,7 @@ export class TerminalSession {
   kill(): Promise<void> {
     if (this.hangingUp) return this.hangingUp;
     this.killed = true;
+    clearTimeout(this.startTimer);
     clearTimeout(this.detectTimer);
     this.activity.dispose();
     const proc = this.proc;
