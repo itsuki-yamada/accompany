@@ -80,6 +80,8 @@ export class Workspace {
   private nextSplitId = 1;
   private titlesQueued = false;
   private nextCommandId = 1;
+  // 止めている最中（killAll のあと）。コマンドが終わってもタブを閉じず、並びを変えない（docs/adr/197-sighup-on-close.md）
+  private stopping = false;
   // 起動時のコマンドを動かしているターミナル
   private initialTerminal: string | undefined;
   commands: QuickCommand[] = [];
@@ -296,6 +298,8 @@ export class Workspace {
   // タブを閉じ、そのターミナルを終了する。最後の 1 つは閉じない。そのタブを表示していた参加者の表示から外し、
   // 表示するものがなくなった参加者には、閉じたタブの右隣（なければ左隣）のタブを出す
   close(terminalId: string) {
+    // 止めている最中は、コマンドが終わっても閉じない。打ち切ったあとも続いている保存に、タブが抜けた並びを書かないため
+    if (this.stopping) return;
     const index = this.order.indexOf(terminalId);
     if (index < 0 || this.order.length === 1) return;
     this.order.splice(index, 1);
@@ -361,8 +365,11 @@ export class Workspace {
     this.onChange();
   }
 
-  killAll() {
-    this.terminals.forEach((t) => t.kill());
+  // 全部のターミナルを閉じ、コマンドと前面のコマンドが終わるのを待つ（上限はターミナルごとの kill による。
+  // docs/adr/197-sighup-on-close.md）
+  async killAll() {
+    this.stopping = true;
+    await Promise.all([...this.terminals.values()].map((t) => t.kill()));
   }
 
   private createTerminal(command: string[], cwd?: string) {
@@ -388,7 +395,8 @@ export class Workspace {
   // ターミナルを終了し、参加者がそのターミナルで選択していた範囲も消す。ブラウザもターミナルを抜けたときに
   // 選択をやめたと伝えてくるが、伝え返さない参加者の分が残らないように、ここでも消す
   private removeTerminal(id: string) {
-    this.terminals.get(id)?.kill();
+    // 閉じるタブのコマンドが終わるのは待たない
+    void this.terminals.get(id)?.kill();
     this.terminals.delete(id);
     this.tabNames.delete(id);
     let changed = false;

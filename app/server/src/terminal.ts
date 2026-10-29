@@ -56,6 +56,23 @@ const cwdLookupTimeoutMs = 1500;
 // 調べ終えたあとも、調べ直すべきものとして残す
 const cwdSettleMs = 200;
 
+// 閉じるときに SIGHUP を送ってから、コマンドと前面のコマンドが終わるのを待つ上限（前面のプロセスグループを調べる時間を含む）。
+// 止めるときの保存（最大 3 秒待つ）のあとに待つので、止まるまでは最大でおよそ 4 秒になる（docs/adr/197-sighup-on-close.md）
+const hangUpWaitMs = 1000;
+// 閉じるときに前面のプロセスグループを調べるのを待つ上限
+const foregroundLookupTimeoutMs = 500;
+
+// プロセスグループに、まだプロセスがいるか
+function groupExists(pgid: number) {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (error) {
+    // 権限がない（EPERM）ときも、いるものとする
+    return (error as { code?: unknown }).code === "EPERM";
+  }
+}
+
 // 再起動の前のサーバー側の画面。大きさは、書き出したときの端末の大きさ
 export type Restored = Size & { scrollback: string };
 
@@ -92,6 +109,7 @@ export class TerminalSession {
   // 調べている最中に入出力があった。調べ終えたら調べ直す（最中に前面が替わったかもしれないので）
   private detectAgain = false;
   private killed = false;
+  private hangingUp: Promise<void> | undefined;
   // 作業が終わってから、まだ誰も見ていない（docs/adr/74-unseen-done.md）。保存はしない
   private unseen = false;
   private startDir: string | undefined;
@@ -299,11 +317,42 @@ export class TerminalSession {
     return changed;
   }
 
-  kill() {
+  // ふつうの端末のウィンドウを閉じたときと同じように、コマンド（シェル）のプロセスグループと、前面のプロセスグループに
+  // SIGHUP を送る。SIGKILL は送らないので、SIGHUP を無視するもの（nohup・disown）は残る。
+  // 返す Promise は、コマンドと前面のプロセスグループが終わるか、hangUpWaitMs たつと解決する（docs/adr/197-sighup-on-close.md）
+  kill(): Promise<void> {
+    if (this.hangingUp) return this.hangingUp;
     this.killed = true;
     clearTimeout(this.detectTimer);
     this.activity.dispose();
-    this.proc?.kill();
+    const proc = this.proc;
+    if (!proc || proc.exitCode !== null || proc.signalCode !== null) return (this.hangingUp = Promise.resolve());
+    const deadline = Bun.sleep(hangUpWaitMs);
+    this.hangingUp = (async () => {
+      // 前面のプロセスグループは、送る前に調べる。シェルが先に終わると、端末の前面のプロセスグループが分からなくなるため。
+      // 調べられなければ、前面には送らない。最後に見分けたものは、番号が使い回されて関係のないグループになっているかもしれない。
+      // シェルが終われば、カーネルが前面のプロセスグループに SIGHUP を送る
+      const found = await Promise.race([foregroundOf(proc.pid, this.tty), Bun.sleep(foregroundLookupTimeoutMs)]);
+      // 調べている間にコマンドが終わっていたら、その番号は使い回されているかもしれないので送らない
+      if (proc.exitCode !== null || proc.signalCode !== null) return;
+      // コマンドは PTY の別セッションのリーダーなので、プロセスグループの番号は pid と同じ
+      const groups = [...new Set([proc.pid, found?.foreground.pgid])].filter((g): g is number => g !== undefined && g > 1);
+      for (const group of groups) {
+        try {
+          process.kill(-group, "SIGHUP");
+        } catch {}
+      }
+      // 前面のコマンドが SIGHUP を無視して残っても、調べ続けないよう、上限が来たらやめる
+      const others = groups.filter((g) => g !== proc.pid);
+      let timedOut = false;
+      const finished = (async () => {
+        await proc.exited;
+        while (!timedOut && others.some(groupExists)) await Bun.sleep(20);
+      })();
+      await Promise.race([finished, deadline]);
+      timedOut = true;
+    })();
+    return this.hangingUp;
   }
 
   // 入出力のあとに間を置いて、前面のプロセスを調べる。調べる予定があるうちは重ねない。
