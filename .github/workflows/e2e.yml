@@ -12,8 +12,8 @@ jobs:
   e2e:
     name: e2e (${{ matrix.target }})
     runs-on: ubuntu-latest
-    # 止まったときに既定の 6 時間待たないようにする（ふだんは 10〜26 分）
-    timeout-minutes: 45
+    # 止まったときに既定の 6 時間待たないようにする（ふだんは 4〜5 分。vscode のジョブは約 2 分）
+    timeout-minutes: 20
     strategy:
       # 片方が落ちても、もう片方の結果とレポートを残す
       fail-fast: false
