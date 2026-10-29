@@ -68,7 +68,7 @@ if (!server) {
     `Accompany: ポート ${requestedPort}〜${last} はすべて使われています。--port で別のポートを指定してください`,
   );
   // 最初のターミナルのコマンドは、待ち受ける前に起動しているので、残さずに止める
-  workspace.killAll();
+  await workspace.killAll();
   uploads.remove();
   process.exit(1);
 }
@@ -101,8 +101,9 @@ workspace.onChange = () => {
   }, saveDelayMs);
 };
 
-// PTY のコマンドは別セッションで動くため、Accompany を止めるときに明示的に止める。
-// コマンドが終わるとそのターミナルが閉じて配置が変わるので、止める前の画面を先に保存する。
+// PTY のコマンドは別セッションで動くため、Accompany を止めるときに明示的に止める。端末のウィンドウを閉じたときと同じく、
+// シェルと前面のコマンドに SIGHUP を送り、終わるのを少し待つ（PTY が閉じる前に片付けられるように。docs/adr/197-sighup-on-close.md）。
+// コマンドが終わるとそのターミナルが閉じて配置が変わるので、止める前の画面を先に保存する（docs/adr/151-restore-cwd.md）。
 // ドロップされたファイルも、Accompany を止めたら要らなくなるので消す。
 // bunx で起動すると、同じシグナルが bunx からも転送されて二度届くので、二度目以降は無視する。
 // 代わりに、保存が長引いても止まれるよう、保存を待つのは stopSaveTimeoutMs までにする
@@ -113,7 +114,7 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     stopping = true;
     clearTimeout(saveTimer);
     await Promise.race([save({ stopping: true }), Bun.sleep(stopSaveTimeoutMs)]);
-    workspace.killAll();
+    await workspace.killAll();
     uploads.remove();
     process.exit(0);
   });

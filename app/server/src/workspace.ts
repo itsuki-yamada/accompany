@@ -361,8 +361,10 @@ export class Workspace {
     this.onChange();
   }
 
-  killAll() {
-    this.terminals.forEach((t) => t.kill());
+  // 全部のターミナルを閉じ、コマンドと前面のコマンドが終わるのを待つ（上限はターミナルごとの kill による。
+  // docs/adr/197-sighup-on-close.md）
+  async killAll() {
+    await Promise.all([...this.terminals.values()].map((t) => t.kill()));
   }
 
   private createTerminal(command: string[], cwd?: string) {
@@ -388,7 +390,8 @@ export class Workspace {
   // ターミナルを終了し、参加者がそのターミナルで選択していた範囲も消す。ブラウザもターミナルを抜けたときに
   // 選択をやめたと伝えてくるが、伝え返さない参加者の分が残らないように、ここでも消す
   private removeTerminal(id: string) {
-    this.terminals.get(id)?.kill();
+    // 閉じるタブのコマンドが終わるのは待たない
+    void this.terminals.get(id)?.kill();
     this.terminals.delete(id);
     this.tabNames.delete(id);
     let changed = false;
