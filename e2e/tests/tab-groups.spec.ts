@@ -120,8 +120,8 @@ async function addToGroup(page: Page, n: number, name: string) {
 // from を、to の前（before）・後ろ（after）の位置までマウスでドラッグする。
 // 手を離す前に、ドロップする位置の表示が出ていることを確かめる
 async function drag(page: Page, from: Locator, to: Locator, place: "before" | "after", vertical: boolean) {
-  const source = (await from.boundingBox())!;
-  const target = (await to.boundingBox())!;
+  const source = await boxOf(from);
+  const target = await boxOf(to);
   await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
   await page.mouse.down();
   const [x, y] = vertical
@@ -475,7 +475,7 @@ test("一覧の空いている所に落とすと、タブ・グループは最�
   await expectEntries(sidebar(host), ["ターミナル 1", "ターミナル 2", "[app]", "app > ターミナル 3", "app > ターミナル 4"]);
 
   // サイドメニューの、タブの下の空いている所
-  const list = (await sidebar(host).boundingBox())!;
+  const list = await boxOf(sidebar(host));
   const below = { x: list.x + list.width / 2, y: list.y + list.height - 20 };
   await dragTo(host, sidebarRow(host, 3), below);
   await expectEntries(sidebar(host), ["ターミナル 1", "ターミナル 2", "[app]", "app > ターミナル 4", "ターミナル 3"]);
@@ -485,7 +485,7 @@ test("一覧の空いている所に落とすと、タブ・グループは最�
 
   // ツールバーの、タブの右の空いている所
   await sidebarToggle(host).click();
-  const strip = (await toolbar(host).locator(".toolbar-tabs").boundingBox())!;
+  const strip = await boxOf(toolbar(host).locator(".toolbar-tabs"));
   const right = { x: strip.x + strip.width - 10, y: strip.y + strip.height / 2 };
   await dragTo(host, toolbarItem(host, 4), right);
   await expectEntries(toolbar(host), ["ターミナル 1", "ターミナル 2", "ターミナル 3", "ターミナル 4"]);
@@ -514,6 +514,13 @@ test("グループの名前は、HTML のような文字列でもそのまま文
   for (const page of [host, guest]) expect(await page.evaluate(() => (window as any).pwned)).toBeUndefined();
 });
 
+// 要素の位置と大きさ。一覧はほかの参加者の操作などで組み直され、測った瞬間に要素が入れ替わると null になるので、測れるまで待つ
+async function boxOf(locator: Locator) {
+  let box: Awaited<ReturnType<Locator["boundingBox"]>> = null;
+  await expect.poll(async () => (box = await locator.boundingBox()) !== null).toBe(true);
+  return box!;
+}
+
 // 改造したブラウザなどから、配置の WebSocket に直接送る
 function sendRawTo(page: Page, messages: object[]) {
   return page.evaluate(
@@ -534,7 +541,7 @@ function sendRawTo(page: Page, messages: object[]) {
 
 // from を、一覧の空いている所（point）までドラッグする。最後の要素の後ろに、移す位置の線が出る
 async function dragTo(page: Page, from: Locator, point: { x: number; y: number }) {
-  const source = (await from.boundingBox())!;
+  const source = await boxOf(from);
   await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
   await page.mouse.down();
   await page.mouse.move(point.x, point.y, { steps: 10 });
