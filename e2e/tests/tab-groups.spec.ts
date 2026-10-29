@@ -369,22 +369,7 @@ test("ないタブ・グループや、決まっていない色への操作が�
   const color = (await label(page, "app").getAttribute("data-color"))!;
   const expected = ["ターミナル 1", "[app]", "app > ターミナル 2", "ターミナル 3"];
 
-  // 改造したブラウザなどから、配置の WebSocket に直接送る
-  const sendRaw = (messages: object[]) =>
-    page.evaluate(
-      (messages) =>
-        new Promise<void>((resolve) => {
-          const socket = new WebSocket(`ws://${location.host}/ws/workspace`);
-          socket.onopen = () => {
-            for (const message of messages) socket.send(JSON.stringify(message));
-            setTimeout(() => {
-              socket.close();
-              resolve();
-            }, 200);
-          };
-        }),
-      messages,
-    );
+  const sendRaw = (messages: object[]) => sendRawTo(page, messages);
   for (const message of [
     { type: "new-group", tab: "9" },
     { type: "new-group", tab: 1 },
@@ -416,3 +401,144 @@ test("ないタブ・グループや、決まっていない色への操作が�
   await sendRaw([{ type: "add-to-group", tab: "3", group }]);
   await expectEntries(sidebar(page), ["ターミナル 1", "[app]", "app > ターミナル 2", "app > ターミナル 3"]);
 });
+
+test("グループの途中へ、グループに入っていないタブを移す並べ替えが届いても、そのタブはグループの後ろに出る", async ({ browser }) => {
+  accompany = await start();
+  const page = await openAsParticipant(browser, accompany.url);
+  await openTabs(page, 5);
+  await newGroup(page, 2, "app");
+  await addToGroup(page, 3, "app");
+  await expectEntries(sidebar(page), ["ターミナル 1", "[app]", "app > ターミナル 2", "app > ターミナル 3", "ターミナル 4", "ターミナル 5"]);
+
+  // 古い並びを見ているブラウザなどから、グループ（2, 3）の途中への並べ替えが届く。グループは分かれず、タブはグループの後ろに出る
+  await sendRawTo(page, [{ type: "move-tab", tab: "5", index: 2 }]);
+  await expectEntries(sidebar(page), ["ターミナル 1", "[app]", "app > ターミナル 2", "app > ターミナル 3", "ターミナル 5", "ターミナル 4"]);
+  await expect(labels(page)).toHaveCount(1);
+});
+
+test("グループに入れる並べ替えが古い並びから届いても、位置はそのグループの範囲に収め、グループは動かない", async ({ browser }) => {
+  accompany = await start();
+  const page = await openAsParticipant(browser, accompany.url);
+  await openTabs(page, 4);
+  await newGroup(page, 2, "app");
+  await addToGroup(page, 3, "app");
+  const group = (await label(page, "app").getAttribute("data-group"))!;
+  await expectEntries(sidebar(page), ["ターミナル 1", "[app]", "app > ターミナル 2", "app > ターミナル 3", "ターミナル 4"]);
+
+  // グループの外（先頭）の位置で、グループに入れる
+  await sendRawTo(page, [{ type: "move-tab", tab: "4", index: 0, group }]);
+  await expectEntries(sidebar(page), ["ターミナル 1", "[app]", "app > ターミナル 4", "app > ターミナル 2", "app > ターミナル 3"]);
+  // グループの外（最後）の位置で、グループに入れる
+  await sendRawTo(page, [{ type: "remove-from-group", tab: "4" }]);
+  await sendRawTo(page, [{ type: "move-tab", tab: "1", index: 3, group }]);
+  await expectEntries(sidebar(page), ["[app]", "app > ターミナル 2", "app > ターミナル 3", "app > ターミナル 1", "ターミナル 4"]);
+});
+
+test("新しいグループを作る操作がサーバーに届かなかったときは、あとでほかの参加者が作ったグループに名前の入力欄を出さない", async ({
+  browser,
+}) => {
+  accompany = await start();
+  const guest = await openAsParticipant(browser, accompany.url);
+  await openTabs(guest, 3);
+  // host の「新しいグループを作る」だけを、サーバーに届けない
+  const context = await newContext(browser, { viewport: { width: 1280, height: 720 } });
+  const host = await context.newPage();
+  await host.routeWebSocket(/\/ws\/workspace$/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((message) => {
+      if (JSON.parse(message.toString()).type !== "new-group") server.send(message);
+    });
+  });
+  await host.goto(accompany.url);
+  await expectPaneToShow(host, 1, "Fake Shell ready");
+
+  await tab(host, 2).click({ button: "right" });
+  await tabMenu(host, 2).getByRole("menuitem", { name: "新しいグループに追加" }).click();
+  // ほかの変更（タブの名前）が届く
+  await sendRawTo(guest, [{ type: "rename-tab", tab: "3", name: "x" }]);
+  await expect(host.getByRole("tab", { name: "x", exact: true })).toBeVisible();
+  await expect(nameEditor(host)).toHaveCount(0);
+
+  // あとで guest が同じタブを新しいグループに入れても、host には入力欄を出さない
+  await newGroup(guest, 2, "app");
+  await expectEntries(sidebar(host), ["ターミナル 1", "[app]", "app > ターミナル 2", "x"]);
+  await expect(nameEditor(host)).toHaveCount(0);
+});
+
+test("一覧の空いている所に落とすと、タブ・グループは最後に移り、タブはグループから外れる", async ({ browser }) => {
+  accompany = await start();
+  const host = await openAsParticipant(browser, accompany.url);
+  await openTabs(host, 4);
+  const guest = await openAsParticipant(browser, accompany.url);
+  await newGroup(host, 3, "app");
+  await addToGroup(host, 4, "app");
+  await expectEntries(sidebar(host), ["ターミナル 1", "ターミナル 2", "[app]", "app > ターミナル 3", "app > ターミナル 4"]);
+
+  // サイドメニューの、タブの下の空いている所
+  const list = (await sidebar(host).boundingBox())!;
+  const below = { x: list.x + list.width / 2, y: list.y + list.height - 20 };
+  await dragTo(host, sidebarRow(host, 3), below);
+  await expectEntries(sidebar(host), ["ターミナル 1", "ターミナル 2", "[app]", "app > ターミナル 4", "ターミナル 3"]);
+  await dragTo(host, label(host, "app"), below);
+  await expectEntries(sidebar(host), ["ターミナル 1", "ターミナル 2", "ターミナル 3", "[app]", "app > ターミナル 4"]);
+  await expectEntries(sidebar(guest), ["ターミナル 1", "ターミナル 2", "ターミナル 3", "[app]", "app > ターミナル 4"]);
+
+  // ツールバーの、タブの右の空いている所
+  await sidebarToggle(host).click();
+  const strip = (await toolbar(host).locator(".toolbar-tabs").boundingBox())!;
+  const right = { x: strip.x + strip.width - 10, y: strip.y + strip.height / 2 };
+  await dragTo(host, toolbarItem(host, 4), right);
+  await expectEntries(toolbar(host), ["ターミナル 1", "ターミナル 2", "ターミナル 3", "ターミナル 4"]);
+  await dragTo(host, toolbarItem(host, 1), right);
+  await expectEntries(toolbar(host), ["ターミナル 2", "ターミナル 3", "ターミナル 4", "ターミナル 1"]);
+  await expectEntries(sidebar(guest), ["ターミナル 2", "ターミナル 3", "ターミナル 4", "ターミナル 1"]);
+});
+
+test("グループの名前は、HTML のような文字列でもそのまま文字で出る", async ({ browser }) => {
+  accompany = await start();
+  const host = await openAsParticipant(browser, accompany.url);
+  await openTabs(host, 3);
+  const guest = await openAsParticipant(browser, accompany.url);
+  // 名前は 32 文字までなので、それに収まる長さにする
+  const name = "<img src onerror=pwned=1>";
+  await newGroup(host, 2, name);
+  for (const page of [host, guest]) {
+    await expect(label(page, name)).toHaveText(name);
+    await expect(sidebar(page).locator("img")).toHaveCount(0);
+  }
+  await tab(guest, 3).click({ button: "right" });
+  await expect(tabMenu(guest, 3).getByRole("menuitem", { name: `グループ「${name}」に追加` })).toBeVisible();
+  await expect(tabMenu(guest, 3).locator("img")).toHaveCount(0);
+  await label(guest, name).click({ button: "right" });
+  await expect(groupMenu(guest, name)).toBeVisible();
+  for (const page of [host, guest]) expect(await page.evaluate(() => (window as any).pwned)).toBeUndefined();
+});
+
+// 改造したブラウザなどから、配置の WebSocket に直接送る
+function sendRawTo(page: Page, messages: object[]) {
+  return page.evaluate(
+    (messages) =>
+      new Promise<void>((resolve) => {
+        const socket = new WebSocket(`ws://${location.host}/ws/workspace`);
+        socket.onopen = () => {
+          for (const message of messages) socket.send(JSON.stringify(message));
+          setTimeout(() => {
+            socket.close();
+            resolve();
+          }, 200);
+        };
+      }),
+    messages,
+  );
+}
+
+// from を、一覧の空いている所（point）までドラッグする。最後の要素の後ろに、移す位置の線が出る
+async function dragTo(page: Page, from: Locator, point: { x: number; y: number }) {
+  const source = (await from.boundingBox())!;
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(point.x, point.y, { steps: 10 });
+  await expect(page.locator('[data-drop="after"]')).toHaveCount(1);
+  await page.mouse.up();
+  await expect(page.locator("[data-drop]")).toHaveCount(0);
+}
