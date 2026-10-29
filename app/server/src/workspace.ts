@@ -345,10 +345,17 @@ export class Workspace {
     const from = this.order.indexOf(terminalId);
     if (from < 0 || !Number.isSafeInteger(index) || index < 0 || index >= this.order.length) return;
     if (typeof group === "string" && !this.groups.has(group)) return;
+    // グループに入れるときは、位置をそのグループの範囲（前後の境目を含む）に収める。古い並びを見て送られた位置で、
+    // グループのほうがタブに合わせて動いてしまわないように
+    let to = index;
+    if (typeof group === "string") {
+      const span = this.order.filter((id) => id !== terminalId).flatMap((id, i) => (this.tabGroups.get(id) === group ? [i] : []));
+      if (span.length > 0) to = Math.min(Math.max(index, span[0]!), span.at(-1)! + 1);
+    }
     const changesGroup = group !== undefined && (this.tabGroups.get(terminalId) ?? null) !== group;
-    if (index === from && !changesGroup) return;
+    if (to === from && !changesGroup) return;
     this.order.splice(from, 1);
-    this.order.splice(index, 0, terminalId);
+    this.order.splice(to, 0, terminalId);
     if (group === null) this.tabGroups.delete(terminalId);
     else if (group !== undefined) this.tabGroups.set(terminalId, group);
     this.notifyTabs();

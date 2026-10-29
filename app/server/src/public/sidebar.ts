@@ -89,8 +89,10 @@ export class Sidebar {
   private state: SidebarState | undefined;
   // ドラッグしているタブ・グループ。ドラッグしている間は、組み直すとドラッグしている要素がなくなるので、届いた状態は手を離してから出す
   private dragged: DragSource | undefined;
-  // 新しいグループに入れたタブ。そのグループが届いたら、ラベルに名前の入力欄を出す
-  private pendingGroup: string | undefined;
+  // 新しいグループに入れたタブと、送ったときのタブの並び。送ったあとに最初に届いた並びで、そのタブが新しいグループに
+  // 入っていれば、ラベルに名前の入力欄を出す。入っていなければ（サーバーが受け付けなかったなど）やめる。
+  // 待ち続けると、あとでほかの参加者がそのタブで作ったグループに入力欄を出してしまう
+  private pendingGroup: { tab: string; tabs: Tab[] } | undefined;
   // 名前を付けている途中か。組み直すと入力欄がなくなるので、ドラッグと同じく、届いた状態は閉じてから出す
   private editing = false;
   private deferred: SidebarState | undefined;
@@ -126,6 +128,8 @@ export class Sidebar {
     this.stripTabs.setAttribute("aria-label", "タブ");
     this.strip.append(this.stripTabs, newTabButton(actions));
     this.strip.addEventListener("keydown", (event) => this.moveByKey(event, false));
+    this.enableDropAtEnd(element, this.list);
+    this.enableDropAtEnd(this.strip, this.stripTabs);
 
     this.setVisible(loadVisible());
   }
@@ -173,13 +177,11 @@ export class Sidebar {
       scope.querySelector<HTMLElement>(`[data-key="${focused}"]`)?.focus();
     }
     // 自分が作ったグループが届いたら、すぐに名前を付けられるようにする（Chrome のタブグループと同じ）
-    if (this.pendingGroup !== undefined) {
-      const tab = state.tabs.find((t) => t.id === this.pendingGroup);
-      if (!tab) this.pendingGroup = undefined;
-      else if (tab.group !== undefined && !known.has(tab.group)) {
-        this.pendingGroup = undefined;
-        this.renameGroup(tab.group);
-      }
+    const pending = this.pendingGroup;
+    if (pending && state.tabs !== pending.tabs) {
+      this.pendingGroup = undefined;
+      const tab = state.tabs.find((t) => t.id === pending.tab);
+      if (tab?.group !== undefined && !known.has(tab.group)) this.renameGroup(tab.group);
     }
   }
 
@@ -378,7 +380,7 @@ export class Sidebar {
       {
         label: "新しいグループに追加",
         action: () => {
-          this.pendingGroup = tab.id;
+          this.pendingGroup = { tab: tab.id, tabs: this.state?.tabs ?? [] };
           this.actions.newGroup(tab.id);
         },
       },
@@ -628,6 +630,45 @@ export class Sidebar {
     }
     const last = indices.at(-1)!;
     return { mark: `tab-${rest[last]!.id}`, markPlace: "after" as Place, apply: () => this.moveGroup(dragged.id, last + 1) };
+  }
+
+  // 一覧（サイドメニュー・ツールバーのタブの並び）の、タブ・ラベルのない所に落とすと、最後へ移す。タブはグループから外れる
+  // （Chrome と同じ）。線は一覧の最後の要素の後ろに出す
+  private enableDropAtEnd(area: HTMLElement, list: HTMLElement) {
+    const onEmpty = (event: DragEvent) =>
+      this.dragged !== undefined && !(event.target instanceof Element && event.target.closest("[data-drag-key]"));
+    area.addEventListener("dragover", (event) => {
+      if (!onEmpty(event)) return;
+      event.preventDefault();
+      event.dataTransfer!.dropEffect = "move";
+      const last = list.lastElementChild as HTMLElement | null;
+      const drop = this.dropAtEnd(this.dragged!);
+      this.clearDrop(drop ? (last ?? undefined) : undefined);
+      if (drop && last) last.dataset.drop = "after";
+    });
+    area.addEventListener("dragleave", (event) => {
+      if (!area.contains(event.relatedTarget as Node | null)) this.clearDrop();
+    });
+    area.addEventListener("drop", (event) => {
+      const dragged = this.dragged;
+      if (!dragged || !onEmpty(event)) return;
+      event.preventDefault();
+      this.endDrag();
+      this.dropAtEnd(dragged)?.();
+    });
+  }
+
+  // 最後へ移す操作。すでに最後にあって、移しても変わらないときは undefined
+  private dropAtEnd(dragged: DragSource) {
+    const tabs = this.state?.tabs ?? [];
+    if (dragged.kind === "tab") {
+      const tab = tabs.find((t) => t.id === dragged.id);
+      if (!tab || (tabs.at(-1) === tab && tab.group === undefined)) return;
+      return () => this.move(dragged.id, tabs.length - 1, null);
+    }
+    const rest = tabs.filter((t) => t.group !== dragged.id);
+    if (tabs.at(-1)?.group === dragged.id) return;
+    return () => this.moveGroup(dragged.id, rest.length);
   }
 
   // ドラッグを終え、移す位置の線を消して、ドラッグしている間に届いた状態を出す
