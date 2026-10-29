@@ -128,8 +128,8 @@ export class Sidebar {
     this.stripTabs.setAttribute("aria-label", "タブ");
     this.strip.append(this.stripTabs, newTabButton(actions));
     this.strip.addEventListener("keydown", (event) => this.moveByKey(event, false));
-    this.enableDropAtEnd(element, this.list);
-    this.enableDropAtEnd(this.strip, this.stripTabs);
+    this.enableDropAtEnd(element);
+    this.enableDropAtEnd(this.strip);
 
     this.setVisible(loadVisible());
   }
@@ -634,14 +634,15 @@ export class Sidebar {
 
   // 一覧（サイドメニュー・ツールバーのタブの並び）の、タブ・ラベルのない所に落とすと、最後へ移す。タブはグループから外れる
   // （Chrome と同じ）。線は一覧の最後の要素の後ろに出す
-  private enableDropAtEnd(area: HTMLElement, list: HTMLElement) {
+  // area はサイドメニュー・ツールバーのタブの並びのほか、ツールバーのタブの右の空いている所（toolbar-spacer）にも使う
+  enableDropAtEnd(area: HTMLElement) {
     const onEmpty = (event: DragEvent) =>
       this.dragged !== undefined && !(event.target instanceof Element && event.target.closest("[data-drag-key]"));
     area.addEventListener("dragover", (event) => {
       if (!onEmpty(event)) return;
       event.preventDefault();
       event.dataTransfer!.dropEffect = "move";
-      const last = list.lastElementChild as HTMLElement | null;
+      const last = (this.visible ? this.list : this.stripTabs).lastElementChild as HTMLElement | null;
       const drop = this.dropAtEnd(this.dragged!);
       this.clearDrop(drop ? (last ?? undefined) : undefined);
       if (drop && last) last.dataset.drop = "after";

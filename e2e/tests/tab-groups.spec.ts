@@ -485,8 +485,8 @@ test("一覧の空いている所に落とすと、タブ・グループは最�
 
   // ツールバーの、タブの右の空いている所
   await sidebarToggle(host).click();
-  const strip = await boxOf(toolbar(host).locator(".toolbar-tabs"));
-  const right = { x: strip.x + strip.width - 10, y: strip.y + strip.height / 2 };
+  const spacer = await boxOf(toolbar(host).locator(".toolbar-spacer"));
+  const right = { x: spacer.x + spacer.width / 2, y: spacer.y + spacer.height / 2 };
   await dragTo(host, toolbarItem(host, 4), right);
   await expectEntries(toolbar(host), ["ターミナル 1", "ターミナル 2", "ターミナル 3", "ターミナル 4"]);
   await dragTo(host, toolbarItem(host, 1), right);

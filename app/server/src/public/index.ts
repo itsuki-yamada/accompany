@@ -178,6 +178,8 @@ const sidebar = new Sidebar(document.getElementById("sidebar")!, {
   appearanceButton.popoverTargetElement = settings;
   const spacer = document.createElement("span");
   spacer.className = "toolbar-spacer";
+  // タブの右の空いている所に、タブ・グループを落とすと最後へ移す（docs/adr/209-tab-groups.md）
+  sidebar.enableDropAtEnd(spacer);
   tabBar.append(
     sidebar.toggleButton,
     sidebar.strip,

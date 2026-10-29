@@ -57,22 +57,16 @@ body {
   cursor: default;
 }
 
-/* サイドメニューを隠している間に、ツールバーに並べるタブ（docs/adr/100-terminal-tabs.md）。多いときは横にスクロールする。
-   タブの右の空いている所にもタブ・グループを落とせるよう、空いている幅まで広げる（docs/adr/209-tab-groups.md） */
+/* サイドメニューを隠している間に、ツールバーに並べるタブ（docs/adr/100-terminal-tabs.md）。多いときは横にスクロールする */
 .toolbar-tabs {
   display: flex;
   align-items: stretch;
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
 }
 
 .toolbar-tabs[hidden] {
   display: none;
-}
-
-/* タブを並べている間は、空いている幅をタブの並びに使う */
-.toolbar-tabs:not([hidden]) ~ .toolbar-spacer {
-  flex: 0 0 0;
 }
 
 .toolbar-tab-list {
