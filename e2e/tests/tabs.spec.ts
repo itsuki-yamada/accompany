@@ -255,13 +255,13 @@ test("サイドメニューを隠している間は、ツールバーにタブ�
   await expect(tab(page, 1)).toHaveAttribute("aria-selected", "true");
   await expect(panes(page)).toHaveCount(1);
 
-  // ツールバーのタブにも、並べて表示と閉じるのボタンがある
-  const toggle = toolbar(page).getByRole("button", { name: "ターミナル 2 を並べて表示" });
-  await expect(toggle).toHaveAttribute("aria-pressed", "false");
-  await toggle.click();
+  // ツールバーのタブにも、閉じるのボタンがある。並べるのは右クリックのメニューで行う（docs/adr/215-split-view.md）
+  await expect(toolbar(page).getByRole("button", { name: "ターミナル 2 を並べて表示" })).toHaveCount(0);
+  await tab(page, 2).click({ button: "right" });
+  await page.getByRole("menu", { name: "ターミナル 2 のタブのメニュー" }).getByRole("menuitem", { name: "現在のタブと新しい分割表示" }).click();
   await expect(panes(page)).toHaveCount(2);
-  await expect(toggle).toHaveAttribute("aria-pressed", "true");
-  await toggle.click();
+  await tab(page, 2).click({ button: "right" });
+  await page.getByRole("menu", { name: "ターミナル 2 のタブのメニュー" }).getByRole("menuitem", { name: "分割を解除" }).click();
   await expect(panes(page)).toHaveCount(1);
   await toolbar(page).getByRole("button", { name: "ターミナル 2 を閉じる" }).click();
   await expect(toolbar(page).getByRole("tab")).toHaveText([/ターミナル 1/]);
