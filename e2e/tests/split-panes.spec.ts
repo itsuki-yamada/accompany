@@ -29,6 +29,10 @@ function toggle(page: Page, n: number) {
   return sidebar(page).getByRole("button", { name: `ターミナル ${n} を並べて表示` });
 }
 
+function tabMenuItem(page: Page, n: number, name: string) {
+  return page.getByRole("menu", { name: `ターミナル ${n} のタブのメニュー` }).getByRole("menuitem", { name, exact: true });
+}
+
 async function openNewTab(page: Page, n: number) {
   await page.getByRole("button", { name: "新しいタブ" }).click();
   await expectPaneToShow(page, n, "Fake Shell ready");
@@ -96,6 +100,8 @@ test("⌘ / Ctrl を押しながらタブを選ぶと、選んだタブが右に
   await expect(panes(page)).toHaveCount(3);
   await expect(pane(page, 4)).toHaveCount(0);
   await expect(toggle(page, 4)).toBeDisabled();
+  await tab(page, 4).click({ button: "right" });
+  await expect(tabMenuItem(page, 4, "分割表示に追加")).toHaveAttribute("aria-disabled", "true");
 });
 
 test("「並べて表示」のボタンでタブを並べ、もう一度押すと外して、残りのタブがその場所を埋める", async ({ browser }) => {
@@ -123,21 +129,53 @@ test("「並べて表示」のボタンでタブを並べ、もう一度押す�
   await expectPaneToShow(page, 1, "Fake Shell ready");
 });
 
-test("並べているときにタブを 1 つ選ぶと、そのタブだけの表示に戻る", async ({ browser }) => {
+test("⌘ / Ctrl を押しながら並べているタブを選ぶと、そのタブを外して、残りのタブがその場所を埋める", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
   await openThreeTabs(page);
+  // 表示しているタブが 1 つのときは、外せない
+  await tab(page, 1).click({ modifiers: ["ControlOrMeta"] });
+  await page.waitForTimeout(300);
+  await expect(panes(page)).toHaveCount(1);
+
+  await addToView(page, 2);
+  await expect(panes(page)).toHaveCount(2);
+
+  await tab(page, 1).click({ modifiers: ["ControlOrMeta"] });
+
+  await expect(pane(page, 1)).toHaveCount(0);
+  await expect(panes(page)).toHaveCount(1);
+  await expectFillsArea(page, 2);
+  // 外したタブは閉じずに残っていて、選べばまた出る。分割からは外れている
+  await tab(page, 1).click();
+  await expectPaneToShow(page, 1, "Fake Shell ready");
+  await expect(panes(page)).toHaveCount(1);
+});
+
+test("並べているときに分割の外のタブを選ぶと、そのタブだけを表示し、分割の中のタブを選ぶと、分割のままそちらにフォーカスする", async ({
+  browser,
+}) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+  await openThreeTabs(page);
+  await openNewTab(page, 4);
+  await tab(page, 1).click();
   await addToView(page, 2);
   await addToView(page, 3);
   await expect(panes(page)).toHaveCount(3);
 
   await tab(page, 2).click();
+  await expect(pane(page, 2).locator(".xterm-helper-textarea")).toBeFocused();
+  await page.waitForTimeout(300);
+  await expect(panes(page)).toHaveCount(3);
+
+  await tab(page, 4).click();
 
   await expect(panes(page)).toHaveCount(1);
-  await expectFillsArea(page, 2);
-  await expect(tab(page, 2)).toHaveAttribute("aria-selected", "true");
+  await expectFillsArea(page, 4);
+  await expect(tab(page, 4)).toHaveAttribute("aria-selected", "true");
   await expect(tab(page, 1)).toHaveAttribute("aria-selected", "false");
-  await expect(pane(page, 2).locator(".xterm-helper-textarea")).toBeFocused();
+  await expect(pane(page, 4).locator(".xterm-helper-textarea")).toBeFocused();
 });
 
 test("右に分割すると、新しいタブが開いて右に並ぶ", async ({ browser }) => {
@@ -250,8 +288,8 @@ test("どのタブを並べるかと割合は参加者ごとで、ほかの参�
   const guestRight = await boxOf(guest, 2);
   expect(Math.abs(guestLeft.width - guestRight.width)).toBeLessThan(20);
 
-  // host が分割をやめても、guest は並べたまま
-  await tab(host, 1).click();
+  // host が分割の外のタブを見ても、guest は並べたまま
+  await host.getByRole("button", { name: "新しいタブ" }).first().click();
   await expect(panes(host)).toHaveCount(1);
   await host.waitForTimeout(300);
   await expect(panes(guest)).toHaveCount(2);

@@ -297,7 +297,8 @@ test("名前の制御文字・双方向テキストの制御文字・改行を�
   ]);
   await page.waitForTimeout(300);
   await expect(barName(page, 1)).toHaveText("app サーバー");
-  await expect(sidebar(page).getByRole("tab")).toHaveText([/app サーバー/, /ターミナル 2/]);
+  // 2 と 1 を並べているので、一覧では表示の並び（左から）に並ぶ（docs/adr/215-split-view.md）
+  await expect(sidebar(page).getByRole("tab")).toHaveText([/ターミナル 2/, /app サーバー/]);
 });
 
 test("ほかのタブと見分けにくい名前（ほかのタブの「ターミナル N」など）には、番号を添えて見分ける", async ({ browser }) => {

@@ -1408,3 +1408,118 @@ body[data-pair-mode="following"] .pane-bar {
   height: 10px;
   border-radius: 50%;
 }
+
+/* 分割表示（docs/adr/215-split-view.md）。分割したタブは、項目全体を 1 つの枠（囲みと背景）で包み、その中に名前と
+   並べて表示・閉じるのボタンを横に並べ、名前の間を細い線で区切る。表示している（選んでいる）印も、名前ごとではなく枠全体に付ける */
+.tab-row[data-split] {
+  align-items: stretch;
+  margin: 3px 4px;
+  padding: 0;
+  border: 1px solid #3c3c3c;
+  border-radius: 6px;
+  background: #181818;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.tab-row[data-split]:has([role="tab"][aria-selected="true"]) {
+  border-color: #4fc3f7;
+  background: #1f1f1f;
+  box-shadow: none;
+}
+
+/* グループの分割は、グループの色の線を左に残す */
+.tab-row[data-split][data-group] {
+  margin-left: 6px;
+  border-left: 3px solid var(--group-color);
+}
+
+.tab-row[data-split] .session,
+.tab-row[data-split] .session[data-focused="true"] {
+  box-shadow: none;
+}
+
+.split-part {
+  display: flex;
+  flex: 1 1 0;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.split-part + .split-part {
+  border-left: 1px solid #3c3c3c;
+}
+
+#sidebar .split-part .session {
+  padding-left: 8px;
+}
+
+/* サイドメニューの分割では、名前を広く取れるよう、並べて表示・閉じるのボタンを名前の右に縦に並べる */
+.split-part-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+}
+
+.toolbar-tab-item[data-split] {
+  margin: 2px 2px 0;
+  border: 1px solid #444;
+  border-bottom-width: 2px;
+  border-radius: 6px 6px 0 0;
+  background: #181818;
+}
+
+.toolbar-tab-item[data-split]:has([role="tab"][aria-selected="true"]) {
+  border-color: #4fc3f7;
+  background: #1f1f1f;
+}
+
+.toolbar-tab-item[data-split] .split-part {
+  flex: 0 0 auto;
+  align-items: stretch;
+}
+
+.toolbar-tab-item[data-split] .split-part[data-status="working"] {
+  box-shadow: inset 0 2px 0 #ffd54f;
+}
+
+.toolbar-tab-item[data-split] .split-part[data-status="done"] {
+  box-shadow: inset 0 2px 0 #64ffda;
+}
+
+/* 分割では、フォーカスしているターミナルを太い枠（自分の色）、ほかのターミナルを薄い枠で囲む（Chrome の分割表示と同じ）。
+   枠の太さを変えると表示領域（端末の大きさ）が変わるので、薄い枠は枠線の内側に重ねて描く */
+.split .pane:not([data-focused="true"]) {
+  outline: 1px solid #555;
+  outline-offset: -2px;
+}
+
+/* タブをターミナルの領域の端へドラッグしているときの、分割表示を作る印。タブを置く側に重ねる */
+.split-drop-zone {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 2px dashed #4fc3f7;
+  background: rgb(79 195 247 / 15%);
+  pointer-events: none;
+}
+
+.split-drop-zone[hidden] {
+  display: none;
+}
+
+.split-drop-plus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #4fc3f7;
+  color: #111;
+  font-size: 32px;
+  line-height: 1;
+}

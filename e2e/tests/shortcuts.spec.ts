@@ -164,26 +164,43 @@ test("Ctrl+Shift+O で新しいタブを開き、Cmd+Shift+. / , や Ctrl+Shift+
   await expectFocusOn(page, 3);
 });
 
-test("並べているときに次・前のタブへ移ると、キー入力の先のタブの次・前のタブだけを表示する", async ({ browser }) => {
+test("次・前のタブへ移ると、一覧の項目ごとに移り、分割は 1 つの項目として飛ばす。分割に移ると、分割で最後にフォーカスしていたターミナルにフォーカスする", async ({
+  browser,
+}) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
   await focusPane(page, 1);
   await page.keyboard.press("Control+Shift+R");
   await expectPaneToShow(page, 2, "Fake Shell ready");
+  await focusPane(page, 2);
   await page.keyboard.press("Control+Shift+O");
   await expectPaneToShow(page, 3, "Fake Shell ready");
-  await tab(page, 1).click();
-  await expectFocusOn(page, 1);
-  await page.keyboard.press("Control+Shift+R");
-  await expectPaneToShow(page, 4, "Fake Shell ready");
-  await focusPane(page, 4);
-  // ターミナル 1 と 4 を並べていて、キー入力の先は 4
+  await expectFocusOn(page, 3);
+  // 一覧は「1 | 2」の分割と 3。分割をしまって、3 だけを表示している（docs/adr/215-split-view.md）
 
+  // 前の項目（分割）に移ると、分割を出して、分割で最後にフォーカスしていた 2 にフォーカスする
   await page.keyboard.press("Control+Shift+Comma");
+  await expect(panes(page)).toHaveCount(2);
+  await expectFocusOn(page, 2);
 
+  // 分割の中の 1 には移らず、端では反対側（3）に回る
+  await page.keyboard.press("Control+Shift+Comma");
   await expect(panes(page)).toHaveCount(1);
   await expect(tab(page, 3)).toHaveAttribute("aria-selected", "true");
   await expectFocusOn(page, 3);
+
+  await page.keyboard.press("Control+Shift+Period");
+  await expect(panes(page)).toHaveCount(2);
+  await expectFocusOn(page, 2);
+
+  // 分割の中でフォーカスを 1 に移してから離れて戻ると、1 にフォーカスする
+  await focusPane(page, 1);
+  await page.keyboard.press("Control+Shift+Period");
+  await expect(panes(page)).toHaveCount(1);
+  await expectFocusOn(page, 3);
+  await page.keyboard.press("Control+Shift+Comma");
+  await expect(panes(page)).toHaveCount(2);
+  await expectFocusOn(page, 1);
 });
 
 test("キーを押し続けても、分割・閉じる・新しいタブは 1 回だけ行う", async ({ browser }) => {
@@ -213,7 +230,8 @@ test("キーを押し続けても、分割・閉じる・新しいタブは 1 �
   await expect(panes(page)).toHaveCount(2);
 
   await hold("KeyO");
-  await expect(sidebarTabs(page)).toHaveText([/ターミナル 2/, /ターミナル 3/, /ターミナル 4/]);
+  // 残った 3 と 2 の分割は、一覧で表示の並び（左から）に並ぶ（docs/adr/215-split-view.md）
+  await expect(sidebarTabs(page)).toHaveText([/ターミナル 3/, /ターミナル 2/, /ターミナル 4/]);
   await page.waitForTimeout(500);
   await expect(sidebarTabs(page)).toHaveCount(3);
 });
