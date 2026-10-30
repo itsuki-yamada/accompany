@@ -92,8 +92,10 @@ test("ファイルをドロップすると、サーバーに保存され、そ�
 
   await expect.poll(() => savedFiles("screenshot.png")).toHaveLength(1);
   const path = savedFile("screenshot.png");
-  expect(readFileSync(path, "utf8")).toBe("fake png bytes");
+  // ファイルは作られてから中身が書かれるので、見つかった直後には空のことがある。パスが貼り付けられるのは
+  // 書き終えたあと（保存し終えてからパスを返す）なので、貼り付けられるのを待ってから中身を確かめる
   await expectPaneToShow(page, 1, path);
+  expect(readFileSync(path, "utf8")).toBe("fake png bytes");
   await expect(pane(page, 1).getByText("ドロップしてパスを貼り付け")).toBeHidden();
 
   // Enter は送らないので、偽のシェル（cat）はまだ受け取っておらず、パスは入力中の行に 1 回だけ出ている。
@@ -115,9 +117,9 @@ test("複数のファイルをドロップすると、すべてのパスが空�
   await expect.poll(() => savedFiles("my notes.txt")).toHaveLength(1);
   const first = savedFile("first.txt");
   const second = savedFile("my notes.txt");
+  await expectPaneToShow(page, 1, `${first} '${second}'`);
   expect(readFileSync(first, "utf8")).toBe("first");
   expect(readFileSync(second, "utf8")).toBe("second");
-  await expectPaneToShow(page, 1, `${first} '${second}'`);
 });
 
 test("ドロップしたターミナルにだけ貼り付けられる", async ({ browser }) => {
@@ -189,8 +191,8 @@ test("長く起動している間に保存先が消えても、新しい保存�
 
   await expect.poll(() => savedFiles("after.txt")).toHaveLength(1);
   const path = savedFile("after.txt");
-  expect(readFileSync(path, "utf8")).toBe("after");
   await expectPaneToShow(page, 1, path);
+  expect(readFileSync(path, "utf8")).toBe("after");
   expect(uploadRoots()).toHaveLength(1);
   expect(uploadRoots()).not.toContain(oldRoot);
 });
