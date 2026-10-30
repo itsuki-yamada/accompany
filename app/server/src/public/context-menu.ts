@@ -1,10 +1,14 @@
 // detail は名前の横に薄く出す補足、mark は右端に出す印、title はツールチップ。
-// detail や mark を出すときは、読み上げ用の名前を ariaLabel で渡す
+// detail や mark を出すときは、読み上げ用の名前を ariaLabel で渡す。
+// swatch は名前の前に出す色の見本（CSS の色）。checked を付けると、いくつかから 1 つを選ぶ項目（menuitemradio）になり、
+// 選んでいるものに印を付ける
 export type MenuItem =
   | {
       label: string;
       detail?: string;
       mark?: string;
+      swatch?: string;
+      checked?: boolean;
       title?: string;
       ariaLabel?: string;
       disabled?: boolean;
@@ -35,9 +39,15 @@ export function showContextMenu(x: number, y: number, label: string, items: Menu
     }
     const button = document.createElement("button");
     button.type = "button";
-    button.setAttribute("role", "menuitem");
+    button.setAttribute("role", item.checked === undefined ? "menuitem" : "menuitemradio");
+    if (item.checked !== undefined) button.setAttribute("aria-checked", String(item.checked));
     button.tabIndex = -1;
-    button.textContent = item.label;
+    if (item.swatch) {
+      const swatch = span("menu-swatch", "");
+      swatch.style.background = item.swatch;
+      button.append(swatch);
+    }
+    button.append(item.label);
     if (item.detail) button.append(span("menu-detail", item.detail));
     if (item.mark) button.append(span("menu-mark", item.mark));
     if (item.title) button.title = item.title;

@@ -571,7 +571,8 @@ body[data-pair-mode="following"] .pane-bar {
   font-size: 13px;
 }
 
-.context-menu [role="menuitem"] {
+.context-menu [role="menuitem"],
+.context-menu [role="menuitemradio"] {
   padding: 4px 16px;
   border: none;
   background: none;
@@ -581,7 +582,8 @@ body[data-pair-mode="following"] .pane-bar {
   cursor: pointer;
 }
 
-.context-menu [role="menuitem"]:focus {
+.context-menu [role="menuitem"]:focus,
+.context-menu [role="menuitemradio"]:focus {
   outline: none;
   background: #2f4f6f;
   color: #fff;
@@ -1290,4 +1292,119 @@ body[data-pair-mode="following"] .pane-bar {
 
 .prefix-indicator[hidden] {
   display: none;
+}
+
+/* タブのグループ（docs/adr/209-tab-groups.md）。ラベルはグループの色の地に暗い文字で名前を出し、
+   グループのタブには同じ色の線を付ける。色はタブの一覧の暗い背景の上で見分けやすい明るさにしている */
+#sidebar .group-label,
+#tabs .group-label {
+  max-width: 12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 8px;
+  border-radius: 4px;
+  background: var(--group-color);
+  color: #202124;
+  font-weight: 600;
+  cursor: grab;
+}
+
+#tabs .group-label {
+  align-self: center;
+  margin: 0 2px 0 6px;
+  line-height: 18px;
+}
+
+.group-row {
+  display: flex;
+  padding: 6px 4px 2px 6px;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: stretch;
+}
+
+.group-row,
+.toolbar-group {
+  position: relative;
+}
+
+.group-row[data-dragging="true"],
+.toolbar-group[data-dragging="true"] {
+  opacity: 0.5;
+}
+
+.group-row .tab-name-editor,
+.toolbar-group .tab-name-editor {
+  align-self: center;
+}
+
+/* サイドメニューでは、グループのタブを少し下げて、左に色の線を付ける */
+.tab-row[data-group] {
+  margin-left: 6px;
+  border-left: 3px solid var(--group-color);
+}
+
+/* ツールバーでは、グループのタブの下に色の線を付ける */
+.toolbar-tab-item[data-group]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--group-color);
+  pointer-events: none;
+}
+
+.group-row[data-drop]::after,
+.toolbar-group[data-drop]::after {
+  content: "";
+  position: absolute;
+  background: #4fc3f7;
+  pointer-events: none;
+}
+
+.group-row[data-drop]::after {
+  left: 0;
+  right: 0;
+  height: 2px;
+}
+
+.group-row[data-drop="before"]::after {
+  top: 0;
+}
+
+.group-row[data-drop="after"]::after {
+  bottom: 0;
+}
+
+.toolbar-group[data-drop]::after {
+  top: 0;
+  bottom: 0;
+  width: 2px;
+}
+
+.toolbar-group[data-drop="before"]::after {
+  left: 0;
+}
+
+.toolbar-group[data-drop="after"]::after {
+  right: 0;
+}
+
+/* メニューの色の見本（グループの色を選ぶ項目など） */
+.context-menu button:has(.menu-swatch) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.menu-swatch {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
 }

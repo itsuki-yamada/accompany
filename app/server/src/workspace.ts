@@ -3,6 +3,7 @@ import { defaultMinWindow, type WindowSize } from "./min-window";
 import { nameKey } from "./member-name";
 import { maxQuickCommands, type QuickCommand, type QuickCommandInput } from "./quick-commands";
 import type { SavedSession, SavedTerminal } from "./session-store";
+import { groupColors, isGroupColor, type GroupColor } from "./tab-groups";
 import { type Restored, TerminalSession } from "./terminal";
 
 // 参加者ごとの表示。並べているタブ（ターミナル）を葉に持つ分割の木で、節は向き（row: 左右、column: 上下）と、
@@ -37,13 +38,18 @@ export type Member = {
 // タブ。ターミナル 1 つが 1 つのタブで、id はターミナルの ID。name は画面に出す名前で、参加者が付けた名前（custom）、
 // 付けていなければ「ターミナル N」。付けた名前がほかのタブと見分けにくいときは「名前（ターミナル N）」にする
 // （docs/adr/110-tab-name.md）
-export type Tab = { id: string; name: string; custom?: string };
+// group は、タブが入っているグループの ID（docs/adr/209-tab-groups.md）
+export type Tab = { id: string; name: string; custom?: string; group?: string };
+
+// タブのグループ。name は画面に出す名前で、参加者が付けた名前（custom）、付けていなければ「グループ N」。
+// グループのタブは、タブの並びの中で必ず続けて並ぶ。グループの並びは、タブの並びの中での位置で決まる
+export type Group = { id: string; name: string; custom?: string; color: GroupColor };
 
 // 参加者に配るもの
 export type WorkspaceEvent =
   | { type: "welcome"; you: number }
-  // タブの並び。全員に配る
-  | { type: "tabs"; tabs: Tab[] }
+  // タブの並びと、タブのグループ（タブの並びの中で現れる順）。全員に配る
+  | { type: "tabs"; tabs: Tab[]; groups: Group[] }
   // その参加者の表示。本人にだけ配る
   | { type: "view"; layout: Layout }
   | { type: "presence"; members: Member[] }
@@ -67,6 +73,10 @@ export class Workspace {
   private order: string[] = [];
   // 参加者が付けたタブの名前（整えたもの）。付けていないタブは含めない（docs/adr/110-tab-name.md）
   private tabNames = new Map<string, string>();
+  // タブのグループ（名前は付けたものだけ）と、タブ（ターミナルの ID）→ 入っているグループの ID（docs/adr/209-tab-groups.md）
+  private groups = new Map<string, { name?: string; color: GroupColor }>();
+  private tabGroups = new Map<string, string>();
+  private nextGroupId = 1;
   private members = new Map<Listener, Member>();
   // 参加者ごとの表示
   private views = new Map<Member, Layout>();
@@ -119,6 +129,12 @@ export class Workspace {
       this.addTerminal(id, runsInitial ? initialCommand : shellCommand, restored, runsInitial ? undefined : restored.cwd);
     }
     for (const [id, name] of Object.entries(saved.names ?? {})) this.tabNames.set(id, name);
+    for (const group of saved.groups ?? []) {
+      this.groups.set(group.id, { color: group.color, ...(group.name !== undefined && { name: group.name }) });
+      for (const tab of group.tabs) this.tabGroups.set(tab, group.id);
+    }
+    this.nextGroupId = Math.max(0, ...[...this.groups.keys()].map(Number)) + 1;
+    this.normalizeGroups();
     this.commands = saved.commands;
     const next = (ids: string[]) => Math.max(0, ...ids.map(Number)) + 1;
     this.nextId = next(this.order);
@@ -142,6 +158,12 @@ export class Workspace {
       cwd,
       tabs: [...this.order],
       names: Object.fromEntries(this.tabNames),
+      groups: [...this.groups].map(([id, { name, color }]) => ({
+        id,
+        ...(name !== undefined && { name }),
+        color,
+        tabs: this.order.filter((tab) => this.tabGroups.get(tab) === id),
+      })),
       terminals,
       commands: this.commands,
       ...(this.savedMinWindow && { minWindow: this.savedMinWindow }),
@@ -317,13 +339,102 @@ export class Workspace {
   }
 
   // タブを並びの index 番目（並べ替えたあとの位置）へ移す。並びは全員で共有するので、全員に配って保存する。
-  // 参加者ごとの表示とペアプロモードの追従は変えない（docs/adr/139-tab-order.md）
-  moveTab(terminalId: string, index: number) {
+  // 参加者ごとの表示とペアプロモードの追従は変えない（docs/adr/139-tab-order.md）。
+  // group を渡したときは、移したタブをそのグループに入れる（null ならグループから外す。docs/adr/209-tab-groups.md）
+  moveTab(terminalId: string, index: number, group?: string | null) {
     const from = this.order.indexOf(terminalId);
-    if (from < 0 || !Number.isSafeInteger(index) || index < 0 || index >= this.order.length || index === from) return;
+    if (from < 0 || !Number.isSafeInteger(index) || index < 0 || index >= this.order.length) return;
+    if (typeof group === "string" && !this.groups.has(group)) return;
+    // グループに入れるときは、位置をそのグループの範囲（前後の境目を含む）に収める。古い並びを見て送られた位置で、
+    // グループのほうがタブに合わせて動いてしまわないように
+    let to = index;
+    if (typeof group === "string") {
+      const span = this.order.filter((id) => id !== terminalId).flatMap((id, i) => (this.tabGroups.get(id) === group ? [i] : []));
+      if (span.length > 0) to = Math.min(Math.max(index, span[0]!), span.at(-1)! + 1);
+    }
+    const changesGroup = group !== undefined && (this.tabGroups.get(terminalId) ?? null) !== group;
+    if (to === from && !changesGroup) return;
     this.order.splice(from, 1);
-    this.order.splice(index, 0, terminalId);
+    this.order.splice(to, 0, terminalId);
+    if (group === null) this.tabGroups.delete(terminalId);
+    else if (group !== undefined) this.tabGroups.set(terminalId, group);
     this.notifyTabs();
+  }
+
+  // タブを新しいグループに入れる。色は、ほかのグループが使っていない色から選ぶ。タブはその場に残る
+  // （ほかのグループの途中にあったときは、そのグループの後ろに出る）
+  newGroup(terminalId: string) {
+    if (!this.terminals.has(terminalId)) return;
+    const used = new Set([...this.groups.values()].map((g) => g.color));
+    const color = groupColors.find((c) => !used.has(c)) ?? groupColors[this.groups.size % groupColors.length]!;
+    const id = String(this.nextGroupId++);
+    this.groups.set(id, { color });
+    this.tabGroups.set(terminalId, id);
+    this.notifyTabs();
+  }
+
+  // タブを既存のグループの最後に入れる
+  addToGroup(terminalId: string, groupId: string) {
+    if (!this.terminals.has(terminalId) || !this.groups.has(groupId) || this.tabGroups.get(terminalId) === groupId) return;
+    this.order.splice(this.order.indexOf(terminalId), 1);
+    const last = this.order.findLastIndex((id) => this.tabGroups.get(id) === groupId);
+    this.order.splice(last + 1, 0, terminalId);
+    this.tabGroups.set(terminalId, groupId);
+    this.notifyTabs();
+  }
+
+  // タブをグループから外し、グループのすぐ後ろに出す
+  removeFromGroup(terminalId: string) {
+    const groupId = this.tabGroups.get(terminalId);
+    if (groupId === undefined) return;
+    this.tabGroups.delete(terminalId);
+    const from = this.order.indexOf(terminalId);
+    this.order.splice(from, 1);
+    const last = this.order.findLastIndex((id) => this.tabGroups.get(id) === groupId);
+    this.order.splice(last < 0 ? from : last + 1, 0, terminalId);
+    this.notifyTabs();
+  }
+
+  // グループのタブをまとめて、グループのタブを除いた並びの index 番目へ移す
+  moveGroup(groupId: string, index: number) {
+    if (!this.groups.has(groupId)) return;
+    const inGroup = this.order.filter((id) => this.tabGroups.get(id) === groupId);
+    const rest = this.order.filter((id) => this.tabGroups.get(id) !== groupId);
+    if (!Number.isSafeInteger(index) || index < 0 || index > rest.length) return;
+    const next = [...rest.slice(0, index), ...inGroup, ...rest.slice(index)];
+    if (next.every((id, i) => id === this.order[i])) return;
+    this.order = next;
+    this.notifyTabs();
+  }
+
+  // グループに名前を付ける。name は整えたもので、undefined なら「グループ N」に戻す
+  renameGroup(groupId: string, name: string | undefined) {
+    const group = this.groups.get(groupId);
+    if (!group || group.name === name) return;
+    if (name === undefined) delete group.name;
+    else group.name = name;
+    this.notifyTabs();
+  }
+
+  recolorGroup(groupId: string, color: string) {
+    const group = this.groups.get(groupId);
+    if (!group || !isGroupColor(color) || group.color === color) return;
+    group.color = color;
+    this.notifyTabs();
+  }
+
+  // グループを解除する。タブはその場に残る
+  ungroup(groupId: string) {
+    if (!this.groups.delete(groupId)) return;
+    for (const [tab, id] of this.tabGroups) if (id === groupId) this.tabGroups.delete(tab);
+    this.notifyTabs();
+  }
+
+  // グループのタブをまとめて閉じる。すべてのタブが入っているグループは閉じない（最後のタブは閉じないので）
+  closeGroup(groupId: string) {
+    const tabs = this.order.filter((id) => this.tabGroups.get(id) === groupId);
+    if (tabs.length === 0 || tabs.length === this.order.length) return;
+    for (const id of tabs) this.close(id);
   }
 
   // タブに名前を付ける。name は整えたもので、undefined なら付けた名前をやめて「ターミナル N」に戻す。
@@ -399,6 +510,7 @@ export class Workspace {
     void this.terminals.get(id)?.kill();
     this.terminals.delete(id);
     this.tabNames.delete(id);
+    this.tabGroups.delete(id);
     let changed = false;
     for (const member of this.members.values()) {
       if (!Object.hasOwn(member.selections, id)) continue;
@@ -479,11 +591,43 @@ export class Workspace {
         this.order.some((other) => other !== id && keys.get(other) === key);
       return { id, name: clash ? `${custom}（${defaultTabName(id)}）` : custom, custom };
     });
-    return { type: "tabs", tabs };
+    for (const tab of tabs) {
+      const group = this.tabGroups.get(tab.id);
+      if (group !== undefined) tab.group = group;
+    }
+    const groups: Group[] = [];
+    for (const id of new Set(this.order.flatMap((tab) => this.tabGroups.get(tab) ?? []))) {
+      const { name, color } = this.groups.get(id)!;
+      groups.push({ id, name: name ?? defaultGroupName(id), ...(name !== undefined && { custom: name }), color });
+    }
+    return { type: "tabs", tabs, groups };
+  }
+
+  // タブのないグループを消し、グループのタブが続けて並ぶようにする。グループの途中に別のタブが入ったときは、
+  // グループの最初のタブの位置にグループのタブをまとめる（途中に入ったタブは、グループの後ろに出る）
+  private normalizeGroups() {
+    for (const [tab, group] of this.tabGroups) {
+      if (!this.groups.has(group) || !this.terminals.has(tab)) this.tabGroups.delete(tab);
+    }
+    const used = new Set(this.tabGroups.values());
+    for (const id of this.groups.keys()) if (!used.has(id)) this.groups.delete(id);
+    const placed = new Set<string>();
+    const order: string[] = [];
+    for (const id of this.order) {
+      if (placed.has(id)) continue;
+      const group = this.tabGroups.get(id);
+      const run = group === undefined ? [id] : this.order.filter((t) => this.tabGroups.get(t) === group);
+      for (const t of run) {
+        placed.add(t);
+        order.push(t);
+      }
+    }
+    this.order = order;
   }
 
   // タブの並びが変わったら全員に配り、保存する
   private notifyTabs() {
+    this.normalizeGroups();
     const event = this.tabsEvent();
     this.members.forEach((_, l) => l(event));
     this.onChange();
@@ -587,6 +731,10 @@ function defaultName(id: number) {
 
 function defaultTabName(id: string) {
   return `ターミナル ${id}`;
+}
+
+function defaultGroupName(id: string) {
+  return `グループ ${id}`;
 }
 
 type Split = Extract<Layout, { type: "split" }>;
