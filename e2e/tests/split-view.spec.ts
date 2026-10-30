@@ -3,8 +3,8 @@ import { closeContexts, newContext, startAccompany, type Accompany } from "./acc
 import { boxOf, expectFillsArea, expectPaneToShow, pane, panes, tab } from "./panes";
 
 // 分割表示（Chrome の Split View と同じ考え方）。分割したタブはまとまりとして残り、分割の外のタブを見たあとに分割のタブを選ぶと、
-// 分割（並び・向き・割合）がそのまま戻る。分割したタブは、タブの一覧で 1 つのタブの枠に名前を横に並べて出る
-// （docs/adr/215-split-view.md）。分割や新しいタブで増えるターミナルは $SHELL を起動するので、入力をそのまま返す偽のシェルにする
+// 分割（並び・向き・割合）がそのまま戻る。分割したタブは、タブの一覧で 1 つのタブの枠に名前を横に並べて出る。
+// 分割を作る操作は「隣に持ってきて分割表示する」ことで、全員で共有するタブの並びでも隣り合わせる（docs/adr/215-split-view.md）。分割や新しいタブで増えるターミナルは $SHELL を起動するので、入力をそのまま返す偽のシェルにする
 const fakeShell = { SHELL: "e2e/fixtures/fake-shell" };
 
 let accompany: Accompany | undefined;
@@ -106,7 +106,7 @@ async function dragTabToEdge(page: Page, n: number, edge: "left" | "right" | "bo
   await expect(zone).toBeVisible();
   await expect(zone).toHaveAttribute("data-edge", edge);
   await expect(zone).toContainText("+");
-  await page.screenshot({ path: test.info().outputPath(`split-view-drop-${edge}.png`) });
+  await test.info().attach(`split-view-drop-${edge}`, { body: await page.screenshot(), contentType: "image/png" });
   await page.mouse.up();
   await expect(zone).toBeHidden();
 }
@@ -148,7 +148,7 @@ test("分割の外のタブを選ぶとそのタブだけを表示し、分割�
   await expect(tab(page, 3)).toHaveAttribute("aria-selected", "false");
 });
 
-test("分割したタブは、サイドメニューとツールバーで 1 つのタブの枠に名前を横に並べて出る。分割は参加者ごとで、ほかの参加者の一覧は変わらない", async ({
+test("分割したタブは、サイドメニューとツールバーで 1 つのタブの枠に名前を横に並べて出る。分割は参加者ごとで、ほかの参加者の一覧ではタブが隣り合うだけ", async ({
   browser,
 }) => {
   accompany = await startAccompany([], fakeShell);
@@ -161,7 +161,7 @@ test("分割したタブは、サイドメニューとツールバーで 1 つ�
   await expect(panes(page)).toHaveCount(2);
   await expectSideBySide(page, 1, 3);
   await expect(pane(page, 3).locator(".xterm-helper-textarea")).toBeFocused();
-  // 分割した 1 と 3 は、1 の場所に 1 つの項目として並ぶ
+  // 分割した 1 と 3 は、1 つの項目として並ぶ。3 は、全員で共有する並びでも 1 の隣に移る
   await expectEntries(sidebar(page), ["ターミナル 1 | ターミナル 3", "ターミナル 2"]);
   const [first, third] = [(await sidebar(page).getByRole("tab", { name: "ターミナル 1", exact: true }).boundingBox())!, (await sidebar(page).getByRole("tab", { name: "ターミナル 3", exact: true }).boundingBox())!];
   expect(Math.abs(first.y - third.y)).toBeLessThan(2);
@@ -170,7 +170,17 @@ test("分割したタブは、サイドメニューとツールバーで 1 つ�
   const row = sidebar(page).locator(".tab-row").first();
   await expect(row.getByRole("button", { name: "ターミナル 1 を閉じる" })).toBeVisible();
   await expect(row.getByRole("button", { name: "ターミナル 3 を閉じる" })).toBeVisible();
-  await page.screenshot({ path: test.info().outputPath("split-view-sidebar.png") });
+  // 並べて表示のボタンも、それぞれの名前に残る（押すと分割から外す）
+  await expect(row.getByRole("button", { name: "ターミナル 1 を並べて表示" })).toHaveAttribute("aria-pressed", "true");
+  await expect(row.getByRole("button", { name: "ターミナル 3 を並べて表示" })).toHaveAttribute("aria-pressed", "true");
+  // 項目全体を 1 つの枠で囲み、選んでいる印も項目全体に付ける（名前ごとに付けない）
+  await expect(row).toHaveAttribute("data-split", "true");
+  const frame = await row.evaluate((e) => getComputedStyle(e).borderTopStyle);
+  expect(frame).toBe("solid");
+  for (const select of await row.locator(".session").all()) {
+    await expect(select).toHaveCSS("box-shadow", "none");
+  }
+  await test.info().attach("split-view-sidebar", { body: await page.screenshot(), contentType: "image/png" });
 
   // ツールバーでも同じ
   await sidebarToggle(page).click();
@@ -178,14 +188,16 @@ test("分割したタブは、サイドメニューとツールバーで 1 つ�
   const item = toolbar(page).locator(".toolbar-tab-item").first();
   await expect(item.getByRole("button", { name: "ターミナル 1 を閉じる" })).toBeVisible();
   await expect(item.getByRole("button", { name: "ターミナル 3 を閉じる" })).toBeVisible();
-  await page.screenshot({ path: test.info().outputPath("split-view-toolbar.png") });
+  await expect(item).toHaveAttribute("data-split", "true");
+  expect(await item.evaluate((e) => getComputedStyle(e).borderTopStyle)).toBe("solid");
+  await test.info().attach("split-view-toolbar", { body: await page.screenshot(), contentType: "image/png" });
 
-  // ほかの参加者の一覧と表示は変わらない
-  await expectEntries(sidebar(guest), ["ターミナル 1", "ターミナル 2", "ターミナル 3"]);
+  // ほかの参加者の一覧では、1 と 3 が隣り合うだけで、別々のタブのまま。表示は変わらない
+  await expectEntries(sidebar(guest), ["ターミナル 1", "ターミナル 3", "ターミナル 2"]);
   await expect(panes(guest)).toHaveCount(1);
 });
 
-test("右クリックのメニューで、分割を解除し、ビューを閉じ、左右・上下を切り替え、位置を入れ替える", async ({ browser }) => {
+test("右クリックのメニューで、分割を解除し、左右・上下を切り替え、位置を入れ替える。分割を解除してもタブは閉じない", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
   await openTabs(page, 4);
@@ -202,31 +214,30 @@ test("右クリックのメニューで、分割を解除し、ビューを閉�
   await chooseInTabMenu(page, 1, "左右に並べる");
   await expectSideBySide(page, 1, 2);
 
+  // 位置を入れ替えると、全員で共有する並びも、表示の並び（左から）に合わせる
   await chooseInTabMenu(page, 1, "位置を入れ替える");
   await expectSideBySide(page, 2, 1);
   await expectEntries(sidebar(page), ["ターミナル 2 | ターミナル 1", "ターミナル 3", "ターミナル 4"]);
 
-  // 分割を解除すると、ふつうのタブに戻り、フォーカスしていたタブだけを表示する
+  // 分割の中のタブのメニューには、タブを閉じる項目（このビューを閉じる）は出さない
+  await tab(page, 1).click({ button: "right" });
+  await expect(tabMenu(page, 1).getByRole("menuitem", { name: "このビューを閉じる" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // 分割を解除すると、ふつうのタブに戻り、フォーカスしていたタブだけを表示する。タブは閉じない
   await pane(page, 1).locator(".xterm-helper-textarea").focus();
   await chooseInTabMenu(page, 2, "分割を解除");
   await expect(panes(page)).toHaveCount(1);
   await expectFillsArea(page, 1);
-  await expectEntries(sidebar(page), ["ターミナル 1", "ターミナル 2", "ターミナル 3", "ターミナル 4"]);
-  // 解除したので、2 を選んでも 2 だけが出る
+  await expectEntries(sidebar(page), ["ターミナル 2", "ターミナル 1", "ターミナル 3", "ターミナル 4"]);
+  // 解除したので、2 を選んでも 2 だけが出る。シェルも動いたまま
   await tab(page, 2).click();
   await expect(panes(page)).toHaveCount(1);
   await expectFillsArea(page, 2);
-
-  // このビューを閉じると、そのタブを閉じ、残りのタブだけを表示する
-  await chooseInTabMenu(page, 3, "現在のタブと新しい分割表示");
-  await expectSideBySide(page, 2, 3);
-  await chooseInTabMenu(page, 3, "このビューを閉じる");
-  await expect(tab(page, 3)).toHaveCount(0);
-  await expect(panes(page)).toHaveCount(1);
-  await expectFillsArea(page, 2);
+  await expectPaneToShow(page, 2, "Fake Shell ready");
 });
 
-test("3 つ並べた分割では、このビューを閉じると残りの 2 つが分割のまま残り、位置の入れ替えはそのタブを含む一番内側の分割を入れ替える", async ({
+test("3 つ並べた分割では、1 つを閉じると残りの 2 つが分割のまま残り、位置の入れ替えはそのタブを含む一番内側の分割を入れ替える", async ({
   browser,
 }) => {
   accompany = await startAccompany([], fakeShell);
@@ -249,7 +260,7 @@ test("3 つ並べた分割では、このビューを閉じると残りの 2 つ
   await expectStacked(page, 3, 2);
   await expectSideBySide(page, 1, 3);
 
-  await chooseInTabMenu(page, 1, "このビューを閉じる");
+  await sidebar(page).getByRole("button", { name: "ターミナル 1 を閉じる" }).click();
   await expect(tab(page, 1)).toHaveCount(0);
   await expect(panes(page)).toHaveCount(2);
   await expectStacked(page, 3, 2);
@@ -360,6 +371,83 @@ test("ペアプロモードでは、相手が分割の外のタブを見てか�
   await tab(host, 1).click();
   await expect(panes(guest)).toHaveCount(2);
   await expectSideBySide(guest, 1, 2);
+});
+
+test("分割すると、加えたタブは全員で共有する並びでも相手の隣に移り、相手のグループに入る", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+  await openTabs(page, 4);
+  const guest = await openAsParticipant(browser, accompany.url);
+  // 1 だけをグループ「app」に入れる
+  await chooseInTabMenu(page, 1, "新しいグループに追加");
+  const editor = page.getByRole("textbox", { name: "グループの名前" });
+  await editor.fill("app");
+  await editor.press("Enter");
+  const grouped = (scope: Locator) =>
+    scope.locator("[role=tab]").evaluateAll((tabs) => tabs.map((t) => `${t.getAttribute("aria-label")}:${(t as HTMLElement).dataset.group ?? "-"}`));
+
+  // 4 を 1 と分割すると、4 は 1 の隣に移り、1 のグループに入る
+  await chooseInTabMenu(page, 4, "現在のタブと新しい分割表示");
+  await expectSideBySide(page, 1, 4);
+  await expect.poll(() => grouped(sidebar(guest))).toEqual(["ターミナル 1:1", "ターミナル 4:1", "ターミナル 2:-", "ターミナル 3:-"]);
+  await expectEntries(sidebar(page), ["ターミナル 1 | ターミナル 4", "ターミナル 2", "ターミナル 3"]);
+
+  // ⌘ / Ctrl を押しながら選んで加えたときも、隣に移る（フォーカスしている 4 の右）
+  await tab(page, 2).click({ modifiers: ["ControlOrMeta"] });
+  await expect(panes(page)).toHaveCount(3);
+  await expect.poll(() => grouped(sidebar(guest))).toEqual(["ターミナル 1:1", "ターミナル 4:1", "ターミナル 2:1", "ターミナル 3:-"]);
+
+  // 外して、グループに入っていないタブ（3）の分割に加えると、グループから外れる
+  await tab(page, 2).click({ modifiers: ["ControlOrMeta"] });
+  await expect(panes(page)).toHaveCount(2);
+  await tab(page, 3).click();
+  await expect(panes(page)).toHaveCount(1);
+  await sidebar(page).getByRole("button", { name: "ターミナル 2 を並べて表示" }).click();
+  await expectSideBySide(page, 3, 2);
+  await expect.poll(() => grouped(sidebar(guest))).toEqual(["ターミナル 1:1", "ターミナル 4:1", "ターミナル 3:-", "ターミナル 2:-"]);
+});
+
+test("ほかの参加者の並べ替えで分割のタブが離れても、一覧では 1 つの項目にまとめ、その前後へ項目を移せる", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+  await openTabs(page, 4);
+  const guest = await openAsParticipant(browser, accompany.url);
+  await chooseInTabMenu(page, 3, "現在のタブと新しい分割表示");
+  await expectEntries(sidebar(guest), ["ターミナル 1", "ターミナル 3", "ターミナル 2", "ターミナル 4"]);
+
+  // guest が 2 を上へ移して、1 と 3 の間に入れる
+  await chooseInTabMenu(guest, 2, "上へ移す");
+  await expectEntries(sidebar(guest), ["ターミナル 1", "ターミナル 2", "ターミナル 3", "ターミナル 4"]);
+  // 自分の一覧では、分割（1 と 3）を 1 つの項目にまとめたまま
+  await expectEntries(sidebar(page), ["ターミナル 1 | ターミナル 3", "ターミナル 2", "ターミナル 4"]);
+
+  // 4 を上へ移すと、分割の後ろ（2 の前）に入る
+  await chooseInTabMenu(page, 4, "上へ移す");
+  await expectEntries(sidebar(page), ["ターミナル 1 | ターミナル 3", "ターミナル 4", "ターミナル 2"]);
+  // もう一度上へ移すと、分割の前に出る
+  await chooseInTabMenu(page, 4, "上へ移す");
+  await expectEntries(sidebar(page), ["ターミナル 4", "ターミナル 1 | ターミナル 3", "ターミナル 2"]);
+  // 分割を下へ移すと、2 の後ろに出る
+  await chooseInTabMenu(page, 1, "下へ移す");
+  await expectEntries(sidebar(page), ["ターミナル 4", "ターミナル 2", "ターミナル 1 | ターミナル 3"]);
+  await expectEntries(sidebar(guest), ["ターミナル 4", "ターミナル 2", "ターミナル 1", "ターミナル 3"]);
+});
+
+test("1 つだけ見ていたタブを閉じて、隣のタブがしまってある分割に入っていれば、その分割を出す", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+  await openTabs(page, 3);
+  await chooseInTabMenu(page, 2, "現在のタブと新しい分割表示");
+  await tab(page, 3).click();
+  await expect(panes(page)).toHaveCount(1);
+
+  // 3 を閉じると、隣（左）の 2 が入っている分割（1 と 2）を出す
+  await sidebar(page).getByRole("button", { name: "ターミナル 3 を閉じる" }).click();
+
+  await expect(panes(page)).toHaveCount(2);
+  await expectSideBySide(page, 1, 2);
+  await expectEntries(sidebar(page), ["ターミナル 1 | ターミナル 2"]);
+  for (const n of [1, 2]) await expect(tab(page, n)).toHaveAttribute("aria-selected", "true");
 });
 
 test("形の正しくない分割の操作・まとめて移す操作が直接届いても、表示と並びは変わらない", async ({ browser }) => {

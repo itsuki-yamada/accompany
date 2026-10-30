@@ -25,6 +25,10 @@ function sidebar(page: Page) {
   return page.getByRole("complementary", { name: "サイドメニュー" });
 }
 
+function toggle(page: Page, n: number) {
+  return sidebar(page).getByRole("button", { name: `ターミナル ${n} を並べて表示` });
+}
+
 function tabMenuItem(page: Page, n: number, name: string) {
   return page.getByRole("menu", { name: `ターミナル ${n} のタブのメニュー` }).getByRole("menuitem", { name, exact: true });
 }
@@ -95,16 +99,40 @@ test("⌘ / Ctrl を押しながらタブを選ぶと、選んだタブが右に
   await page.waitForTimeout(300);
   await expect(panes(page)).toHaveCount(3);
   await expect(pane(page, 4)).toHaveCount(0);
+  await expect(toggle(page, 4)).toBeDisabled();
   await tab(page, 4).click({ button: "right" });
   await expect(tabMenuItem(page, 4, "分割表示に追加")).toHaveAttribute("aria-disabled", "true");
+});
+
+test("「並べて表示」のボタンでタブを並べ、もう一度押すと外して、残りのタブがその場所を埋める", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+  await openThreeTabs(page);
+  // 表示しているタブが 1 つのときは、外せない
+  await expect(toggle(page, 1)).toBeDisabled();
+  await expect(toggle(page, 1)).toHaveAttribute("aria-pressed", "true");
+  await expect(toggle(page, 2)).toHaveAttribute("aria-pressed", "false");
+
+  await toggle(page, 2).click();
+  await expectPaneToShow(page, 2, "Fake Shell ready");
+  await expect(panes(page)).toHaveCount(2);
+  await expect(toggle(page, 2)).toHaveAttribute("aria-pressed", "true");
+  await expect(toggle(page, 1)).toBeEnabled();
+
+  await toggle(page, 1).click();
+
+  await expect(pane(page, 1)).toHaveCount(0);
+  await expect(panes(page)).toHaveCount(1);
+  await expectFillsArea(page, 2);
+  // 外したタブは閉じずに残っていて、選べばまた出る
+  await tab(page, 1).click();
+  await expectPaneToShow(page, 1, "Fake Shell ready");
 });
 
 test("⌘ / Ctrl を押しながら並べているタブを選ぶと、そのタブを外して、残りのタブがその場所を埋める", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
   await openThreeTabs(page);
-  // 「並べて表示」のボタンはなくした（右クリックのメニューで並べる。docs/adr/215-split-view.md）
-  await expect(sidebar(page).getByRole("button", { name: "ターミナル 2 を並べて表示" })).toHaveCount(0);
   // 表示しているタブが 1 つのときは、外せない
   await tab(page, 1).click({ modifiers: ["ControlOrMeta"] });
   await page.waitForTimeout(300);
