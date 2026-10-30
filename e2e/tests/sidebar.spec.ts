@@ -104,10 +104,10 @@ test("サイドメニューに、タブ（ターミナル）の一覧が、タ�
   await expect(sidebar(page).getByText("Workspace")).toHaveCount(0);
   await page.screenshot({ path: test.info().outputPath("sidebar-tabs.png") });
 
-  // タブを選ぶと、そのタブだけを表示する
+  // 分割したタブを選ぶと、分割（1 と 2）を出して、そのタブにフォーカスする（docs/adr/215-split-view.md）
   await tab(page, 1).click();
   await expect(tab(page, 1)).toHaveAttribute("aria-selected", "true");
-  await expect(panes(page)).toHaveCount(1);
+  await expect(panes(page)).toHaveCount(2);
   await expectFocusOn(page, 1);
 });
 

@@ -8,6 +8,7 @@ import { Pane, type AgentStatus, type SelectionRange, type Viewer } from "./pane
 import { QuickCommands } from "./quick-commands";
 import { prefixIndicator, shortcutList, withKeys, type Direction, type Shortcut } from "./shortcuts";
 import { Sidebar, type Group, type Tab } from "./sidebar";
+import { entriesOf } from "./split-view";
 import { isEditingTabName } from "./tab-name";
 
 // 自分の表示。並べているタブ（ターミナル 1 つが 1 つのタブ）を葉に持つ分割の木。どのタブをどう並べるかは参加者ごとで、
@@ -29,6 +30,8 @@ let tabs: Tab[] = [];
 let groups: Group[] = [];
 // 最後に届いた自分の表示
 let view: Layout | undefined;
+// 自分の、いまは出していない分割。分割のタブを選ぶと、サーバーがそのまま（並び・向き・割合）出す（docs/adr/215-split-view.md）
+let parked: Layout[] = [];
 // 自分がフォーカスしているターミナル
 let focusedTerminal: string | undefined;
 
@@ -145,17 +148,19 @@ const quickCommands = new QuickCommands(send);
 const sidebar = new Sidebar(document.getElementById("sidebar")!, {
   selectTab: (id) => selectTab(id),
   toggleTab: (id) => toggleTab(id),
+  splitItems: (id) => splitMenuItems(id),
   newTab: () => {
     stopFollowing();
     send({ type: "new-tab" });
   },
   closeTab: (id) => send({ type: "close", terminal: id }),
   // 並び順は全員で共有し、参加者ごとの表示は変えないので、ペアプロモードはやめない（docs/adr/139-tab-order.md）
-  moveTab: (id, index, group) => send({ type: "move-tab", tab: id, index, ...(group !== undefined && { group }) }),
+  // 分割したタブは、まとめて移す（docs/adr/215-split-view.md）
+  moveTab: (ids, index, group) => send({ type: "move-tab", tabs: ids, index, ...(group !== undefined && { group }) }),
   // タブのグループも全員で共有し、参加者ごとの表示は変えないので、ペアプロモードはやめない（docs/adr/209-tab-groups.md）
-  newGroup: (tab) => send({ type: "new-group", tab }),
-  addToGroup: (tab, group) => send({ type: "add-to-group", tab, group }),
-  removeFromGroup: (tab) => send({ type: "remove-from-group", tab }),
+  newGroup: (ids) => send({ type: "new-group", tabs: ids }),
+  addToGroup: (ids, group) => send({ type: "add-to-group", tabs: ids, group }),
+  removeFromGroup: (ids) => send({ type: "remove-from-group", tabs: ids }),
   moveGroup: (group, index) => send({ type: "move-group", group, index }),
   renameGroup: (group, name) => send({ type: "rename-group", group, name }),
   recolorGroup: (group, color) => send({ type: "recolor-group", group, color }),
@@ -229,11 +234,22 @@ socket.onmessage = (event) => {
     panes.forEach((pane) => pane.setClosable(tabs.length > 1));
     showTabNames();
   } else if (message.type === "view") {
+    parked = message.splits ?? [];
     if (dragging) deferredView = message.layout;
     else renderView(message.layout);
   }
-  if (view) sidebar.update({ tabs, groups, shown: terminalIds(view), maxShown: maxPanes, titles, statuses, members, you });
+  if (view) sidebar.update({ tabs, groups, shown: terminalIds(view), splits: splitIds(), titles, statuses, members, you });
 };
+
+// 自分の分割（いま出しているものと、しまってあるもの）のタブ。それぞれ、分割の中の並び（左から・上から）
+function splitIds() {
+  return [...(view?.type === "split" ? [view] : []), ...parked].map(terminalIds);
+}
+
+// タブの一覧の並び（自分の分割をまとめたもの）。次・前のタブへの切り替えに使う
+function listedTabs() {
+  return entriesOf(tabs, splitIds()).flatMap((entry) => entry.tabs);
+}
 
 // 自分の表示に並べているタブだけを組み立てる。ほかのタブのターミナルは接続を切り、戻ったときにサーバーから画面を復元する
 function renderView(layout: Layout) {
@@ -426,14 +442,15 @@ function runShortcut(terminal: string, shortcut: Shortcut) {
       return send({ type: "new-tab", terminal });
     case "next-tab":
     case "previous-tab": {
-      if (tabs.length === 0) return;
+      const listed = listedTabs();
+      if (listed.length === 0) return;
       const step = shortcut.type === "next-tab" ? 1 : -1;
-      // キー入力の先のタブの次・前のタブだけを表示する。端では反対側に回る
-      const index = (tabs.findIndex((t) => t.id === terminal) + step + tabs.length) % tabs.length;
-      return selectTab(tabs[index]!.id);
+      // 一覧でキー入力の先のタブの次・前のタブを選ぶ（分割のタブなら分割を出す）。端では反対側に回る
+      const index = (listed.findIndex((t) => t.id === terminal) + step + listed.length) % listed.length;
+      return selectTab(listed[index]!.id);
     }
     case "select-tab": {
-      const tab = tabs[shortcut.index];
+      const tab = listedTabs()[shortcut.index];
       return tab && selectTab(tab.id);
     }
     case "next-pane": {
@@ -539,24 +556,128 @@ function enclosingSplit(node: Layout, terminal: string, direction: "row" | "colu
   );
 }
 
-// そのタブだけを表示して、そのターミナルにフォーカスする。自分で表示を変えるので、ペアプロモードはやめる
+// タブを選び、そのターミナルにフォーカスする。いま並べているタブなら、分割のままフォーカスだけを移す。しまってある分割のタブなら
+// 分割を、どの分割にも入っていないタブならそのタブだけを、サーバーが出す（docs/adr/215-split-view.md）。
+// 自分で表示を変えるので、ペアプロモードはやめる
 function selectTab(id: string) {
   stopFollowing();
-  if (view?.type === "terminal" && view.id === id) return focusPane(id);
+  if (panes.has(id)) return focusPane(id);
   pendingFocus = id;
   send({ type: "select-tab", tab: id });
 }
 
-// 並べているタブに加える（フォーカスしているターミナルの右に並べ、そこにフォーカスする）・外す。
+// 開いているタブを、いまの表示に加えて分割にする。edge を渡したときは、表示全体の左・右・下に置く（タブを端へドラッグしたとき）。
+// 渡さないときは、フォーカスしているターミナルの右に置く。加えたタブにフォーカスする
+function addToView(id: string, edge?: "left" | "right" | "bottom") {
+  if (!view || terminalIds(view).includes(id) || terminalIds(view).length >= maxPanes) return;
+  stopFollowing();
+  pendingFocus = id;
+  send({ type: "add-to-view", tab: id, terminal: focusedTerminal, ...(edge && { edge }) });
+}
+
+// タブの右クリックのメニューの、分割表示の項目（Chrome の分割表示と同じ）
+// - いま出していないタブ: 「現在のタブと新しい分割表示」（いまが分割なら「分割表示に追加」）。並べられる数まで並べていれば選べない
+// - 分割に入っているタブ: 「分割を解除」「このビューを閉じる」（タブを閉じる）、そのタブを含む一番内側の分割の向きの変更と入れ替え
+function splitMenuItems(id: string): MenuItem[] {
+  if (!view) return [];
+  const shown = terminalIds(view);
+  const items: MenuItem[] = [];
+  if (!shown.includes(id)) {
+    const full = shown.length >= maxPanes;
+    items.push({
+      label: shown.length > 1 ? "分割表示に追加" : "現在のタブと新しい分割表示",
+      disabled: full,
+      ...(full && { title: `並べられるのは ${maxPanes} つまで` }),
+      action: () => addToView(id),
+    });
+  }
+  const layout = [view, ...parked].find((l) => l.type === "split" && terminalIds(l).includes(id));
+  const parent = layout && parentSplit(layout, id);
+  if (parent) {
+    items.push(
+      {
+        label: "分割を解除",
+        action: () => {
+          stopFollowing();
+          send({ type: "separate", tab: id });
+        },
+      },
+      { label: "このビューを閉じる", disabled: tabs.length === 1, action: () => send({ type: "close", terminal: id }) },
+      { label: parent.direction === "column" ? "左右に並べる" : "上下に並べる", action: () => rotateSplit(parent.id) },
+      { label: "位置を入れ替える", action: () => flipSplit(parent.id) },
+    );
+  }
+  return items;
+}
+
+// ⌘ / Ctrl を押しながらタブを選んだとき。並べているタブに加える（フォーカスしているターミナルの右に並べ、そこにフォーカスする）・外す。
 // 表示しているタブが 1 つのときは外さず、並べられる数まで並べていれば加えない
 function toggleTab(id: string) {
   if (!view) return;
   const shown = terminalIds(view);
-  if (shown.includes(id) ? shown.length === 1 : shown.length >= maxPanes) return;
+  if (!shown.includes(id)) return addToView(id);
+  if (shown.length === 1) return;
   stopFollowing();
-  if (shown.includes(id)) return send({ type: "remove-from-view", tab: id });
-  pendingFocus = id;
-  send({ type: "add-to-view", tab: id, terminal: focusedTerminal });
+  send({ type: "remove-from-view", tab: id });
+}
+
+// タブを、ターミナルの領域の左・右・下の端へドラッグすると、分割表示を作る。端に近づくと、分割表示を作る印（+）を
+// タブを置く側に重ねて出す（Chrome と同じ。docs/adr/215-split-view.md）。分割したタブや、いま出しているタブは落とせない
+{
+  const zone = document.createElement("div");
+  zone.className = "split-drop-zone";
+  zone.setAttribute("role", "region");
+  zone.setAttribute("aria-label", "分割表示を作る");
+  const plus = document.createElement("span");
+  plus.className = "split-drop-plus";
+  plus.textContent = "+";
+  zone.append(plus);
+  zone.hidden = true;
+  document.body.append(zone);
+  const edgeOf = (event: DragEvent): "left" | "right" | "bottom" | undefined => {
+    const id = sidebar.draggedTab();
+    if (!id || !view || terminalIds(view).includes(id) || terminalIds(view).length >= maxPanes) return;
+    const rect = root.getBoundingClientRect();
+    const reachX = Math.min(160, rect.width * 0.2);
+    const reachY = Math.min(160, rect.height * 0.25);
+    if (event.clientX - rect.left < reachX) return "left";
+    if (rect.right - event.clientX < reachX) return "right";
+    if (rect.bottom - event.clientY < reachY) return "bottom";
+    return undefined;
+  };
+  const hide = () => {
+    zone.hidden = true;
+    delete zone.dataset.edge;
+  };
+  root.addEventListener("dragover", (event) => {
+    const edge = edgeOf(event);
+    if (!edge) return hide();
+    event.preventDefault();
+    event.dataTransfer!.dropEffect = "move";
+    const rect = root.getBoundingClientRect();
+    const half = edge === "bottom" ? { left: rect.left, top: rect.top + rect.height / 2, width: rect.width, height: rect.height / 2 } : { left: edge === "left" ? rect.left : rect.left + rect.width / 2, top: rect.top, width: rect.width / 2, height: rect.height };
+    Object.assign(zone.style, { left: `${half.left}px`, top: `${half.top}px`, width: `${half.width}px`, height: `${half.height}px` });
+    zone.dataset.edge = edge;
+    zone.hidden = false;
+    // ターミナル（xterm）はドラッグのイベントを外へ伝えないので、伝わる前（capture）に受け取る
+  }, true);
+  // 中の要素の間を移るときにも dragleave が届き、移る先（relatedTarget）が分からないことがあるので、領域の外に出たかを位置で見る
+  root.addEventListener("dragleave", (event) => {
+    const rect = root.getBoundingClientRect();
+    const inside =
+      event.clientX > rect.left && event.clientX < rect.right && event.clientY > rect.top && event.clientY < rect.bottom;
+    if (!inside) hide();
+  });
+  root.addEventListener("drop", (event) => {
+    const edge = edgeOf(event);
+    const id = sidebar.draggedTab();
+    hide();
+    if (!edge || !id) return;
+    event.preventDefault();
+    sidebar.finishDrag();
+    addToView(id, edge);
+  }, true);
+  document.addEventListener("dragend", hide);
 }
 
 // キー入力の先をそのターミナルに移す
@@ -651,7 +772,7 @@ function notifyFinished(previous: Record<string, AgentStatus>, next: Record<stri
   }
 }
 
-// 並べているターミナルならそこにフォーカスし、表示していないタブなら、そのタブだけを表示してフォーカスする
+// 並べているターミナルならそこにフォーカスし、表示していないタブなら、そのタブを選んで（分割のタブなら分割を出して）フォーカスする
 function focusTerminal(id: string) {
   stopFollowing();
   if (panes.has(id)) return focusPane(id);

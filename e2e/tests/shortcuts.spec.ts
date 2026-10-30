@@ -164,7 +164,9 @@ test("Ctrl+Shift+O で新しいタブを開き、Cmd+Shift+. / , や Ctrl+Shift+
   await expectFocusOn(page, 3);
 });
 
-test("並べているときに次・前のタブへ移ると、キー入力の先のタブの次・前のタブだけを表示する", async ({ browser }) => {
+test("次・前のタブへ移ると、一覧の次・前のタブを選ぶ。分割のタブなら分割を出してそこにフォーカスし、分割の外のタブならそれだけを表示する", async ({
+  browser,
+}) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);
   await focusPane(page, 1);
@@ -172,15 +174,19 @@ test("並べているときに次・前のタブへ移ると、キー入力の�
   await expectPaneToShow(page, 2, "Fake Shell ready");
   await page.keyboard.press("Control+Shift+O");
   await expectPaneToShow(page, 3, "Fake Shell ready");
-  await tab(page, 1).click();
-  await expectFocusOn(page, 1);
-  await page.keyboard.press("Control+Shift+R");
-  await expectPaneToShow(page, 4, "Fake Shell ready");
-  await focusPane(page, 4);
-  // ターミナル 1 と 4 を並べていて、キー入力の先は 4
+  await expectFocusOn(page, 3);
+  // ターミナル 1 と 2 の分割をしまって、3 だけを表示している（docs/adr/215-split-view.md）
 
   await page.keyboard.press("Control+Shift+Comma");
+  await expect(panes(page)).toHaveCount(2);
+  await expectFocusOn(page, 2);
 
+  await page.keyboard.press("Control+Shift+Comma");
+  await expect(panes(page)).toHaveCount(2);
+  await expectFocusOn(page, 1);
+
+  // 端では反対側に回る
+  await page.keyboard.press("Control+Shift+Comma");
   await expect(panes(page)).toHaveCount(1);
   await expect(tab(page, 3)).toHaveAttribute("aria-selected", "true");
   await expectFocusOn(page, 3);
@@ -213,7 +219,8 @@ test("キーを押し続けても、分割・閉じる・新しいタブは 1 �
   await expect(panes(page)).toHaveCount(2);
 
   await hold("KeyO");
-  await expect(sidebarTabs(page)).toHaveText([/ターミナル 2/, /ターミナル 3/, /ターミナル 4/]);
+  // 残った 3 と 2 の分割は、一覧で表示の並び（左から）に並ぶ（docs/adr/215-split-view.md）
+  await expect(sidebarTabs(page)).toHaveText([/ターミナル 3/, /ターミナル 2/, /ターミナル 4/]);
   await page.waitForTimeout(500);
   await expect(sidebarTabs(page)).toHaveCount(3);
 });

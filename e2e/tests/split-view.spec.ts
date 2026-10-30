@@ -100,10 +100,13 @@ async function dragTabToEdge(page: Page, n: number, edge: "left" | "right" | "bo
   await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
   await page.mouse.down();
   await page.mouse.move(x!, y!, { steps: 10 });
+  // Playwright では、最後に動かした位置の dragover が次のマウスの操作まで届かないことがあるので、もう少しだけ動かす
+  await page.mouse.move(x! + (edge === "left" ? 2 : -2), y! - 2);
   const zone = page.getByRole("region", { name: "分割表示を作る" });
   await expect(zone).toBeVisible();
   await expect(zone).toHaveAttribute("data-edge", edge);
   await expect(zone).toContainText("+");
+  await page.screenshot({ path: test.info().outputPath(`split-view-drop-${edge}.png`) });
   await page.mouse.up();
   await expect(zone).toBeHidden();
 }
@@ -167,6 +170,7 @@ test("分割したタブは、サイドメニューとツールバーで 1 つ�
   const row = sidebar(page).locator(".tab-row").first();
   await expect(row.getByRole("button", { name: "ターミナル 1 を閉じる" })).toBeVisible();
   await expect(row.getByRole("button", { name: "ターミナル 3 を閉じる" })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("split-view-sidebar.png") });
 
   // ツールバーでも同じ
   await sidebarToggle(page).click();
@@ -174,6 +178,7 @@ test("分割したタブは、サイドメニューとツールバーで 1 つ�
   const item = toolbar(page).locator(".toolbar-tab-item").first();
   await expect(item.getByRole("button", { name: "ターミナル 1 を閉じる" })).toBeVisible();
   await expect(item.getByRole("button", { name: "ターミナル 3 を閉じる" })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("split-view-toolbar.png") });
 
   // ほかの参加者の一覧と表示は変わらない
   await expectEntries(sidebar(guest), ["ターミナル 1", "ターミナル 2", "ターミナル 3"]);
@@ -268,15 +273,26 @@ test("タブをターミナルの領域の右・左・下の端へドラッグ�
   // 分割は 2 つ持てる
   await expectEntries(sidebar(page), ["ターミナル 1 | ターミナル 2", "ターミナル 4 | ターミナル 3"]);
 
-  // 下の端へドラッグすると、上下に並ぶ。ほかの分割に入っていたタブは、その分割から抜ける
+  // 下の端へドラッグすると、上下に並ぶ
   await tab(page, 1).click();
   await expect(panes(page)).toHaveCount(2);
   await chooseInTabMenu(page, 2, "分割を解除");
   await expect(panes(page)).toHaveCount(1);
-  await dragTabToEdge(page, 4, "bottom");
+  await dragTabToEdge(page, 2, "bottom");
   await expect(panes(page)).toHaveCount(2);
-  await expectStacked(page, 1, 4);
-  await expectEntries(sidebar(page), ["ターミナル 1 | ターミナル 4", "ターミナル 2", "ターミナル 3"]);
+  await expectStacked(page, 1, 2);
+  await expectEntries(sidebar(page), ["ターミナル 1 | ターミナル 2", "ターミナル 4 | ターミナル 3"]);
+
+  // 分割したタブ（項目）は、端へドラッグしても分割を作らない（分割どうしは並べない）
+  const source = (await tab(page, 4).boundingBox())!;
+  const area = (await page.getByRole("main").boundingBox())!;
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(area.x + area.width - 10, area.y + area.height / 2, { steps: 10 });
+  await page.mouse.move(area.x + area.width - 12, area.y + area.height / 2 - 2);
+  await expect(page.getByRole("region", { name: "分割表示を作る" })).toBeHidden();
+  await page.mouse.up();
+  await expect(panes(page)).toHaveCount(2);
 });
 
 test("分割は 1 つのタブとして並べ替え、グループに出し入れする", async ({ browser }) => {
@@ -344,4 +360,50 @@ test("ペアプロモードでは、相手が分割の外のタブを見てか�
   await tab(host, 1).click();
   await expect(panes(guest)).toHaveCount(2);
   await expectSideBySide(guest, 1, 2);
+});
+
+test("形の正しくない分割の操作・まとめて移す操作が直接届いても、表示と並びは変わらない", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+  await openTabs(page, 3);
+
+  // 改造したブラウザなどから、配置の WebSocket に直接送る。この接続も 1 人の参加者で、自分の表示（view）と並び（tabs）が届く
+  const result = await page.evaluate(
+    () =>
+      new Promise<string[]>((resolve) => {
+        const socket = new WebSocket(`ws://${location.host}/ws/workspace`);
+        let received = 0;
+        const wait = () => new Promise((r) => setTimeout(r, 150));
+        socket.onmessage = (event) => {
+          const { type } = JSON.parse(event.data);
+          if (type === "view" || type === "tabs") received++;
+        };
+        socket.onopen = async () => {
+          await wait();
+          const changed: string[] = [];
+          for (const message of [
+            { type: "add-to-view", tab: "2", edge: "top" },
+            { type: "add-to-view", tab: "9", edge: "left" },
+            { type: "separate", tab: "1" },
+            { type: "separate", tab: 1 },
+            { type: "move-tab", tabs: ["2", "2"], index: 0 },
+            { type: "move-tab", tabs: ["2", 3], index: 0 },
+            { type: "move-tab", tabs: [], index: 0 },
+            { type: "move-tab", tabs: ["2", "3"], index: 2 },
+            { type: "new-group", tabs: ["1", "9"] },
+            { type: "remove-from-group", tabs: ["1"] },
+          ]) {
+            const before = received;
+            socket.send(JSON.stringify(message));
+            await wait();
+            if (received !== before) changed.push(JSON.stringify(message));
+          }
+          socket.close();
+          resolve(changed);
+        };
+      }),
+  );
+
+  expect(result).toEqual([]);
+  await expectEntries(sidebar(page), ["ターミナル 1", "ターミナル 2", "ターミナル 3"]);
 });

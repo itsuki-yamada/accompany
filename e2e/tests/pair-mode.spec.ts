@@ -50,6 +50,13 @@ async function shownPanes(page: Page) {
   return boxes.sort((a, b) => a.x - b.x || a.y - b.y).map((b) => Number(b.name.replace("ターミナル ", "")));
 }
 
+// タブの右クリックのメニューで、そのタブの分割を解除する（フォーカスしているタブだけが残る。docs/adr/215-split-view.md）
+async function separate(page: Page, n: number) {
+  await tab(page, n).click({ button: "right" });
+  await page.getByRole("menu", { name: `ターミナル ${n} のタブのメニュー` }).getByRole("menuitem", { name: "分割を解除" }).click();
+  await expect(panes(page)).toHaveCount(1);
+}
+
 async function clickPane(page: Page, n: number) {
   await pane(page, n).locator(".xterm-screen").click();
   await expect(pane(page, n)).toHaveAttribute("data-focused", "true");
@@ -390,23 +397,29 @@ test("ペアプロモードの間は、相手が選んだタブと並べ方に�
   await expectFocusedOn(guest, 2);
   for (const n of [1, 2, 3]) await expect(tab(guest, n)).toHaveAttribute("aria-selected", "true");
 
-  // 相手がタブを 1 つ選ぶと、自分もそのタブだけになる
+  // 相手が分割の中のタブを選ぶと、自分も分割のままそちらへフォーカスが移る
   await tab(host, 3).click();
-  await expect(panes(guest)).toHaveCount(1);
   await expectFocusedOn(guest, 3);
-  await expect(tab(guest, 1)).toHaveAttribute("aria-selected", "false");
+  await expect(panes(guest)).toHaveCount(3);
 
-  // 相手が並べると、自分も並ぶ
-  await addToView(host, 1);
-  await expect(panes(guest)).toHaveCount(2);
-  expect(await shownPanes(guest)).toEqual([3, 1]);
-  await expectFocusedOn(guest, 1);
-
-  // 相手が新しいタブを開くと、自分もそのタブを見る
+  // 相手が新しいタブを開くと、自分もそのタブだけを見る
   await host.getByRole("button", { name: "新しいタブ" }).click();
   await expectPaneToShow(guest, 4, "Fake Shell ready");
   await expect(panes(guest)).toHaveCount(1);
   await expectFocusedOn(guest, 4);
+  await expect(tab(guest, 1)).toHaveAttribute("aria-selected", "false");
+
+  // 相手が並べると、自分も並ぶ（1 は、それまでの分割から抜ける）
+  await addToView(host, 1);
+  await expect(panes(guest)).toHaveCount(2);
+  expect(await shownPanes(guest)).toEqual([4, 1]);
+  await expectFocusedOn(guest, 1);
+
+  // 相手が分割のタブを選ぶと、自分もその分割（残った 2 と 3）を見る
+  await tab(host, 2).click();
+  await expect(panes(guest)).toHaveCount(2);
+  expect(await shownPanes(guest)).toEqual([2, 3]);
+  await expectFocusedOn(guest, 2);
   await expect(followIndicator(guest)).toContainText("参加者 1 の画面に追従中");
 });
 
@@ -414,7 +427,8 @@ test("ペアプロモードをやめると、その表示のまま残り、相�
   browser,
 }) => {
   const { host, guest } = await startSession(browser);
-  await tab(host, 2).click();
+  await clickPane(host, 2);
+  await separate(host, 2);
   await toolbarPairButton(guest, "参加者 1").click();
   await expect(panes(guest)).toHaveCount(1);
   await expectFocusedOn(guest, 2);
@@ -437,7 +451,8 @@ test("ペアプロモードの間に自分でタブを選んだり並べたり�
   browser,
 }) => {
   const { host, guest } = await startSession(browser);
-  await tab(host, 1).click();
+  await clickPane(host, 1);
+  await separate(host, 1);
   await toolbarPairButton(guest, "参加者 1").click();
   await expect(panes(guest)).toHaveCount(1);
   await expectFocusedOn(guest, 1);
@@ -456,7 +471,7 @@ test("ペアプロモードの間に自分でタブを選んだり並べたり�
   await expect(panes(guest)).toHaveCount(2);
   await addToView(guest, 3);
   await expect(followIndicator(guest)).toHaveCount(0);
-  await tab(host, 1).click();
+  await host.getByRole("button", { name: "新しいタブ" }).first().click();
   await host.waitForTimeout(300);
   await expect(panes(guest)).toHaveCount(3);
 });

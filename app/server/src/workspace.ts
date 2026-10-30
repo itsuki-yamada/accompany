@@ -15,6 +15,13 @@ export type Layout =
 // 1 人が並べられるタブの数
 export const maxPanes = 3;
 
+// 参加者ごとの表示。layout はいま出している表示（タブ 1 つか、分割）。splits は、いまは出していない分割で、
+// 分割のタブを選ぶとそのまま（並び・向き・割合）戻す。1 つのタブが入る分割は 1 つ（docs/adr/215-split-view.md）
+export type Display = { layout: Layout; splits: Layout[] };
+
+// 分割を作るときに、タブを置く端（ターミナルの領域の左・右・下）
+export type Edge = "left" | "right" | "bottom";
+
 // ターミナルの選択範囲。位置は列と、出力の始めからの行の番号（バッファの行に、スクロールバックから押し出された行の数を足したもの。
 // 代替画面ではバッファの行）。end の列は含まない
 export type Position = { x: number; y: number };
@@ -50,8 +57,8 @@ export type WorkspaceEvent =
   | { type: "welcome"; you: number }
   // タブの並びと、タブのグループ（タブの並びの中で現れる順）。全員に配る
   | { type: "tabs"; tabs: Tab[]; groups: Group[] }
-  // その参加者の表示。本人にだけ配る
-  | { type: "view"; layout: Layout }
+  // その参加者の表示と、いまは出していない分割。本人にだけ配る
+  | { type: "view"; layout: Layout; splits: Layout[] }
   | { type: "presence"; members: Member[] }
   // ターミナルごとの、コマンドが設定したタイトル（ターミナルの ID → タイトル。空のものは含めない）
   | { type: "titles"; titles: Record<string, string> }
@@ -79,7 +86,7 @@ export class Workspace {
   private nextGroupId = 1;
   private members = new Map<Listener, Member>();
   // 参加者ごとの表示
-  private views = new Map<Member, Layout>();
+  private views = new Map<Member, Display>();
   // 参加者が設定した名前（整えたもの）。設定していない参加者は含めない
   private chosenNames = new Map<Member, string>();
   // ページが見えている参加者。フォーカス先と合わせて、未確認を消すか決める（docs/adr/74-unseen-done.md）
@@ -181,10 +188,10 @@ export class Workspace {
     const member: Member = { id, name: defaultName(id), color: colors[(id - 1) % colors.length]!, selections: {} };
     this.members.set(listener, member);
     const first = this.initialTerminal && this.terminals.has(this.initialTerminal) ? this.initialTerminal : this.order[0]!;
-    this.views.set(member, leaf(first));
+    this.views.set(member, { layout: leaf(first), splits: [] });
     listener({ type: "welcome", you: id });
     listener(this.tabsEvent());
-    listener({ type: "view", layout: this.views.get(member)! });
+    listener(viewEvent(this.views.get(member)!));
     listener(this.titlesEvent());
     listener({ type: "status", statuses: this.statuses() });
     listener(this.commandsEvent());
@@ -201,7 +208,7 @@ export class Workspace {
         if (!this.views.has(member)) return;
         const added = this.createTerminal(this.shellCommand, cwd);
         this.notifyTabs();
-        this.changeView(member, () => leaf(added));
+        this.changeView(member, (display) => ({ layout: leaf(added), splits: parked(display) }));
       },
       // 新しいタブを開いて、terminalId のターミナルの右（row）・下（column）に並べる。並べられる数を超えるときは何もしない。
       // 分割したシェルは、分割元のターミナルのカレントディレクトリで始める（docs/adr/109-inherit-cwd.md）
@@ -212,52 +219,91 @@ export class Workspace {
         if (!this.canAdd(member)) return;
         const added = this.createTerminal(this.shellCommand, cwd);
         this.notifyTabs();
-        this.changeView(member, (view) => this.placeBeside(view, leaf(added), terminalId, direction));
+        this.changeView(member, (display) => ({
+          ...display,
+          layout: this.placeBeside(display.layout, leaf(added), terminalId, direction),
+        }));
       },
-      // そのタブだけを表示する
+      // タブを選ぶ。いまの表示にあるタブなら変えない（ブラウザがそのタブにフォーカスする）。しまってある分割のタブなら、
+      // その分割をそのまま出す。どの分割にも入っていないタブなら、そのタブだけを出す。いま出している分割はしまっておく
+      // （docs/adr/215-split-view.md）
       selectTab: (tabId: string) => {
         if (!this.terminals.has(tabId)) return;
-        this.changeView(member, (view) => (view.type === "terminal" && view.id === tabId ? undefined : leaf(tabId)));
+        this.changeView(member, (display) => {
+          if (terminalIds(display.layout).includes(tabId)) return undefined;
+          const split = display.splits.find((s) => terminalIds(s).includes(tabId));
+          const rest = parked(display).filter((s) => s !== split);
+          return { layout: split ?? leaf(tabId), splits: rest };
+        });
       },
-      // 開いているタブを、terminalId のターミナルの右に並べる（terminalId を表示していなければ全体の右）
-      addToView: (tabId: string, terminalId?: string) => {
+      // 開いているタブを、いまの表示に加えて分割にする。edge を渡したときは、表示全体の左・右・下に置く（タブを端へドラッグしたとき）。
+      // 渡さないときは、terminalId のターミナルの右に置く（terminalId を表示していなければ全体の右）。
+      // ほかの分割に入っていたタブは、その分割から抜ける（残りが 1 つになった分割はなくなる）
+      addToView: (tabId: string, terminalId?: string, edge?: Edge) => {
         if (!this.terminals.has(tabId) || !this.canAdd(member)) return;
-        this.changeView(member, (view) =>
-          terminalIds(view).includes(tabId) ? undefined : this.placeBeside(view, leaf(tabId), terminalId, "row"),
-        );
+        this.changeView(member, (display) => {
+          if (terminalIds(display.layout).includes(tabId)) return undefined;
+          const layout = edge
+            ? placeAtEdge(display.layout, leaf(tabId), edge, `split-${this.nextSplitId++}`)
+            : this.placeBeside(display.layout, leaf(tabId), terminalId, "row");
+          return { layout, splits: withoutTab(display.splits, tabId) };
+        });
       },
       // 並べているタブを外す。表示しているタブが 1 つのときは外さない
       removeFromView: (tabId: string) => {
-        this.changeView(member, (view) =>
-          terminalIds(view).length > 1 && terminalIds(view).includes(tabId) ? removeLeaf(view, tabId) : undefined,
-        );
+        this.changeView(member, (display) => {
+          const ids = terminalIds(display.layout);
+          return ids.length > 1 && ids.includes(tabId) ? { ...display, layout: removeLeaf(display.layout, tabId)! } : undefined;
+        });
+      },
+      // タブが入っている分割を解除し、ふつうのタブに戻す。いま出している分割なら、自分がフォーカスしているタブ
+      // （分割の中になければ、選んだタブ）だけを出す
+      separate: (tabId: string) => {
+        this.changeView(member, (display) => {
+          const shown = terminalIds(display.layout);
+          if (shown.includes(tabId)) {
+            if (shown.length < 2) return undefined;
+            const keep = member.terminal !== undefined && shown.includes(member.terminal) ? member.terminal : tabId;
+            return { ...display, layout: leaf(keep) };
+          }
+          const split = display.splits.find((s) => terminalIds(s).includes(tabId));
+          return split ? { ...display, splits: display.splits.filter((s) => s !== split) } : undefined;
+        });
       },
       resizeSplit: (splitId: string, ratio: number) => {
-        this.changeView(member, (view) =>
-          findSplit(view, splitId) ? withRatio(view, splitId, Math.min(0.9, Math.max(0.1, ratio))) : undefined,
+        this.changeView(member, (display) =>
+          mapLayouts(display, (view) =>
+            findSplit(view, splitId) ? withRatio(view, splitId, Math.min(0.9, Math.max(0.1, ratio))) : undefined,
+          ),
         );
       },
       // 並べている 2 つのタブの位置を入れ替える。どちらも自分の表示にあり、別のタブのときだけ（docs/adr/163-rearrange-panes.md）
       swapPanes: (tabId: string, otherId: string) => {
-        this.changeView(member, (view) => {
-          const ids = terminalIds(view);
-          return tabId !== otherId && ids.includes(tabId) && ids.includes(otherId) ? swapLeaves(view, tabId, otherId) : undefined;
-        });
+        this.changeView(member, (display) =>
+          mapLayouts(display, (view) => {
+            const ids = terminalIds(view);
+            return tabId !== otherId && ids.includes(tabId) && ids.includes(otherId) ? swapLeaves(view, tabId, otherId) : undefined;
+          }),
+        );
       },
-      // 分割の 2 つの子（左右・上下）を入れ替える。大きさも一緒に動く
+      // 分割の 2 つの子（左右・上下）を入れ替える。大きさも一緒に動く。しまってある分割にも効く（タブの右クリックのメニュー）
       flipSplit: (splitId: string) => {
-        this.changeView(member, (view) =>
-          findSplit(view, splitId)
-            ? mapSplit(view, splitId, (s) => ({ ...s, ratio: 1 - s.ratio, children: [s.children[1], s.children[0]] }))
-            : undefined,
+        this.changeView(member, (display) =>
+          mapLayouts(display, (view) =>
+            findSplit(view, splitId)
+              ? mapSplit(view, splitId, (s) => ({ ...s, ratio: 1 - s.ratio, children: [s.children[1], s.children[0]] }))
+              : undefined,
+          ),
         );
       },
       // 分割の向き（左右 ⇄ 上下）を変える。並び方が変わるので、割合は均等に戻す（同じ向きに並んだ 3 つは 3 等分）
       rotateSplit: (splitId: string) => {
-        this.changeView(member, (view) =>
-          findSplit(view, splitId)
-            ? balance(mapSplit(view, splitId, (s) => ({ ...s, direction: s.direction === "row" ? "column" : "row" })))
-            : undefined,
+        this.changeView(member, (display) =>
+          mapLayouts(display, (view) =>
+            findSplit(view, splitId)
+              ? balance(mapSplit(view, splitId, (s) => ({ ...s, direction: s.direction === "row" ? "column" : "row" })))
+              : undefined,
+          ),
         );
       },
       focus: (terminalId: string) => {
@@ -329,11 +375,17 @@ export class Workspace {
     const neighbor = this.order[Math.min(index, this.order.length - 1)]!;
     this.notifyTabs();
     for (const [listener, member] of this.members) {
-      const view = this.views.get(member);
-      if (!view || !terminalIds(view).includes(terminalId)) continue;
-      const next = removeLeaf(view, terminalId) ?? leaf(neighbor);
+      const display = this.views.get(member);
+      if (!display) continue;
+      const inLayout = terminalIds(display.layout).includes(terminalId);
+      const inSplits = display.splits.some((s) => terminalIds(s).includes(terminalId));
+      if (!inLayout && !inSplits) continue;
+      const next: Display = {
+        layout: inLayout ? (removeLeaf(display.layout, terminalId) ?? leaf(neighbor)) : display.layout,
+        splits: withoutTab(display.splits, terminalId),
+      };
       this.views.set(member, next);
-      listener({ type: "view", layout: next });
+      listener(viewEvent(next));
     }
     this.updateSeen();
   }
@@ -341,58 +393,70 @@ export class Workspace {
   // タブを並びの index 番目（並べ替えたあとの位置）へ移す。並びは全員で共有するので、全員に配って保存する。
   // 参加者ごとの表示とペアプロモードの追従は変えない（docs/adr/139-tab-order.md）。
   // group を渡したときは、移したタブをそのグループに入れる（null ならグループから外す。docs/adr/209-tab-groups.md）
-  moveTab(terminalId: string, index: number, group?: string | null) {
-    const from = this.order.indexOf(terminalId);
-    if (from < 0 || !Number.isSafeInteger(index) || index < 0 || index >= this.order.length) return;
+  // tabs が複数のときは（分割したタブ）、並びの順のまま続けて移す（docs/adr/215-split-view.md）。index は、移すタブを除いた並びでの位置
+  moveTab(tabs: string[], index: number, group?: string | null) {
+    if (!this.validTabs(tabs)) return;
+    const moving = this.order.filter((id) => tabs.includes(id));
+    const rest = this.order.filter((id) => !tabs.includes(id));
+    if (!Number.isSafeInteger(index) || index < 0 || index > rest.length) return;
     if (typeof group === "string" && !this.groups.has(group)) return;
     // グループに入れるときは、位置をそのグループの範囲（前後の境目を含む）に収める。古い並びを見て送られた位置で、
     // グループのほうがタブに合わせて動いてしまわないように
     let to = index;
     if (typeof group === "string") {
-      const span = this.order.filter((id) => id !== terminalId).flatMap((id, i) => (this.tabGroups.get(id) === group ? [i] : []));
+      const span = rest.flatMap((id, i) => (this.tabGroups.get(id) === group ? [i] : []));
       if (span.length > 0) to = Math.min(Math.max(index, span[0]!), span.at(-1)! + 1);
     }
-    const changesGroup = group !== undefined && (this.tabGroups.get(terminalId) ?? null) !== group;
-    if (to === from && !changesGroup) return;
-    this.order.splice(from, 1);
-    this.order.splice(to, 0, terminalId);
-    if (group === null) this.tabGroups.delete(terminalId);
-    else if (group !== undefined) this.tabGroups.set(terminalId, group);
+    const next = [...rest.slice(0, to), ...moving, ...rest.slice(to)];
+    const changesGroup = group !== undefined && moving.some((id) => (this.tabGroups.get(id) ?? null) !== group);
+    if (!changesGroup && next.every((id, i) => id === this.order[i])) return;
+    this.order = next;
+    for (const id of moving) {
+      if (group === null) this.tabGroups.delete(id);
+      else if (group !== undefined) this.tabGroups.set(id, group);
+    }
     this.notifyTabs();
   }
 
   // タブを新しいグループに入れる。色は、ほかのグループが使っていない色から選ぶ。タブはその場に残る
-  // （ほかのグループの途中にあったときは、そのグループの後ろに出る）
-  newGroup(terminalId: string) {
-    if (!this.terminals.has(terminalId)) return;
+  // （ほかのグループの途中にあったときは、そのグループの後ろに出る）。分割したタブは、まとめて入れる
+  newGroup(tabs: string[]) {
+    if (!this.validTabs(tabs)) return;
     const used = new Set([...this.groups.values()].map((g) => g.color));
     const color = groupColors.find((c) => !used.has(c)) ?? groupColors[this.groups.size % groupColors.length]!;
     const id = String(this.nextGroupId++);
     this.groups.set(id, { color });
-    this.tabGroups.set(terminalId, id);
+    for (const tab of tabs) this.tabGroups.set(tab, id);
     this.notifyTabs();
   }
 
   // タブを既存のグループの最後に入れる
-  addToGroup(terminalId: string, groupId: string) {
-    if (!this.terminals.has(terminalId) || !this.groups.has(groupId) || this.tabGroups.get(terminalId) === groupId) return;
-    this.order.splice(this.order.indexOf(terminalId), 1);
+  addToGroup(tabs: string[], groupId: string) {
+    if (!this.validTabs(tabs) || !this.groups.has(groupId) || tabs.every((t) => this.tabGroups.get(t) === groupId)) return;
+    const moving = this.order.filter((id) => tabs.includes(id));
+    this.order = this.order.filter((id) => !tabs.includes(id));
     const last = this.order.findLastIndex((id) => this.tabGroups.get(id) === groupId);
-    this.order.splice(last + 1, 0, terminalId);
-    this.tabGroups.set(terminalId, groupId);
+    this.order.splice(last + 1, 0, ...moving);
+    for (const tab of moving) this.tabGroups.set(tab, groupId);
     this.notifyTabs();
   }
 
   // タブをグループから外し、グループのすぐ後ろに出す
-  removeFromGroup(terminalId: string) {
-    const groupId = this.tabGroups.get(terminalId);
-    if (groupId === undefined) return;
-    this.tabGroups.delete(terminalId);
-    const from = this.order.indexOf(terminalId);
-    this.order.splice(from, 1);
-    const last = this.order.findLastIndex((id) => this.tabGroups.get(id) === groupId);
-    this.order.splice(last < 0 ? from : last + 1, 0, terminalId);
-    this.notifyTabs();
+  removeFromGroup(tabs: string[]) {
+    if (!this.validTabs(tabs)) return;
+    let changed = false;
+    // 後ろのタブから外して、外したタブが並びの順のまま、グループの後ろに並ぶようにする
+    for (const terminalId of this.order.filter((id) => tabs.includes(id)).reverse()) {
+      const groupId = this.tabGroups.get(terminalId);
+      if (groupId === undefined) continue;
+      changed = true;
+      this.tabGroups.delete(terminalId);
+      const from = this.order.indexOf(terminalId);
+      this.order.splice(from, 1);
+      const last = this.order.findLastIndex((id) => this.tabGroups.get(id) === groupId);
+      this.order.splice(last < 0 ? from : last + 1, 0, terminalId);
+    }
+    if (changed) this.notifyTabs();
   }
 
   // グループのタブをまとめて、グループのタブを除いた並びの index 番目へ移す
@@ -522,8 +586,13 @@ export class Workspace {
 
   // まだタブを並べられるか（抜けた参加者は並べられない）
   private canAdd(member: Member) {
-    const view = this.views.get(member);
-    return view !== undefined && terminalIds(view).length < maxPanes;
+    const display = this.views.get(member);
+    return display !== undefined && terminalIds(display.layout).length < maxPanes;
+  }
+
+  // 1 つ以上、並べられる数まで、別々の開いているタブか
+  private validTabs(tabs: string[]) {
+    return tabs.length > 0 && tabs.length <= maxPanes && new Set(tabs).size === tabs.length && tabs.every((t) => this.terminals.has(t));
   }
 
   // added を、terminalId のターミナルの右・下に並べる。terminalId を表示していなければ、全体の右・下に並べる。
@@ -542,7 +611,7 @@ export class Workspace {
 
   // 参加者が自分で表示を変える。change が undefined を返したら変えない。ペアプロモードで追従していればやめる
   // （自分で選んだ表示が、相手の表示で上書きされないように。docs/adr/100-terminal-tabs.md）
-  private changeView(member: Member, change: (view: Layout) => Layout | undefined) {
+  private changeView(member: Member, change: (display: Display) => Display | undefined) {
     const view = this.views.get(member);
     const next = view && change(view);
     if (!next) return;
@@ -556,12 +625,12 @@ export class Workspace {
   }
 
   // 参加者の表示を変えて本人に配り、その参加者に追従している人の表示にも写す（追従の連鎖も順に写し、輪になっていても止まる）
-  private setView(member: Member, view: Layout) {
+  private setView(member: Member, view: Display) {
     const visited = new Set<Member>();
     const apply = (target: Member) => {
       visited.add(target);
       this.views.set(target, view);
-      for (const [listener, m] of this.members) if (m === target) listener({ type: "view", layout: view });
+      for (const [listener, m] of this.members) if (m === target) listener(viewEvent(view));
       for (const follower of this.members.values()) {
         if (follower.following === target.id && !visited.has(follower)) apply(follower);
       }
@@ -678,7 +747,7 @@ export class Workspace {
     let changed = false;
     for (const member of this.visibleMembers) {
       const id = member.terminal;
-      const view = this.views.get(member);
+      const view = this.views.get(member)?.layout;
       if (id && view && terminalIds(view).includes(id) && this.terminals.get(id)?.markSeen()) changed = true;
     }
     return changed;
@@ -738,6 +807,46 @@ function defaultGroupName(id: string) {
 }
 
 type Split = Extract<Layout, { type: "split" }>;
+
+function viewEvent(display: Display): WorkspaceEvent {
+  return { type: "view", layout: display.layout, splits: display.splits };
+}
+
+// いま出している表示が分割なら、しまってある分割に加えたもの
+function parked(display: Display) {
+  return display.layout.type === "split" ? [...display.splits, display.layout] : display.splits;
+}
+
+// しまってある分割から、タブを抜く。残りが 1 つになった分割はなくす
+function withoutTab(splits: Layout[], tab: string) {
+  return splits.flatMap((split) => {
+    if (!terminalIds(split).includes(tab)) return [split];
+    const rest = removeLeaf(split, tab);
+    return rest && rest.type === "split" ? [rest] : [];
+  });
+}
+
+// いまの表示か、しまってある分割のうち、change で変わる最初のものを変える。どれも変わらなければ undefined
+function mapLayouts(display: Display, change: (layout: Layout) => Layout | undefined): Display | undefined {
+  const layout = change(display.layout);
+  if (layout) return { ...display, layout };
+  for (const [i, split] of display.splits.entries()) {
+    const next = change(split);
+    if (next) return { ...display, splits: display.splits.with(i, next) };
+  }
+  return undefined;
+}
+
+// added を、表示全体の左・右・下に置く。同じ向きに並んだものは均等な大きさにする
+function placeAtEdge(view: Layout, added: Layout, edge: Edge, id: string): Layout {
+  return balance({
+    type: "split",
+    id,
+    direction: edge === "bottom" ? "column" : "row",
+    ratio: 0.5,
+    children: edge === "left" ? [added, view] : [view, added],
+  });
+}
 
 // 表示の木は、写した相手と共有しても壊れないよう、変えるときは作り直す
 function leaf(id: string): Layout {

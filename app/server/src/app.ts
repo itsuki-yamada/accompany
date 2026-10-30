@@ -71,6 +71,15 @@ function send(ws: WSContext, data: string | Uint8Array) {
   ws.send(data, { compress: size >= compressFrom });
 }
 
+// タブを指すもの。tab（1 つ）か、tabs（分割したタブをまとめて。docs/adr/215-split-view.md）。文字列でないものは捨てる
+function parseTabs(message: { tab?: unknown; tabs?: unknown }): string[] | undefined {
+  if (typeof message.tab === "string") return [message.tab];
+  const { tabs } = message;
+  return Array.isArray(tabs) && tabs.every((t) => typeof t === "string") ? tabs : undefined;
+}
+
+const edges = new Set<unknown>(["left", "right", "bottom"]);
+
 function parseJson(data: unknown) {
   try {
     return JSON.parse(String(data));
@@ -87,7 +96,7 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
 
   // タブの並び、参加者ごとの名前・フォーカス先と選択範囲・ペアプロモードで追従している相手・スクロール位置、
   // よく使うコマンドの一覧を全員に、その参加者の表示（どのタブをどう並べているか）を本人に配る。
-  // 自分の表示の変更（新しいタブ・分割・タブを選ぶ・並べる・外す・割合の変更・位置の入れ替え・向きの変更）、タブの並べ替え・名前・閉じる、
+  // 自分の表示の変更（新しいタブ・分割・タブを選ぶ・並べる・外す・分割の解除・割合の変更・位置の入れ替え・向きの変更）、タブの並べ替え・名前・閉じる、
   // タブのグループ（作る・加える・外す・移す・名前・色・解除・まとめて閉じる）、フォーカスの移動・選択範囲・
   // ページが見えているか、名前の変更、ペアプロモードの開始・終了とスクロール位置、よく使うコマンドの登録・編集・削除、
   // 端末の大きさの下限の変更を受け付ける（docs/adr/100-terminal-tabs.md）
@@ -106,19 +115,19 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
             void member?.split(String(message.terminal), message.direction);
           } else if (
             message?.type === "move-tab" &&
-            typeof message.tab === "string" &&
+            parseTabs(message) &&
             Number.isSafeInteger(message.index) &&
             (message.group === undefined || message.group === null || typeof message.group === "string")
           ) {
             // ないタブ・グループや範囲外の位置は、workspace が無視する。group を付けたときは、そのグループに入れる（null なら外す）
-            workspace.moveTab(message.tab, message.index, message.group);
-          } else if (message?.type === "new-group" && typeof message.tab === "string") {
+            workspace.moveTab(parseTabs(message)!, message.index, message.group);
+          } else if (message?.type === "new-group" && parseTabs(message)) {
             // タブのグループは全員で共有する（docs/adr/209-tab-groups.md）
-            workspace.newGroup(message.tab);
-          } else if (message?.type === "add-to-group" && typeof message.tab === "string" && typeof message.group === "string") {
-            workspace.addToGroup(message.tab, message.group);
-          } else if (message?.type === "remove-from-group" && typeof message.tab === "string") {
-            workspace.removeFromGroup(message.tab);
+            workspace.newGroup(parseTabs(message)!);
+          } else if (message?.type === "add-to-group" && parseTabs(message) && typeof message.group === "string") {
+            workspace.addToGroup(parseTabs(message)!, message.group);
+          } else if (message?.type === "remove-from-group" && parseTabs(message)) {
+            workspace.removeFromGroup(parseTabs(message)!);
           } else if (message?.type === "move-group" && typeof message.group === "string" && Number.isSafeInteger(message.index)) {
             workspace.moveGroup(message.group, message.index);
           } else if (message?.type === "rename-group" && typeof message.group === "string" && typeof message.name === "string") {
@@ -148,8 +157,11 @@ export function createApp(workspace: Workspace, uploads: Uploads) {
             void member?.newTab(terminal);
           } else if (message?.type === "select-tab") {
             member?.selectTab(String(message.tab));
-          } else if (message?.type === "add-to-view") {
-            member?.addToView(String(message.tab), terminal);
+          } else if (message?.type === "add-to-view" && (message.edge === undefined || edges.has(message.edge))) {
+            // edge は、タブをターミナルの領域の端へドラッグしたとき（docs/adr/215-split-view.md）
+            member?.addToView(String(message.tab), terminal, message.edge);
+          } else if (message?.type === "separate" && typeof message.tab === "string") {
+            member?.separate(message.tab);
           } else if (message?.type === "remove-from-view") {
             member?.removeFromView(String(message.tab));
           } else if (message?.type === "focus") {

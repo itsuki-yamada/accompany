@@ -131,7 +131,9 @@ test("ターミナルのバーを別のターミナルへドラッグすると�
   // 入れ替えたターミナルは、つないだまま（画面がそのまま残る）
   await expectPaneToShow(page, 1, "Fake Shell ready");
   await expectPaneToShow(page, 2, "Fake Shell ready");
-  await expect(sidebarTabs(page)).toHaveText([/ターミナル 1/, /ターミナル 2/]);
+  // 分割したタブは一覧で 1 つの項目に並び、項目の中は表示の並び（左から）に合わせる。全員で共有するタブの並びは変わらない
+  // （docs/adr/215-split-view.md）
+  await expect(sidebarTabs(page)).toHaveText([/ターミナル 2/, /ターミナル 1/]);
 
   // 3 つ並べているときは、重ねたターミナルとだけ入れ替わる（1 が右下、3 が左）
   await pane(page, 1).getByRole("button", { name: "下に分割" }).click();
@@ -144,7 +146,7 @@ test("ターミナルのバーを別のターミナルへドラッグすると�
   await expectFullHeight(page, 3);
   await expectLeftOf(page, 3, 1);
   await expectStacked(page, 1, 2);
-  await expect(sidebarTabs(page)).toHaveText([/ターミナル 1/, /ターミナル 2/, /ターミナル 3/]);
+  await expect(sidebarTabs(page)).toHaveText([/ターミナル 3/, /ターミナル 1/, /ターミナル 2/]);
 });
 
 test("右クリックのメニューの「左右を入れ替える」「上下を入れ替える」で、並びを入れ替える", async ({ browser }) => {
@@ -212,7 +214,7 @@ test("右クリックのメニューで、左右の並びを上下に、上下�
   await expectFullHeight(page, 1);
 
   // 1 つだけ表示しているときは、入れ替えも向きの変更もメニューに出さない（1 つのときのメニューはこれまでのまま）
-  await tab(page, 1).click();
+  await tab(page, 2).click({ modifiers: ["ControlOrMeta"] });
   await expect(panes(page)).toHaveCount(1);
   await openPaneMenu(page, 1);
   await expect(menuItem(page, "右に分割")).toBeVisible();
@@ -327,7 +329,6 @@ test("ないタブ・ない分割・表示していないタブの入れ替え�
   // 3 つ目のタブも開くが、下の接続の表示には並べない
   await page.getByRole("button", { name: "新しいタブ" }).click();
   await expectPaneToShow(page, 3, "Fake Shell ready");
-  await tab(page, 1).click();
   await expect(panes(page)).toHaveCount(1);
 
   // 改造したブラウザなどから、配置の WebSocket に直接送る。この接続も 1 人の参加者で、自分の表示（view）が届く。
