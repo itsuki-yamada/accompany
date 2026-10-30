@@ -39,10 +39,18 @@ async function open(browser: Browser, url: string) {
   return page;
 }
 
+// text のあとに、次のプロンプト（偽のシェルの「$」、本物のシェルの「bash$」「zsh%」）が出るまで待つ。
+// シェルは出力とプロンプトを別々に書くので、text が見えた時点では、そのあとのシェルの統合の印（D と A）はまだ届いていないことがある。
+// プロンプトは印のあとに書くので、プロンプトが見えれば印も届いている
+async function expectPromptAfter(page: Page, text: string) {
+  const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  await expect(pane(page, 1).locator(".xterm-rows")).toHaveText(new RegExp(`${escaped}\\s*\\S*[$%]\\s*$`));
+}
+
 // コマンドを実行し、次のプロンプトが出るまで待つ
 async function run(page: Page, command: string, waitFor: string) {
   await typeInPane(page, 1, `${command}\n`);
-  await expectPaneToShow(page, 1, waitFor);
+  await expectPromptAfter(page, waitFor);
 }
 
 async function openMenu(page: Page) {
@@ -218,7 +226,8 @@ test("シェルの統合がないときは、メニューを押せず、シェ�
 test("まだコマンドを実行していないときと、全画面のアプリの中では、メニューを押せない", async ({ browser }) => {
   accompany = await startAccompany(promptShell);
   const page = await open(browser, accompany.url);
-  await expectPaneToShow(page, 1, "Prompt shell ready");
+  // シェルの統合の印（A）を受け取るまでは、統合がないものとして扱う。メニューは開いたときの状態で作るので、印を受け取ってから開く
+  await expectPromptAfter(page, "Prompt shell ready");
 
   await openMenu(page);
   await expect(menuItem(page)).toBeDisabled();
@@ -226,7 +235,9 @@ test("まだコマンドを実行していないときと、全画面のアプ�
   await page.keyboard.press("Escape");
 
   await run(page, "echo before", "before");
-  await run(page, "tui", "Prompt TUI");
+  // 全画面のアプリの中では、プロンプトは出ない
+  await typeInPane(page, 1, "tui\n");
+  await expectPaneToShow(page, 1, "Prompt TUI");
   await openMenu(page);
   await expect(menuItem(page)).toBeDisabled();
   await expect(menuItem(page)).toHaveAttribute("title", /全画面のアプリの中では使えません/);
