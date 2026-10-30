@@ -90,7 +90,10 @@ async function dragDivider(page: Page, x: number) {
 
 // タブを、ターミナルを並べる領域の端（左・右・下）までドラッグする。手を離す前に、分割表示を作る印（+）が出ていることを確かめる
 async function dragTabToEdge(page: Page, n: number, edge: "left" | "right" | "bottom") {
-  const source = (await tab(page, n).boundingBox())!;
+  // 一覧は届いた状態で組み直すので、測る間に要素が入れ替わると大きさが取れない。取れるまで測り直す
+  let source: { x: number; y: number; width: number; height: number } | null = null;
+  await expect.poll(async () => (source = await tab(page, n).boundingBox())).not.toBeNull();
+  source = source!;
   const area = (await page.getByRole("main").boundingBox())!;
   const [x, y] = {
     left: [area.x + 10, area.y + area.height / 2],
@@ -163,9 +166,13 @@ test("分割したタブは、サイドメニューとツールバーで 1 つ�
   await expect(pane(page, 3).locator(".xterm-helper-textarea")).toBeFocused();
   // 分割した 1 と 3 は、1 つの項目として並ぶ。3 は、全員で共有する並びでも 1 の隣に移る
   await expectEntries(sidebar(page), ["ターミナル 1 | ターミナル 3", "ターミナル 2"]);
-  const [first, third] = [(await sidebar(page).getByRole("tab", { name: "ターミナル 1", exact: true }).boundingBox())!, (await sidebar(page).getByRole("tab", { name: "ターミナル 3", exact: true }).boundingBox())!];
-  expect(Math.abs(first.y - third.y)).toBeLessThan(2);
-  expect(third.x).toBeGreaterThan(first.x);
+  // 1 と 3 の名前が横に並ぶ（一覧は届いた状態で組み直すので、測れるまで測り直す）
+  await expect
+    .poll(async () => {
+      const [first, third] = await Promise.all([1, 3].map((n) => sidebar(page).getByRole("tab", { name: `ターミナル ${n}`, exact: true }).boundingBox()));
+      return first && third ? Math.abs(first.y - third.y) < 2 && third.x > first.x : false;
+    })
+    .toBe(true);
   // それぞれの名前に閉じるボタンが残る
   const row = sidebar(page).locator(".tab-row").first();
   await expect(row.getByRole("button", { name: "ターミナル 1 を閉じる" })).toBeVisible();
@@ -295,7 +302,9 @@ test("タブをターミナルの領域の右・左・下の端へドラッグ�
   await expectEntries(sidebar(page), ["ターミナル 1 | ターミナル 2", "ターミナル 4 | ターミナル 3"]);
 
   // 分割したタブ（項目）は、端へドラッグしても分割を作らない（分割どうしは並べない）
-  const source = (await tab(page, 4).boundingBox())!;
+  let source: { x: number; y: number; width: number; height: number } | null = null;
+  await expect.poll(async () => (source = await tab(page, 4).boundingBox())).not.toBeNull();
+  source = source!;
   const area = (await page.getByRole("main").boundingBox())!;
   await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
   await page.mouse.down();
