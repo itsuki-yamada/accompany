@@ -246,9 +246,17 @@ function splitIds() {
   return [...(view?.type === "split" ? [view] : []), ...parked].map(terminalIds);
 }
 
-// タブの一覧の並び（自分の分割をまとめたもの）。次・前のタブへの切り替えに使う
-function listedTabs() {
-  return entriesOf(tabs, splitIds()).flatMap((entry) => entry.tabs);
+// ターミナルごとの、自分が最後にフォーカスした順番（大きいほど新しい）。分割の項目へ移るときに、どのターミナルにフォーカスするかに使う
+const focusOrder = new Map<string, number>();
+let focusCount = 0;
+
+// タブの一覧の項目（自分の分割は 1 つの項目）ごとの、選ぶタブ。分割なら、分割で最後にフォーカスしていたタブ（なければ先頭）。
+// 次・前のタブと、その番目のタブへの切り替えに使う。分割は 1 つの項目として飛ばす（Chrome と同じ。docs/adr/215-split-view.md）
+function listedEntries() {
+  return entriesOf(tabs, splitIds()).map((entry) => ({
+    ids: entry.tabs.map((t) => t.id),
+    pick: entry.tabs.reduce((best, t) => ((focusOrder.get(t.id) ?? 0) > (focusOrder.get(best.id) ?? 0) ? t : best)).id,
+  }));
 }
 
 // 自分の表示に並べているタブだけを組み立てる。ほかのタブのターミナルは接続を切り、戻ったときにサーバーから画面を復元する
@@ -337,6 +345,7 @@ function paneFor(id: string) {
       close: () => send({ type: "close", terminal: id }),
       focused: () => {
         focusedTerminal = id;
+        focusOrder.set(id, ++focusCount);
         send({ type: "focus", terminal: id });
         sendScroll();
       },
@@ -442,16 +451,16 @@ function runShortcut(terminal: string, shortcut: Shortcut) {
       return send({ type: "new-tab", terminal });
     case "next-tab":
     case "previous-tab": {
-      const listed = listedTabs();
+      const listed = listedEntries();
       if (listed.length === 0) return;
       const step = shortcut.type === "next-tab" ? 1 : -1;
-      // 一覧でキー入力の先のタブの次・前のタブを選ぶ（分割のタブなら分割を出す）。端では反対側に回る
-      const index = (listed.findIndex((t) => t.id === terminal) + step + listed.length) % listed.length;
-      return selectTab(listed[index]!.id);
+      // 一覧でキー入力の先のタブの項目の、次・前の項目を選ぶ（分割なら分割を出す）。端では反対側に回る
+      const index = (listed.findIndex((e) => e.ids.includes(terminal)) + step + listed.length) % listed.length;
+      return selectTab(listed[index]!.pick);
     }
     case "select-tab": {
-      const tab = listedTabs()[shortcut.index];
-      return tab && selectTab(tab.id);
+      const entry = listedEntries()[shortcut.index];
+      return entry && selectTab(entry.pick);
     }
     case "next-pane": {
       const next = along(1);
