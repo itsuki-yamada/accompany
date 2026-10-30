@@ -238,7 +238,7 @@ socket.onmessage = (event) => {
     if (dragging) deferredView = message.layout;
     else renderView(message.layout);
   }
-  if (view) sidebar.update({ tabs, groups, shown: terminalIds(view), splits: splitIds(), titles, statuses, members, you });
+  if (view) sidebar.update({ tabs, groups, shown: terminalIds(view), maxShown: maxPanes, splits: splitIds(), titles, statuses, members, you });
 };
 
 // 自分の分割（いま出しているものと、しまってあるもの）のタブ。それぞれ、分割の中の並び（左から・上から）
@@ -577,7 +577,7 @@ function addToView(id: string, edge?: "left" | "right" | "bottom") {
 
 // タブの右クリックのメニューの、分割表示の項目（Chrome の分割表示と同じ）
 // - いま出していないタブ: 「現在のタブと新しい分割表示」（いまが分割なら「分割表示に追加」）。並べられる数まで並べていれば選べない
-// - 分割に入っているタブ: 「分割を解除」「このビューを閉じる」（タブを閉じる）、そのタブを含む一番内側の分割の向きの変更と入れ替え
+// - 分割に入っているタブ: 「分割を解除」（タブは閉じない）、そのタブを含む一番内側の分割の向きの変更と入れ替え
 function splitMenuItems(id: string): MenuItem[] {
   if (!view) return [];
   const shown = terminalIds(view);
@@ -602,7 +602,6 @@ function splitMenuItems(id: string): MenuItem[] {
           send({ type: "separate", tab: id });
         },
       },
-      { label: "このビューを閉じる", disabled: tabs.length === 1, action: () => send({ type: "close", terminal: id }) },
       { label: parent.direction === "column" ? "左右に並べる" : "上下に並べる", action: () => rotateSplit(parent.id) },
       { label: "位置を入れ替える", action: () => flipSplit(parent.id) },
     );

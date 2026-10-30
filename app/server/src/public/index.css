@@ -77,7 +77,7 @@ body {
   scrollbar-width: none;
 }
 
-/* ツールバーのタブ。名前のボタンに、閉じるの小さなボタンを添える */
+/* ツールバーのタブ。名前のボタンに、並べて表示・閉じるの小さなボタンを添える */
 .toolbar-tab-item {
   display: flex;
   align-items: stretch;
@@ -108,9 +108,14 @@ body {
   white-space: nowrap;
 }
 
+#tabs .tab-toggle,
 #tabs .tab-close {
   padding: 0 3px;
   color: #777;
+}
+
+#tabs .tab-toggle[aria-pressed="true"] {
+  color: #4fc3f7;
 }
 
 #tabs .tab-close {
@@ -1001,7 +1006,7 @@ body[data-pair-mode="following"] .pane-bar {
   font-size: 14px;
 }
 
-/* タブの行。タブ（状態・名前・タイトル・フォーカスしている参加者）と閉じるのボタンを並べる。
+/* タブの行。タブ（状態・名前・タイトル・フォーカスしている参加者）、並べて表示、閉じるのボタンを並べる。
    表示している（並べている）タブは、左の線と背景で示す */
 .tab-row {
   display: flex;
@@ -1016,12 +1021,18 @@ body[data-pair-mode="following"] .pane-bar {
   box-shadow: inset 2px 0 0 #4fc3f7;
 }
 
+#sidebar .tab-toggle,
 #sidebar .tab-close {
   flex: 0 0 auto;
   padding: 4px 4px;
   color: #777;
 }
 
+#sidebar .tab-toggle[aria-pressed="true"] {
+  color: #4fc3f7;
+}
+
+#sidebar .tab-toggle:hover:not(:disabled),
 #sidebar .tab-close:hover:not(:disabled) {
   color: #fff;
 }
@@ -1398,11 +1409,34 @@ body[data-pair-mode="following"] .pane-bar {
   border-radius: 50%;
 }
 
-/* 分割表示（docs/adr/215-split-view.md）。分割したタブは、1 つのタブの枠の中に名前と閉じるボタンを横に並べ、
-   名前の間を細い線で区切る */
+/* 分割表示（docs/adr/215-split-view.md）。分割したタブは、項目全体を 1 つの枠（囲みと背景）で包み、その中に名前と
+   並べて表示・閉じるのボタンを横に並べ、名前の間を細い線で区切る。表示している（選んでいる）印も、名前ごとではなく枠全体に付ける */
 .tab-row[data-split] {
   align-items: stretch;
+  margin: 3px 4px;
   padding: 0;
+  border: 1px solid #3c3c3c;
+  border-radius: 6px;
+  background: #181818;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.tab-row[data-split]:has([role="tab"][aria-selected="true"]) {
+  border-color: #4fc3f7;
+  background: #1f1f1f;
+  box-shadow: none;
+}
+
+/* グループの分割は、グループの色の線を左に残す */
+.tab-row[data-split][data-group] {
+  margin-left: 6px;
+  border-left: 3px solid var(--group-color);
+}
+
+.tab-row[data-split] .session,
+.tab-row[data-split] .session[data-focused="true"] {
+  box-shadow: none;
 }
 
 .split-part {
@@ -1413,11 +1447,31 @@ body[data-pair-mode="following"] .pane-bar {
 }
 
 .split-part + .split-part {
-  border-left: 1px solid #444;
+  border-left: 1px solid #3c3c3c;
 }
 
 #sidebar .split-part .session {
   padding-left: 8px;
+}
+
+/* サイドメニューの分割では、名前を広く取れるよう、並べて表示・閉じるのボタンを名前の右に縦に並べる */
+.split-part-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+}
+
+.toolbar-tab-item[data-split] {
+  margin: 2px 2px 0;
+  border: 1px solid #444;
+  border-bottom-width: 2px;
+  border-radius: 6px 6px 0 0;
+  background: #181818;
+}
+
+.toolbar-tab-item[data-split]:has([role="tab"][aria-selected="true"]) {
+  border-color: #4fc3f7;
+  background: #1f1f1f;
 }
 
 .toolbar-tab-item[data-split] .split-part {

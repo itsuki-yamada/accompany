@@ -43,6 +43,8 @@ export type SidebarState = {
   groups: Group[];
   // 自分が表示している（並べている）タブ
   shown: string[];
+  // 並べられるタブの数
+  maxShown: number;
   // 自分の分割（いま出しているものと、しまってあるもの）。それぞれ、分割の中の並び（左から・上から）
   splits: string[][];
   titles: Record<string, string>;
@@ -205,18 +207,22 @@ export class Sidebar {
         row.className = "tab-row";
         this.markGroup(row, entry.lead, state);
         if (entry.tabs.length > 1) {
-          // 分割したタブは、1 つの行に名前を横に並べる。それぞれの名前に閉じるボタンを残す
+          // 分割したタブは、1 つの行（枠）に名前を横に並べる。それぞれの名前に並べて表示・閉じるのボタンを残す
           row.dataset.split = "true";
           row.append(
             ...entry.tabs.map((tab) => {
               const part = document.createElement("div");
               part.className = "split-part";
-              part.append(this.sidebarTab(tab, state), this.closeButton(tab, state));
+              // 名前を広く取れるよう、ボタンは名前の右に縦に並べる
+              const buttons = document.createElement("span");
+              buttons.className = "split-part-actions";
+              buttons.append(...this.tabActions(tab, state));
+              part.append(this.sidebarTab(tab, state), buttons);
               return part;
             }),
           );
         } else {
-          row.append(this.sidebarTab(entry.lead, state), this.closeButton(entry.lead, state));
+          row.append(this.sidebarTab(entry.lead, state), ...this.tabActions(entry.lead, state));
         }
         this.enableDrag(row, { kind: "tab", id: entry.tabs[0]!.id }, true);
         return row;
@@ -331,7 +337,7 @@ export class Sidebar {
     return wrapper;
   }
 
-  // ツールバーのタブ。名前と状態、閉じるのボタンを出す。分割したタブは、1 つの項目に名前と閉じるボタンを横に並べる
+  // ツールバーのタブ。名前と状態、並べて表示・閉じるのボタンを出す。分割したタブは、1 つの項目に名前とボタンを横に並べる
   private renderStrip(state: SidebarState) {
     this.stripTabs.replaceChildren(
       ...this.withLabels(state, false, (entry) => {
@@ -349,12 +355,12 @@ export class Sidebar {
             .join(" ・ ");
           if (entry.tabs.length === 1) {
             if (status) item.dataset.status = status;
-            return [select, this.closeButton(tab, state)];
+            return [select, ...this.tabActions(tab, state)];
           }
           const part = document.createElement("span");
           part.className = "split-part";
           if (status) part.dataset.status = status;
-          part.append(select, this.closeButton(tab, state));
+          part.append(select, ...this.tabActions(tab, state));
           return [part];
         });
         if (entry.tabs.length > 1) item.dataset.split = "true";
@@ -365,12 +371,23 @@ export class Sidebar {
     );
   }
 
-  // タブの閉じるボタン。最後のタブは閉じられない
-  private closeButton({ id, name }: Tab, { tabs }: SidebarState) {
+  // タブの並べて表示・閉じるのボタン。並べて表示は、表示しているタブが 1 つのときは外せず、並べられる数まで並べているときは
+  // 加えられない。加えるときは、全員で共有する並びでも、分割の相手の隣に移る（docs/adr/215-split-view.md）。最後のタブは閉じられない
+  private tabActions({ id, name }: Tab, { tabs, shown, maxShown }: SidebarState) {
+    const isShown = shown.includes(id);
+    const toggle = smallButton("⊞", `${name} を並べて表示`, `toggle-${id}`, () => this.actions.toggleTab(id));
+    toggle.className = "tab-toggle";
+    toggle.setAttribute("aria-pressed", String(isShown));
+    toggle.disabled = isShown ? shown.length === 1 : shown.length >= maxShown;
+    toggle.title = isShown
+      ? "並べるのをやめる（分割から外す）"
+      : shown.length >= maxShown
+        ? `並べられるのは ${maxShown} つまで`
+        : "いまの表示と並べて表示する（⌘ / Ctrl を押しながらタブを選んでも並べられる）";
     const close = smallButton("×", `${name} を閉じる`, `close-${id}`, () => this.actions.closeTab(id));
     close.className = "tab-close";
     close.disabled = tabs.length === 1;
-    return close;
+    return [toggle, close];
   }
 
   // タブを選ぶボタン。押すとそのタブを表示し（分割のタブなら分割を出す）、⌘ / Ctrl を押しながら押すと、並べているタブに加える・外す
@@ -482,7 +499,7 @@ export class Sidebar {
     );
   }
 
-  // タブ（分割なら、分割の項目）を 1 つ前（step = -1）・後ろ（1）へ移すときの、移す位置（移す項目を除いた一覧での、タブの数え方の位置）
+  // タブ（分割なら、分割の項目）を 1 つ前（step = -1）・後ろ（1）へ移すときの、移す位置（移す項目を除いた一覧での、項目の位置）
   // とグループ。移せなければ undefined。
   // - グループの中では、隣の項目と入れ替える。グループの端から外へ移すと、その場でグループから外れる
   // - グループの外の項目は、隣のグループを飛び越える（グループに入れるのはメニューかドラッグ）
@@ -492,27 +509,28 @@ export class Sidebar {
     const entry = entries[k];
     if (!entry) return;
     const rest = entries.filter((e) => e !== entry);
-    const at = (position: number) => flatIndex(rest, position);
     const next = entries[k + step];
     const group = entry.lead.group;
-    if (group !== undefined) return next?.lead.group === group ? { index: at(k + step) } : { index: at(k), group: null };
+    if (group !== undefined) return next?.lead.group === group ? { index: k + step } : { index: k, group: null };
     if (!next) return;
-    if (next.lead.group === undefined) return { index: at(k + step) };
+    if (next.lead.group === undefined) return { index: k + step };
     const span = rest.flatMap((e, i) => (e.lead.group === next.lead.group ? [i] : []));
-    return { index: at(step > 0 ? span.at(-1)! + 1 : span[0]!) };
+    return { index: step > 0 ? span.at(-1)! + 1 : span[0]! };
   }
 
-  // タブ（分割なら、分割のタブをまとめて）を、一覧の index 番目（移すタブを除いた一覧での位置）へ移す（group を渡したときは、
-  // そのグループに入れる・外す）。一覧の並びは自分の分割をまとめたものなので、送る位置は、全員で共有するタブの並びでの位置に直す
-  // （一覧で直前にあるタブの後ろ）。続けて移したとき（Alt+↑ を 2 回など）に前の並びから位置を数えないよう、
-  // サーバーから並びが届く前に手元の並びも変えておく。届いた並びで置き換わる
+  // タブ（分割なら、分割のタブをまとめて）を、一覧の index 番目（移す項目を除いた一覧での、項目の位置）へ移す（group を渡したときは、
+  // そのグループに入れる・外す）。全員で共有するタブの並びでは、移した先の次の項目の、並びで一番前のタブ（lead）の前に置く
+  // （次の項目がなければ最後）。ほかの参加者の並べ替えで分割のタブが離れていても、一覧で見えているとおりの位置に入る。
+  // 続けて移したとき（Alt+↑ を 2 回など）に前の並びから位置を数えないよう、サーバーから並びが届く前に手元の並びも変えておく。
+  // 届いた並びで置き換わる
   private move(ids: string[], index: number, group?: string | null) {
     if (!this.state) return;
-    const flat = this.entries().flatMap((e) => e.tabs).filter((t) => !ids.includes(t.id));
+    const rest = this.entries().filter((e) => !e.tabs.some((t) => ids.includes(t.id)));
     const shared = this.state.tabs.filter((t) => !ids.includes(t.id));
     const moving = this.state.tabs.filter((t) => ids.includes(t.id));
-    if (moving.length === 0 || index < 0 || index > flat.length) return;
-    const to = index === 0 ? 0 : shared.indexOf(flat[index - 1]!) + 1;
+    if (moving.length === 0 || index < 0 || index > rest.length) return;
+    const next = rest[index]?.lead;
+    const to = next ? shared.indexOf(next) : shared.length;
     const moved = moving.map((found) => {
       const tab = { ...found };
       if (group === null) delete tab.group;
@@ -529,15 +547,17 @@ export class Sidebar {
     );
   }
 
-  // グループのタブをまとめて、グループのタブを除いた一覧の index 番目へ移す。送る位置は、move と同じく共有の並びでの位置に直す
+  // グループのタブをまとめて、グループの項目を除いた一覧の index 番目（項目の位置）へ移す。共有の並びでの位置は、move と同じく
+  // 次の項目の lead の前
   private moveGroup(id: string, index: number) {
     if (!this.state) return;
-    const flat = this.entries().flatMap((e) => e.tabs).filter((t) => t.group !== id);
+    const rest = this.entries().filter((e) => e.lead.group !== id);
     const members = this.state.tabs.filter((t) => t.group === id);
-    const rest = this.state.tabs.filter((t) => t.group !== id);
-    if (members.length === 0 || index < 0 || index > flat.length) return;
-    const to = index === 0 ? 0 : rest.indexOf(flat[index - 1]!) + 1;
-    this.update({ ...this.state, tabs: [...rest.slice(0, to), ...members, ...rest.slice(to)] });
+    const shared = this.state.tabs.filter((t) => t.group !== id);
+    if (members.length === 0 || index < 0 || index > rest.length) return;
+    const next = rest[index]?.lead;
+    const to = next ? shared.indexOf(next) : shared.length;
+    this.update({ ...this.state, tabs: [...shared.slice(0, to), ...members, ...shared.slice(to)] });
     this.actions.moveGroup(id, to);
   }
 
@@ -673,12 +693,12 @@ export class Sidebar {
       const ids = entry.tabs.map((t) => t.id);
       const rest = entries.filter((e) => e !== entry);
       if (targetEntry) {
-        const index = flatIndex(rest, rest.indexOf(targetEntry) + (place === "after" ? 1 : 0));
+        const index = rest.indexOf(targetEntry) + (place === "after" ? 1 : 0);
         return { mark, markPlace: place, apply: () => this.move(ids, index, targetEntry.lead.group ?? null) };
       }
       const first = span(rest, target.id)[0];
       if (first === undefined) return;
-      const index = flatIndex(rest, first);
+      const index = first;
       return { mark, markPlace: place, apply: () => this.move(ids, index, place === "before" ? null : target.id) };
     }
 
@@ -686,18 +706,18 @@ export class Sidebar {
     const rest = entries.filter((e) => e.lead.group !== dragged.id);
     const other = targetEntry ? targetEntry.lead.group : target.id;
     if (other === undefined) {
-      const index = flatIndex(rest, rest.indexOf(targetEntry!) + (place === "after" ? 1 : 0));
+      const index = rest.indexOf(targetEntry!) + (place === "after" ? 1 : 0);
       return { mark, markPlace: place, apply: () => this.moveGroup(dragged.id, index) };
     }
     const indices = span(rest, other);
     if (indices.length === 0) return;
     // ほかのグループのラベルに重ねたとき、またはタブの前半に重ねたときは、そのグループの前
     if (target.kind === "group" || place === "before") {
-      const index = flatIndex(rest, indices[0]!);
+      const index = indices[0]!;
       return { mark: `group-${other}`, markPlace: "before" as Place, apply: () => this.moveGroup(dragged.id, index) };
     }
     const last = indices.at(-1)!;
-    const index = flatIndex(rest, last + 1);
+    const index = last + 1;
     return { mark: `tab-${rest[last]!.tabs[0]!.id}`, markPlace: "after" as Place, apply: () => this.moveGroup(dragged.id, index) };
   }
 
@@ -748,11 +768,11 @@ export class Sidebar {
       const entry = entries.find((e) => e.tabs[0]!.id === dragged.id);
       if (!entry || (entries.at(-1) === entry && entry.tabs.every((t) => t.group === undefined))) return;
       const ids = entry.tabs.map((t) => t.id);
-      return () => this.move(ids, flatIndex(entries.filter((e) => e !== entry), entries.length - 1), null);
+      return () => this.move(ids, entries.length - 1, null);
     }
     const rest = entries.filter((e) => e.lead.group !== dragged.id);
     if (entries.at(-1)?.lead.group === dragged.id) return;
-    return () => this.moveGroup(dragged.id, flatIndex(rest, rest.length));
+    return () => this.moveGroup(dragged.id, rest.length);
   }
 
   // ドラッグを終え、移す位置の線を消して、ドラッグしている間に届いた状態を出す
@@ -795,11 +815,6 @@ export class Sidebar {
     const index = rows.indexOf(document.activeElement as HTMLElement);
     rows[Math.min(rows.length - 1, Math.max(0, index + step))]?.focus();
   }
-}
-
-// 項目の並び（entries）の position 番目の前にあるタブの数。一覧での位置を、タブの数え方の位置に直す
-function flatIndex(entries: Entry<Tab>[], position: number) {
-  return entries.slice(0, position).reduce((n, e) => n + e.tabs.length, 0);
 }
 
 function header(text: string) {
