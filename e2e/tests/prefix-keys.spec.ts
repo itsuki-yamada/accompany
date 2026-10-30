@@ -59,6 +59,44 @@ async function prefixed(page: Page, key: string) {
   await expect(indicator(page)).toBeHidden();
 }
 
+test("Ctrl+T のあと n / p と数字は、一覧の項目ごとに移り・数え、分割は 1 つの項目として扱う", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const page = await openAsParticipant(browser, accompany.url);
+  await focusPane(page, 1);
+  // 1 を右に分割して（1 | 2）、2 にフォーカスしてから、新しいタブ（3）を開く。一覧は「1 | 2」の分割と 3（docs/adr/215-split-view.md）
+  await prefixed(page, "%");
+  await expectPaneToShow(page, 2, "Fake Shell ready");
+  await focusPane(page, 2);
+  await prefixed(page, "c");
+  await expectPaneToShow(page, 3, "Fake Shell ready");
+  await expectFocusOn(page, 3);
+
+  await prefixed(page, "p");
+  await expect(panes(page)).toHaveCount(2);
+  await expectFocusOn(page, 2);
+  await prefixed(page, "n");
+  await expect(panes(page)).toHaveCount(1);
+  await expectFocusOn(page, 3);
+  // 端では反対側に回る（分割の中の 1 には移らない）
+  await prefixed(page, "n");
+  await expect(panes(page)).toHaveCount(2);
+  await expectFocusOn(page, 2);
+
+  // 数字は項目で数える。2 番目は 3、1 番目は分割（最後にフォーカスしていた 1）
+  await focusPane(page, 1);
+  await prefixed(page, "2");
+  await expect(panes(page)).toHaveCount(1);
+  await expectFocusOn(page, 3);
+  await prefixed(page, "1");
+  await expect(panes(page)).toHaveCount(2);
+  await expectFocusOn(page, 1);
+  // 項目は 2 つなので、3 番目はない
+  await prefixed(page, "3");
+  await page.waitForTimeout(300);
+  await expect(panes(page)).toHaveCount(2);
+  await expectFocusOn(page, 1);
+});
+
 test("Ctrl+T のあと c で新しいタブを開き、n / p で次・前のタブ、数字でその番目のタブだけを表示する", async ({ browser }) => {
   accompany = await startAccompany([], fakeShell);
   const page = await openAsParticipant(browser, accompany.url);

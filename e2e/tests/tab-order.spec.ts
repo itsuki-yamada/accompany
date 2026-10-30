@@ -281,20 +281,18 @@ test("並び順を変えても、参加者ごとの表示とペアプロモー�
     await expect(tab(page, 3)).toHaveAttribute("aria-selected", "true");
   }
 
-  // 次・前のタブは、新しい並び（2, 1, 3）に従う。分割（1 と 3）の中では、分割のままフォーカスが移る（docs/adr/215-split-view.md）
+  // 次・前のタブは、新しい並び（2、「1 | 3」の分割）に従う。分割は 1 つの項目として飛ばす（docs/adr/215-split-view.md）
   const focused = (n: number) => expect(pane(host, n).locator(".xterm-helper-textarea")).toBeFocused();
   await pane(host, 1).locator(".xterm-helper-textarea").focus();
   await host.keyboard.press("ControlOrMeta+Shift+Period");
-  await focused(3);
-  await expect(panes(host)).toHaveCount(2);
-  await host.keyboard.press("ControlOrMeta+Shift+Period");
   await expect(panes(host)).toHaveCount(1);
   await expect(pane(host, 2)).toBeVisible();
-  await host.keyboard.press("ControlOrMeta+Shift+Comma");
+  await host.keyboard.press("ControlOrMeta+Shift+Period");
   await expect(panes(host)).toHaveCount(2);
-  await focused(3);
-  await host.keyboard.press("ControlOrMeta+Shift+Comma");
   await focused(1);
+  await host.keyboard.press("ControlOrMeta+Shift+Comma");
+  await expect(panes(host)).toHaveCount(1);
+  await expect(pane(host, 2)).toBeVisible();
 });
 
 test("並び順は保存され、起動し直しても残る", async ({ browser }) => {
