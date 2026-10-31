@@ -1,0 +1,33 @@
+name: Verify lockfile
+
+# ワークフローのロックファイル（.github/workflows/actions.lock）が、ワークフローの uses: と合っているか、
+# 固定したコミットが今もアクションのリポジトリのタグやブランチから辿れるかを確かめる（docs/adr/225-actions-lockfile.md）。
+# 配布元（github/gh-actions-lock）の .github/workflows/verify-lockfile.yml を元にしている。
+# 必須のチェックにしても待ち続けないよう、paths で絞らずにすべてのプルリクで流す
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify-lockfile
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      # 拡張の版は Dependabot が上げないので、手で上げる
+      - name: gh-actions-lock を入れる
+        run: gh extension install github/gh-actions-lock --pin v0.4.0
+
+      - name: ロックファイルを確かめる
+        run: gh actions-lock --verify
