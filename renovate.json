@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "依存パッケージ・mise.toml のツール・GitHub Actions の新しい版を PR で届ける（docs/adr/87-dependency-updates.md）",
-  "extends": ["config:recommended", "helpers:pinGitHubActionDigests", "security:minimumReleaseAgeNpm", ":semanticCommits", ":semanticCommitTypeAll(chore)"],
+  "description": "依存パッケージ・mise.toml のツールの新しい版を PR で届ける（docs/adr/87-dependency-updates.md）。GitHub Actions は Dependabot が扱う（docs/adr/225-actions-lockfile.md）",
+  "extends": ["config:recommended", "security:minimumReleaseAgeNpm", ":semanticCommits", ":semanticCommitTypeAll(chore)"],
   "dependencyDashboardTitle": "依存の更新の一覧（Renovate）",
   "timezone": "Asia/Tokyo",
   "schedule": ["* 0-8 * * 1"],
@@ -17,9 +17,9 @@
   },
   "packageRules": [
     {
-      "description": "github-actions マネージャーは依存ごとに「<名前> action」をタイトルに使うので、ほかの依存と同じく名前だけにする（マネージャーの設定より依存の値が優先されるため、packageRules で上書きする）",
+      "description": "GitHub Actions は Dependabot が uses: のタグと actions.lock を一緒に上げる（.github/dependabot.yml、docs/adr/225-actions-lockfile.md）。同じ更新の PR が二重に届かないよう、Renovate では扱わない",
       "matchManagers": ["github-actions"],
-      "commitMessageTopic": "{{depName}}"
+      "enabled": false
     },
     {
       "description": "major 以外はまとめて 1 つの PR にする。major は破壊的な変更を個別に確かめるため、1 つずつの PR にする",

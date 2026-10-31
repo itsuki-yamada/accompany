@@ -36,18 +36,18 @@ jobs:
           - platform: linux-arm64
             runner: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
-      # Homebrew にはリリースのタグがないので、main のコミットで固定する
-      - uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # main
+      # Homebrew/actions は週 1 回ほど日付のタグ（2026.10.26.1 など）を付ける。動くコミットは actions.lock で固定する
+      - uses: Homebrew/actions/setup-homebrew@2026.10.26.1
 
       - name: コミットした formula で入れて、起動できることを確かめる
         run: .github/scripts/check-formula.sh
 
       # tarball を作るのに、mise.toml の bun を使う（formula が動かすのは、依存として入る Homebrew の bun）
-      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - uses: jdx/mise-action@v5.2.4
 
       - name: このコミットの tarball と実行ファイルを作り、update-formula.sh のひな形の formula で入れて、起動できることを確かめる
         run: |
@@ -62,13 +62,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
-      - uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # main
+      - uses: Homebrew/actions/setup-homebrew@2026.10.26.1
 
-      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - uses: jdx/mise-action@v5.2.4
 
       - name: oven-sh/bun の bun を入れる
         run: |

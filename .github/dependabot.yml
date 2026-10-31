@@ -1,0 +1,26 @@
+# GitHub Actions の新しい版を PR で届ける（docs/adr/225-actions-lockfile.md）。
+# ワークフローの uses: のタグと、.github/workflows/actions.lock の同じ依存を、同じ PR で上げる。
+# 依存パッケージと mise.toml の Bun は Renovate が扱う（renovate.json、docs/adr/87-dependency-updates.md）
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    # Renovate と同じく、週 1 回、月曜の朝（日本時間）
+    schedule:
+      interval: weekly
+      day: monday
+      time: "00:00"
+      timezone: Asia/Tokyo
+    # 公開から 3 日たった版だけを PR にする（Renovate の npm と同じ日数）。
+    # gh actions-lock も、この日数より新しいタグを固定したときに知らせる（default-days だけを読む）
+    cooldown:
+      default-days: 3
+    # major 以外は 1 つの PR にまとめ、major は依存ごとに PR にする
+    groups:
+      non-major:
+        update-types:
+          - minor
+          - patch
+    # Dependabot のタイトルは英語の「bump X from A to B」のまま変えられないので、接頭辞だけ揃える
+    commit-message:
+      prefix: chore(deps)
