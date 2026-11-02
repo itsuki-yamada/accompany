@@ -945,12 +945,13 @@ export class Pane {
   }
 
   // 最新の出力を追うときに、カーソルの行が枠の外にあれば、カーソルの行が枠の一番下に来るようにスクロールする。
-  // カーソルより上に出た出力をなるべく多く見せるため、上にあるときも一番下に合わせる
+  // カーソルより上に出た出力をなるべく多く見せるため、上にあるときも一番下に合わせる。
+  // 追うのをやめていても、出力（clear など）でカーソルの行が枠の中に見えるようになったら、また追う
   private revealCursor() {
     this.updateFollowOutput();
-    if (!this.followOutput) return;
     const cursor = this.cursorInFrame();
-    if (!cursor || cursor.visible) return;
+    if (cursor?.visible) this.followOutput = true;
+    if (!this.followOutput || !cursor || cursor.visible) return;
     this.scrollFrameTo(Math.max(0, cursor.bottom - this.container.clientHeight));
   }
 
