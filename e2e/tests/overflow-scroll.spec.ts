@@ -133,3 +133,21 @@ test("枠からはみ出しているとき、自分で枠をスクロールし�
   await guestPage.waitForTimeout(500);
   expect(await frame(guestPage, 1).evaluate((e) => e.scrollTop)).toBe(0);
 });
+
+test("枠からはみ出しているとき、自分でスクロールして追うのをやめても、clear などでカーソルの行が見えれば、また最新の行を追う", async ({ browser }) => {
+  accompany = await startAccompany(promptShell, {}, { minWindow });
+  const { hostPage, guestPage } = await openHostAndGuest(browser, accompany.url);
+  await typeInPane(hostPage, 1, "lines 80 filled\n");
+  await expectPaneToShow(guestPage, 1, "filled 80");
+  await expect.poll(() => rowVisibleInFrame(guestPage, 1, "filled 80")).toBe(true);
+  await frame(guestPage, 1).evaluate((e) => e.scrollTo({ top: 0 }));
+  await expect.poll(async () => (await frameScroll(guestPage, 1)).atBottom).toBe(false);
+
+  // 画面を消すと、カーソルの行が枠の一番上（見えている範囲）に来る
+  await typeInPane(hostPage, 1, "clear\n");
+  await expect(pane(guestPage, 1).locator(".xterm-rows")).not.toContainText("filled 80");
+  await typeInPane(hostPage, 1, "lines 45 after\n");
+
+  await expectPaneToShow(guestPage, 1, "after 45");
+  await expect.poll(() => rowVisibleInFrame(guestPage, 1, "after 45")).toBe(true);
+});
