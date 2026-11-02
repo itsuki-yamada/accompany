@@ -1,6 +1,6 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { closeContexts, newContext, startAccompany, type Accompany } from "./accompany";
-import { expectPaneToShow, pane, tab } from "./panes";
+import { expectPaneToShow, pane, tab, typeInPane } from "./panes";
 
 // 端末が自分の画面より大きく、はみ出した部分をペインの枠のスクロールで見ているとき、ターミナルを表示し直しても
 // （タブの切り替え・ページの開き直し）、枠のスクロールは一番下（最新の行が見える位置）にある（#116）
@@ -71,4 +71,83 @@ test("枠からはみ出しているとき、ページを開き直すと、枠�
 
   await expectPaneToShow(page, 1, "line 200");
   await expect.poll(() => frameScroll(page, 1)).toEqual({ overflows: true, atBottom: true });
+});
+
+// 端末が枠からはみ出しているとき、画面がいっぱいでなくても（開いたばかり・clear の直後など）、出力でカーソルが動けば、
+// 枠のスクロールはカーソルの行（最新の出力）を追う。自分で枠をスクロールしてカーソルを見えなくしたら、追わない（#227）
+
+// プロンプト（「$ 」）を出し、「lines 数 文字列」で「文字列 1」…を出すシェル。開いたときのプロンプトは画面の一番上にある
+const promptShell = ["--", "bun", "e2e/fixtures/prompt-shell.ts"];
+
+// その文字だけの行（最後のもの）が、枠のスクロールで見えている範囲にあるか
+function rowVisibleInFrame(page: Page, n: number, text: string) {
+  return pane(page, n).evaluate((element, text) => {
+    const frame = element.querySelector(".pane-terminal")!.getBoundingClientRect();
+    const rows = [...element.querySelectorAll(".xterm-rows > div")].filter((row) => row.textContent?.trim() === text);
+    const row = rows.at(-1)?.getBoundingClientRect();
+    return row !== undefined && row.top >= frame.top - 1 && row.bottom <= frame.bottom + 1;
+  }, text);
+}
+
+async function openHostAndGuest(browser: Browser, url: string) {
+  const hostPage = await openAsParticipant(browser, url, host);
+  const guestPage = await openAsParticipant(browser, url, guest);
+  await expectPaneToShow(guestPage, 1, "Prompt shell ready");
+  await expect.poll(async () => (await frameScroll(guestPage, 1)).overflows).toBe(true);
+  return { hostPage, guestPage };
+}
+
+test("枠からはみ出しているとき、ほかの参加者のコマンドの出力が画面の上のほうに出ても、枠のスクロールがその行まで動く", async ({ browser }) => {
+  accompany = await startAccompany(promptShell, {}, { minWindow });
+  const { hostPage, guestPage } = await openHostAndGuest(browser, accompany.url);
+
+  await typeInPane(hostPage, 1, "lines 5 short\n");
+
+  await expectPaneToShow(guestPage, 1, "short 5");
+  await expect.poll(() => rowVisibleInFrame(guestPage, 1, "short 5")).toBe(true);
+});
+
+test("枠からはみ出しているとき、自分で打ったコマンドの出力が枠の下まで流れても、枠のスクロールが最新の行まで動く", async ({ browser }) => {
+  accompany = await startAccompany(promptShell, {}, { minWindow });
+  const { guestPage } = await openHostAndGuest(browser, accompany.url);
+
+  // 打つと、ブラウザが入力欄（画面の上のほうのカーソル）を見せるために枠を上へスクロールする
+  await typeInPane(guestPage, 1, "lines 45 long\n");
+
+  await expectPaneToShow(guestPage, 1, "long 45");
+  await expect.poll(() => rowVisibleInFrame(guestPage, 1, "long 45")).toBe(true);
+});
+
+test("枠からはみ出しているとき、自分で枠をスクロールしてカーソルの行を見えなくしたら、出力が来ても引き戻さない", async ({ browser }) => {
+  accompany = await startAccompany(promptShell, {}, { minWindow });
+  const { hostPage, guestPage } = await openHostAndGuest(browser, accompany.url);
+  await typeInPane(hostPage, 1, "lines 80 filled\n");
+  await expectPaneToShow(guestPage, 1, "filled 80");
+  await expect.poll(() => rowVisibleInFrame(guestPage, 1, "filled 80")).toBe(true);
+
+  await frame(guestPage, 1).evaluate((e) => e.scrollTo({ top: 0 }));
+  await expect.poll(async () => (await frameScroll(guestPage, 1)).atBottom).toBe(false);
+  await typeInPane(hostPage, 1, "lines 3 more\n");
+
+  await expectPaneToShow(guestPage, 1, "more 3");
+  await guestPage.waitForTimeout(500);
+  expect(await frame(guestPage, 1).evaluate((e) => e.scrollTop)).toBe(0);
+});
+
+test("枠からはみ出しているとき、自分でスクロールして追うのをやめても、clear などでカーソルの行が見えれば、また最新の行を追う", async ({ browser }) => {
+  accompany = await startAccompany(promptShell, {}, { minWindow });
+  const { hostPage, guestPage } = await openHostAndGuest(browser, accompany.url);
+  await typeInPane(hostPage, 1, "lines 80 filled\n");
+  await expectPaneToShow(guestPage, 1, "filled 80");
+  await expect.poll(() => rowVisibleInFrame(guestPage, 1, "filled 80")).toBe(true);
+  await frame(guestPage, 1).evaluate((e) => e.scrollTo({ top: 0 }));
+  await expect.poll(async () => (await frameScroll(guestPage, 1)).atBottom).toBe(false);
+
+  // 画面を消すと、カーソルの行が枠の一番上（見えている範囲）に来る
+  await typeInPane(hostPage, 1, "clear\n");
+  await expect(pane(guestPage, 1).locator(".xterm-rows")).not.toContainText("filled 80");
+  await typeInPane(hostPage, 1, "lines 45 after\n");
+
+  await expectPaneToShow(guestPage, 1, "after 45");
+  await expect.poll(() => rowVisibleInFrame(guestPage, 1, "after 45")).toBe(true);
 });
