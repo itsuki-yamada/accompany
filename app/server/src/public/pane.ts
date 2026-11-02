@@ -164,9 +164,14 @@ export class Pane {
   // 最後にホイールを回した（スクロールバーから手を離した）時刻と、スクロールバーを押しているか
   private userScrollAt = -Infinity;
   private draggingScrollbar = false;
-  // 端末が表示領域からはみ出しているとき、枠のスクロールを一番下（最新の行が見える位置）に保つか。
-  // 表示し直したターミナルは一番下から見せ、自分で上にスクロールしたら、一番下に戻すまで保たない（docs/adr/116-overflow-scroll-bottom.md）
-  private stickToBottom = true;
+  // 端末が表示領域からはみ出しているとき、枠のスクロールで最新の出力（カーソルの行）を追うか。
+  // 表示し直したターミナルは一番下から見せ、出力でカーソルが枠の外に出たら、カーソルの行まで枠をスクロールする。
+  // 自分で枠をスクロールしてカーソルの行を見えなくしたら、カーソルの行が見える位置か一番下に戻すまで追わない
+  // （docs/adr/116-overflow-scroll-bottom.md、docs/adr/227-overflow-follow-cursor.md）
+  private followOutput = true;
+  // 最後に自分で（このクラスが）動かした、または追うかを決め直したときの枠のスクロール位置。
+  // その位置のままなら、参加者がスクロールしたとはみなさない。枠は一番上から始まる
+  private frameScrolledTo = 0;
   // スクロールバックのスクロール位置を最後に合わせ直したときの、1 行の高さ（docs/adr/115-scroll-after-font-change.md）
   private scrollCellHeight: number | undefined;
   private releaseScrollbar = () => {
@@ -309,6 +314,7 @@ export class Pane {
     this.terminal.onWriteParsed(() => {
       this.sendSelection();
       this.updateCopyButton();
+      if (this.restored) this.revealCursor();
     });
 
     this.socket = new WebSocket(`${protocol}//${location.host}/ws/terminals/${id}`);
@@ -419,7 +425,7 @@ export class Pane {
     this.bottomObserver = new ResizeObserver(() => this.keepAtBottom());
     this.bottomObserver.observe(container);
     if (this.terminal.element) this.bottomObserver.observe(this.terminal.element);
-    container.addEventListener("scroll", () => (this.stickToBottom = isAtBottom(container)), { passive: true });
+    container.addEventListener("scroll", () => this.updateFollowOutput(), { passive: true });
   }
 
   // フォーカスしている参加者を、バーに名前で出す。自分がフォーカスしていれば枠を自分の色で強調する。
@@ -929,9 +935,56 @@ export class Pane {
     return { width: Math.max(0, width), height: Math.max(0, height) };
   }
 
-  // 枠のスクロールを一番下に保つときは、一番下までスクロールする
+  // 最新の出力を追うときは、枠を一番下までスクロールする。カーソルの行がそれより上にあれば（画面がいっぱいでないとき）、
+  // カーソルの行まで戻す
   private keepAtBottom() {
-    if (this.stickToBottom) this.container.scrollTop = this.container.scrollHeight;
+    this.updateFollowOutput();
+    if (!this.followOutput) return;
+    this.scrollFrameTo(this.container.scrollHeight);
+    this.revealCursor();
+  }
+
+  // 最新の出力を追うときに、カーソルの行が枠の外にあれば、カーソルの行が枠の一番下に来るようにスクロールする。
+  // カーソルより上に出た出力をなるべく多く見せるため、上にあるときも一番下に合わせる
+  private revealCursor() {
+    this.updateFollowOutput();
+    if (!this.followOutput) return;
+    const cursor = this.cursorInFrame();
+    if (!cursor || cursor.visible) return;
+    this.scrollFrameTo(Math.max(0, cursor.bottom - this.container.clientHeight));
+  }
+
+  // カーソルの行が、枠のスクロールで見えている範囲にあるか（visible）と、その行の下端の、枠の中身の上端からの位置。
+  // 枠からはみ出していないとき、カーソルが xterm の表示の外にあるとき（スクロールバックを見ているとき）は undefined
+  private cursorInFrame() {
+    const container = this.container;
+    if (container.scrollHeight <= container.clientHeight) return undefined;
+    const cell = cellSize(this.terminal);
+    const screen = this.terminal.element?.querySelector(".xterm-screen");
+    const { baseY, cursorY, viewportY } = this.terminal.buffer.active;
+    const row = baseY + cursorY - viewportY;
+    if (!cell || !screen || row < 0 || row >= this.terminal.rows) return undefined;
+    const origin = container.getBoundingClientRect().top + container.clientTop - container.scrollTop;
+    const top = screen.getBoundingClientRect().top - origin + row * cell.height;
+    const bottom = top + cell.height;
+    const visible = top >= container.scrollTop - 1 && bottom <= container.scrollTop + container.clientHeight + 1;
+    return { visible, bottom };
+  }
+
+  // 枠のスクロール位置が、最後に自分で動かした位置から変わっていれば（参加者のスクロール、文字を打ったときにブラウザが
+  // 入力欄を見せるスクロールなど）、その位置で最新の出力を追うかを決め直す。一番下か、カーソルの行が見えていれば追う。
+  // スクロールのイベントは次の描画の前まで届かないので、イベントより先に出力が届いたときは、ここで先に決め直す
+  private updateFollowOutput() {
+    const container = this.container;
+    if (container.scrollTop === this.frameScrolledTo) return;
+    this.frameScrolledTo = container.scrollTop;
+    this.followOutput = isAtBottom(container) || this.cursorInFrame()?.visible === true;
+  }
+
+  // 枠をスクロールする。その結果のスクロールのイベントを、参加者の操作と取り違えないよう、位置を覚えておく
+  private scrollFrameTo(top: number) {
+    this.container.scrollTop = top;
+    this.frameScrolledTo = this.container.scrollTop;
   }
 
   // 「画面に収める（縮小）」のときは、端末全体が表示領域に収まるまでフォントを小さくして描く。
