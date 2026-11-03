@@ -6,6 +6,7 @@ import { type Foreground, foregroundOf, isAgentCommand } from "./agent-detect";
 import { CommandMarks, type CommandMarksState } from "./command-marks";
 import { processCwd } from "./process-cwd";
 import { scrollback } from "./scrollback";
+import { answerQueries } from "./terminal-queries";
 import { TrimmedLines } from "./trimmed-lines";
 
 export type Size = { cols: number; rows: number };
@@ -156,6 +157,9 @@ export class TerminalSession {
       if (this.foreground?.agent) onStatus();
     });
     this.screen.loadAddon(this.serializer);
+    // 端末への問い合わせには、サーバー側の画面だけが答え、返事を PTY に 1 回だけ書く。参加者が何人いても（0 人でも）同じ。
+    // 人の入力ではないので、入力の時刻（write）としては数えない（docs/adr/231-single-query-reply.md）
+    answerQueries(this.screen, (data) => this.proc?.terminal?.write(data));
     if (restored) {
       this.size = { cols: restored.cols, rows: restored.rows };
       this.screen.resize(restored.cols, restored.rows);
