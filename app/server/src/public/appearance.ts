@@ -1,4 +1,5 @@
 import type { ITheme } from "@xterm/xterm";
+import { defaultColors } from "../terminal-queries";
 
 // ターミナルの見え方（配色、フォントの大きさ、端末が表示領域より大きいときの見せ方）。
 // 参加者ごとの設定で、このブラウザに保存する（docs/adr/36-appearance.md、docs/adr/51-largest-size.md）
@@ -12,7 +13,8 @@ const themes = {
   dark: {
     label: "暗い",
     // xterm.js の既定の配色のうち、文字色だけ少し落として、ページの文字色（#ccc）にそろえる
-    colors: { background: "#000000", foreground: "#cccccc" },
+    // 色の問い合わせ（OSC 10/11/12）には、参加者の配色によらず、この配色の色でサーバーが答える（docs/adr/231-single-query-reply.md）
+    colors: { background: defaultColors.background, foreground: defaultColors.foreground },
   },
   light: {
     label: "明るい",

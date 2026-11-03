@@ -2,6 +2,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal, type IMarker } from "@xterm/xterm";
 import { CommandMarks, type CommandMarksState, type Unavailable } from "../command-marks";
 import { scrollback } from "../scrollback";
+import { ignoreQueries } from "../terminal-queries";
 import { TrimmedLines } from "../trimmed-lines";
 import { themeColors, type Appearance } from "./appearance";
 import { writeClipboard } from "./clipboard";
@@ -351,6 +352,9 @@ export class Pane {
         this.terminal.write(new Uint8Array(event.data));
       }
     };
+    // 端末への問い合わせには、サーバー側の画面だけが答える。参加者のブラウザが答えると、返事が人数分届いて、
+    // 2 つ目以降がアプリへの入力として読まれる（docs/adr/231-single-query-reply.md）
+    ignoreQueries(this.terminal);
     this.terminal.onData((data) => this.send(data));
     // Shift+Enter は、Claude Code などが改行として扱う ESC + CR を送る（/terminal-setup が VS Code などに入れる設定と同じ）
     this.terminal.attachCustomKeyEventHandler((event) => {
