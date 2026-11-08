@@ -41,13 +41,13 @@ jobs:
           persist-credentials: false
 
       # Homebrew/actions は週 1 回ほど日付のタグ（2026.10.26.1 など）を付ける。動くコミットは actions.lock で固定する
-      - uses: Homebrew/actions/setup-homebrew@2026.10.26.1
+      - uses: Homebrew/actions/setup-homebrew@2026.11.02.1
 
       - name: コミットした formula で入れて、起動できることを確かめる
         run: .github/scripts/check-formula.sh
 
       # tarball を作るのに、mise.toml の bun を使う（formula が動かすのは、依存として入る Homebrew の bun）
-      - uses: jdx/mise-action@v5.2.4
+      - uses: jdx/mise-action@v5.2.6
 
       - name: このコミットの tarball と実行ファイルを作り、update-formula.sh のひな形の formula で入れて、起動できることを確かめる
         run: |
@@ -66,9 +66,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: Homebrew/actions/setup-homebrew@2026.10.26.1
+      - uses: Homebrew/actions/setup-homebrew@2026.11.02.1
 
-      - uses: jdx/mise-action@v5.2.4
+      - uses: jdx/mise-action@v5.2.6
 
       - name: oven-sh/bun の bun を入れる
         run: |
