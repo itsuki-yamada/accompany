@@ -76,3 +76,38 @@ test("参加者がブラウザを閉じると、その人の表示が消える",
 
   await expect(focusBadge(host, 1, "参加者 2")).toHaveCount(0);
 });
+
+// ペインのどこを押しても、ターミナルを押したのと同じく、そのターミナルにキー入力の先が移る
+test("端末の外側の空いた部分・下の帯・バーを押しても、そのターミナルにフォーカスが移る", async ({ browser }) => {
+  accompany = await startAccompany([], fakeShell);
+  const host = await openAsParticipant(browser, accompany.url);
+  await pane(host, 1).getByRole("button", { name: "右に分割" }).click();
+  await expectPaneToShow(host, 2, "Fake Shell ready");
+  // 小さい画面の参加者が 1 を見ると、端末 1 はその人に合わせて小さくなり、host のペイン 1 には端末の外側が空く
+  const context = await newContext(browser, { viewport: { width: 480, height: 320 } });
+  const guest = await context.newPage();
+  await guest.goto(accompany.url);
+  await expectPaneToShow(guest, 1, "Fake Shell ready");
+  const area = pane(host, 1).locator(".pane-terminal");
+  const terminal = pane(host, 1).locator(".xterm");
+  await expect
+    .poll(async () => ((await area.boundingBox())?.height ?? 0) - ((await terminal.boundingBox())?.height ?? 0))
+    .toBeGreaterThan(40);
+
+  const input = (n: number) => pane(host, n).locator(".xterm-helper-textarea");
+  const areaBox = (await area.boundingBox())!;
+  const footerBox = (await pane(host, 1).locator(".pane-footer").boundingBox())!;
+  const barBox = (await pane(host, 1).locator(".pane-bar").boundingBox())!;
+  const clicks = [
+    { name: "端末の外側", x: areaBox.x + areaBox.width - 10, y: areaBox.y + areaBox.height - 10 },
+    { name: "下の帯", x: footerBox.x + 10, y: footerBox.y + footerBox.height / 2 },
+    { name: "バー", x: barBox.x + barBox.width * 0.4, y: barBox.y + barBox.height / 2 },
+  ];
+  for (const { name, x, y } of clicks) {
+    await pane(host, 2).locator(".xterm-screen").click();
+    await expect(input(2), name).toBeFocused();
+    await host.mouse.click(x, y);
+    await expect(input(1), name).toBeFocused();
+    await expect(pane(host, 1), name).toHaveAttribute("data-focused", "true");
+  }
+});

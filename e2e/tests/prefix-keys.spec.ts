@@ -238,6 +238,21 @@ test("Ctrl+T のあと y で、直前のコマンドの出力をコピーする"
   await expect(pane(page, 1).getByRole("alert")).toContainText("直前のコマンドの出力をコピーしました（2 行）");
 });
 
+test("⌘⇧Y / Ctrl+Shift+Y で、直前のコマンドの出力をコピーする", async ({ browser }) => {
+  accompany = await startAccompany(promptShell);
+  const page = await openAsParticipant(browser, accompany.url, "Prompt shell ready");
+  await focusPane(page, 1);
+  await page.keyboard.type("lines 2 copied\n");
+  await expectPaneToShow(page, 1, "copied 2");
+
+  for (const key of ["Meta+Shift+Y", "Control+Shift+Y"]) {
+    await page.evaluate(() => navigator.clipboard.writeText(""));
+    await page.keyboard.press(key);
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("copied 1\ncopied 2");
+  }
+  await expect(pane(page, 1).getByRole("alert")).toContainText("直前のコマンドの出力をコピーしました（2 行）");
+});
+
 test("Ctrl+T を 2 回押すと、ターミナルに Ctrl+T（0x14）が届く", async ({ page }) => {
   accompany = await startAccompany(["--", "bun", "e2e/fixtures/key-reporter.ts"]);
   await page.goto(accompany.url);
