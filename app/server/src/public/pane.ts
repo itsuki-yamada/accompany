@@ -253,6 +253,20 @@ export class Pane {
     this.footer.className = "pane-footer";
     this.footer.append(this.copyButton);
     this.element.append(bar, this.search.element, container, this.footer, this.notice);
+    // ペインのどこを押しても（端末が表示領域より小さいときに空く外側の部分、下の帯、バー、枠）、ターミナルを押したのと
+    // 同じく、キー入力の先をこのターミナルにする。ボタン・入力欄・検索バーと、ターミナル本体（xterm が扱う）は除く
+    const ownsClick = (target: EventTarget | null) =>
+      !(target instanceof Element) ||
+      target.closest("button, input, textarea, select, a, [contenteditable], .search-bar, .xterm") !== null;
+    this.element.addEventListener("mousedown", (event) => {
+      // バーは押したままドラッグして並べ替えるので、押した時点では止めず、クリックで移す
+      if (event.button !== 0 || ownsClick(event.target) || bar.contains(event.target as Node)) return;
+      event.preventDefault();
+      this.terminal.focus();
+    });
+    bar.addEventListener("click", (event) => {
+      if (!ownsClick(event.target)) this.terminal.focus();
+    });
 
     // 検索バーを開くキーとキーボードショートカットは、xterm やブラウザ（ページ内検索など）より先に拾う
     this.element.addEventListener(
@@ -273,7 +287,7 @@ export class Pane {
         event.preventDefault();
         event.stopPropagation();
         if (shortcut === "ignore") return;
-        if (shortcut) actions.shortcut(shortcut);
+        if (shortcut) this.runShortcut(shortcut, actions);
         else this.search.open();
       },
       { capture: true },

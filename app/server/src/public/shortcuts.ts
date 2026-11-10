@@ -69,8 +69,16 @@ const bindings: Binding[] = [
   { label: "前・次のターミナルと入れ替える", prefix: "{", prefixText: "{ / }", shortcut: { type: "swap-pane", step: -1 } },
   { label: "前・次のターミナルと入れ替える", prefix: "}", prefixText: "{ / }", shortcut: { type: "swap-pane", step: 1 } },
   { label: "分割の向きを変える", prefix: " ", prefixText: "space", shortcut: { type: "rotate-split" } },
-  // tmux には既定のキーがない。tmux-yank などにならって y（yank）にする
-  { label: "直前のコマンドの出力をコピー", prefix: "y", shortcut: { type: "copy-last-output" } },
+  // tmux には既定のキーがない。tmux-yank などにならって y（yank）にする。修飾キーの方式もそろえて Y にする
+  // （C は macOS の Chrome で要素の検証（⌘⇧C）と重なる）
+  {
+    label: "直前のコマンドの出力をコピー",
+    prefix: "y",
+    code: "KeyY",
+    key: "Y",
+    repeat: false,
+    shortcut: { type: "copy-last-output" },
+  },
   { label: "ショートカットの一覧", prefix: "?", shortcut: { type: "show-shortcuts" } },
   // S は Sidebar、E は VS Code のエクスプローラーへ移るキー（⌘⇧E）にならう（docs/adr/72-sidebar.md）
   { label: "サイドメニューを出す・隠す", code: "KeyS", key: "S", repeat: false, shortcut: { type: "toggle-sidebar" } },
