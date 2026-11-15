@@ -6,11 +6,11 @@ workflows:
     '.github/workflows/e2e.yml':
         - 'actions/checkout@v7.0.1'
         - 'actions/upload-artifact@v7.0.2'
-        - 'jdx/mise-action@v5.2.4'
+        - 'jdx/mise-action@v5.2.6'
     '.github/workflows/formula.yml':
         - 'actions/checkout@v7.0.1'
-        - 'homebrew/actions@2026.10.26.1'
-        - 'jdx/mise-action@v5.2.4'
+        - 'homebrew/actions@2026.11.02.1'
+        - 'jdx/mise-action@v5.2.6'
     '.github/workflows/release.yml':
         - 'actions/attest-build-provenance@v4.2.2'
         - 'actions/checkout@v7.0.1'
@@ -51,13 +51,13 @@ dependencies:
         commit: 'sha1-cf430e030ddbb5b0abf93d22962f4752f3646cd9'
         owner_id: 44036562
         repo_id: 192625955
-    'homebrew/actions@2026.10.26.1':
-        ref: '2026.10.26.1'
-        commit: 'sha1-d482da0e602890d3160aade42e72c8556103bf04'
+    'homebrew/actions@2026.11.02.1':
+        ref: '2026.11.02.1'
+        commit: 'sha1-c262868c096d909fc278daa87ed9772967331ea3'
         owner_id: 1503512
         repo_id: 202511568
-    'jdx/mise-action@v5.2.4':
-        ref: 'v5.2.4'
-        commit: 'sha1-6be3c7ed4c21d4f76b208d351d95aac273ebb76d'
+    'jdx/mise-action@v5.2.6':
+        ref: 'v5.2.6'
+        commit: 'sha1-f5be966e4a917d54244728e6a5fdcd1d93a35e6c'
         owner_id: 216188
         repo_id: 738284564
