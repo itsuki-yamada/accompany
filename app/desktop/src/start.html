@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; img-src 'self'" />
+    <title>Accompany</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #000;
+        --fg: #ccc;
+        --muted: #888;
+        --line: #333;
+        --panel: #111;
+        --accent: #64ffda;
+        --error: #ff8a80;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, sans-serif;
+      }
+      main {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 48px 16px;
+        display: grid;
+        gap: 24px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 24px;
+        font-weight: 600;
+      }
+      section {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 20px;
+        display: grid;
+        gap: 12px;
+      }
+      h2 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+      button,
+      input {
+        font: inherit;
+        font-size: 14px;
+        color: inherit;
+        border-radius: 6px;
+      }
+      button {
+        background: #1d1d1d;
+        border: 1px solid var(--line);
+        padding: 8px 14px;
+        cursor: pointer;
+        text-align: left;
+      }
+      button:hover:not(:disabled) {
+        border-color: var(--accent);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      button.primary {
+        justify-self: start;
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      input {
+        background: var(--bg);
+        border: 1px solid var(--line);
+        padding: 8px 10px;
+        min-width: 0;
+      }
+      form {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+      }
+      .host-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+      }
+      .port {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .port input {
+        width: 7em;
+      }
+      .recent {
+        display: grid;
+        gap: 6px;
+      }
+      .recent:empty {
+        display: none;
+      }
+      .recent button {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      #status {
+        white-space: pre-wrap;
+        font-size: 13px;
+        margin: 0;
+      }
+      #status.error {
+        color: var(--error);
+      }
+    </style>
+    <script type="module" src="start.js"></script>
+  </head>
+  <body>
+    <main>
+      <h1>Accompany</h1>
+      <section>
+        <h2>このマシンで始める（ホスト）</h2>
+        <p>選んだフォルダーで Accompany を起動して開きます。ゲストには、Live Share の「サーバーの共有」でポートを渡してください。</p>
+        <div class="host-row">
+          <button id="choose" class="primary" type="button">フォルダーを選んで始める…</button>
+          <label class="port">ポート <input id="port" type="number" min="1" max="65535" placeholder="3000" /></label>
+        </div>
+        <p>ポートが空欄なら 3000。使われていたら、空いているポートまで上げます。起動したポートはウィンドウのタイトルに出ます。</p>
+        <div id="recent-folders" class="recent"></div>
+      </section>
+      <section>
+        <h2>参加する（ゲスト）</h2>
+        <p>ホストから共有された Accompany の URL を開きます。</p>
+        <form id="guest">
+          <input id="url" type="url" placeholder="http://localhost:3000" required />
+          <button type="submit">開く</button>
+        </form>
+        <div id="recent-urls" class="recent"></div>
+      </section>
+      <pre id="status" role="status"></pre>
+    </main>
+  </body>
+</html>

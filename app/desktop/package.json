@@ -1,0 +1,21 @@
+{
+  "name": "accompany-desktop",
+  "productName": "Accompany",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "description": "Accompany をブラウザではなく専用のウィンドウで開くデスクトップアプリ（試作）",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "rm -rf dist && bun build src/main.ts --outfile dist/main.cjs --target node --format cjs --external electron && bun build src/preload.ts --outfile dist/preload.cjs --target node --format cjs --external electron && bun build src/start.ts --outfile dist/start.js --target browser && cp src/start.html dist/start.html && cp ../server/src/public/apple-touch-icon.png dist/icon.png",
+    "build:server": "cd ../server && bun run build",
+    "start": "bun run build:server && bun run build && electron .",
+    "package": "bun run build:server && bun run build && bunx @electron/packager@20.3.0 . Accompany --platform darwin --arch arm64 --out out --overwrite --app-bundle-id io.github.itsuki-yamada.accompany --extra-resource ../server/dist --ignore '^/(src|out)($|/)' && codesign --force --deep --sign - out/Accompany-darwin-arm64/Accompany.app"
+  },
+  "devDependencies": {
+    "electron": "45.2.2"
+  },
+  "trustedDependencies": [
+    "electron"
+  ]
+}
