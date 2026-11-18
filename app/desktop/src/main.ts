@@ -354,9 +354,21 @@ function isLoopback(url: string) {
   }
 }
 
+// このアプリが起動したサーバーのページか（ホストのウィンドウと、その試しのゲスト）
+function fromOwnServer(state: WindowState) {
+  const hostState = state.trialGuestOf === undefined ? state : states.get(state.trialGuestOf);
+  return hostState?.server !== undefined;
+}
+
 function allowed(contents: WebContents | null, permission: string, url: string) {
   if (!contents || !allowedPermissions.has(permission) || !isLoopback(url)) return false;
-  return sameOrigin(url, states.get(contents.id)?.origin);
+  const state = states.get(contents.id);
+  if (!state || !sameOrigin(url, state.origin)) return false;
+  // クリップボードの読み取りは、自分が起動したサーバーのページにだけ許す。ゲストで開いたページは、
+  // ほかのマシン（Live Share のホスト）から来るので、こちらのクリップボードを読ませない。
+  // 読めないときは、Accompany がキーボードでのペースト（⌘V）を案内する（pane.ts の paste）
+  if (permission === "clipboard-read") return fromOwnServer(state);
+  return true;
 }
 
 // ブラウザが予約していてページに届かなかったキー（⌘W・⌘T・⌘N・⌘R など）を、メニューで奪わずにページへ渡す。
